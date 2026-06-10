@@ -1704,15 +1704,53 @@ function disassegnaFab(id){const f=STATE.fabbisogni.find(x=>x.ID===id);if(!f)ret
 }
 function assegnaFab(id){
   const f=STATE.fabbisogni.find(x=>x.ID===id); if(!f)return;
-  const fn=f.Tipo==='articolo'?'assegnaArticoloCommessa':'assegnaPezziCommessa';
-  const args=f.Tipo==='articolo'?{artId:f.ArticoloID,commessa:f.Commessa,quantita:f.Quantita}:{tipo:f.Tipo,artId:f.ArticoloID,commessa:f.Commessa,numPezzi:f.NumPezzi};
-  call(fn,args).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
-    const dao=+r.daOrdinare||0; const nuovoStato=dao>0?'da_ordinare':'assegnato';
-    call("aggiornaStatoFabbisogno",{id:id,stato:nuovoStato}).then(()=>{
-      Promise.all([call("getFabbisogno"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([fb,a,p,m])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];
-        toast(dao>0?("Assegnato il disponibile; restano "+dao+" da ordinare"):"Materiale assegnato alla commessa");renderPage(STATE.pagina);});
+  // Articoli: assegnazione per quantita (come prima)
+  if(f.Tipo==='articolo'){
+    call("assegnaArticoloCommessa",{artId:f.ArticoloID,commessa:f.Commessa,quantita:f.Quantita}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
+      const dao=+r.daOrdinare||0; const nuovoStato=dao>0?'da_ordinare':'assegnato';
+      call("aggiornaStatoFabbisogno",{id:id,stato:nuovoStato}).then(()=>{
+        Promise.all([call("getFabbisogno"),call("getArticoli"),call("getRiserve")]).then(([fb,a,ri])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.riserve=ri||[];
+          toast(dao>0?("Assegnato il disponibile; restano "+dao+" da ordinare"):"Materiale assegnato alla commessa");renderPage(STATE.pagina);});
+      });
     });
-  });
+    return;
+  }
+  // Pannelli/Massicci: scegli i codici specifici da assegnare
+  apriSceltaCodici(id);
+}
+// Finestra: scegli quali codici (pannelli/massicci liberi) assegnare alla commessa del fabbisogno
+function apriSceltaCodici(fabId){
+  const f=STATE.fabbisogni.find(x=>x.ID===fabId); if(!f)return;
+  const lista=(f.Tipo==='pannello'?STATE.pannelli:STATE.massicci)
+    .filter(p=>p.ArticoloID===f.ArticoloID && !String(p.Commesse||'').trim() && (+(f.Tipo==='pannello'?p.M2_residuo:p.M3_residuo)||0)>0);
+  const need=parseInt(f.NumPezzi)||lista.length;
+  if(!lista.length){toast("Nessun codice libero di questo tipo. Va ordinato.","err");return;}
+  const righe=lista.map(p=>{
+    const dim=f.Tipo==='pannello'?((p.Larghezza_mm||'')+'x'+(p.Altezza_mm||'')+'mm'):((p.Lunghezza_mm||'')+'x'+(p.Larghezza_mm||'')+'x'+(p.Spessore_mm||'')+'mm');
+    const res=f.Tipo==='pannello'?((+p.M2_residuo||0).toFixed(3)+' m2'):((+p.M3_residuo||0).toFixed(4)+' m3');
+    return '<label style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border);cursor:pointer"><input type="checkbox" class="sc-chk" value="'+esc(p.ID)+'" style="width:18px;height:18px;accent-color:var(--accent)"><span style="flex:1"><strong>'+p.ID+'</strong> <span style="color:var(--gray);font-size:12px">'+dim+' - '+res+(p.Note?(' - '+p.Note):'')+'</span></span></label>';
+  }).join("");
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Scegli i codici da assegnare</h2>'
+    +'<div class="info-box">Commessa <strong>'+f.Commessa+'</strong> - servono <strong>'+need+'</strong> pezzi di "'+f.Descrizione+'". Seleziona quali codici destinare.</div>'
+    +'<div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:11px;padding:4px 10px">'+righe+'</div>'
+    +'<div id="sc-err" style="color:var(--red);font-size:13px;margin-top:8px"></div>'
+    +'<button class="btn-primary" onclick="confermaSceltaCodici(\''+esc(fabId)+'\')">Assegna i selezionati</button></div>');
+}
+function confermaSceltaCodici(fabId){
+  const f=STATE.fabbisogni.find(x=>x.ID===fabId); if(!f)return;
+  const ids=Array.prototype.slice.call(document.querySelectorAll(".sc-chk:checked")).map(c=>c.value);
+  if(!ids.length){document.getElementById("sc-err").textContent="Seleziona almeno un codice.";return;}
+  toast("Assegnazione in corso...");
+  // Assegna ogni pezzo scelto alla commessa
+  Promise.all(ids.map(pid=>call("assegnaPezzoSingolo",{tipo:f.Tipo,id:pid,commessa:f.Commessa})))
+    .then(()=>{
+      const need=parseInt(f.NumPezzi)||ids.length;
+      const nuovoStato=ids.length>=need?'assegnato':'da_ordinare';
+      call("aggiornaStatoFabbisogno",{id:fabId,stato:nuovoStato}).then(()=>{
+        Promise.all([call("getFabbisogno"),call("getPannelli"),call("getMassicci")]).then(([fb,p,m])=>{STATE.fabbisogni=fb||[];STATE.pannelli=p||[];STATE.massicci=m||[];
+          closeModal();toast("Assegnati "+ids.length+" codici alla commessa"+(ids.length<need?(" (restano "+(need-ids.length)+" da ordinare)"):""));renderPage(STATE.pagina);});
+      });
+    });
 }
 function inviaOrdComm(forn){
   const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&((f.Fornitore||'(senza fornitore)')===forn));
