@@ -783,7 +783,11 @@ async function call(fn, args) {
         await sbPatch("commesse", "id=eq." + encodeURIComponent(d.ID), { nome: d.Nome, cliente: d.Cliente, stato: d.Stato, note: d.Note });
         return { ok: true, id: d.ID };
       } else {
-        const id = newId("C-");
+        // Il codice/nome digitato diventa l'ID della commessa (es. "C2026.002.01")
+        const id = (d.Nome || "").trim() || newId("C-");
+        // Evita duplicati
+        const esiste = await sbGet("commesse", "select=id&id=eq." + encodeURIComponent(id));
+        if (esiste.length) return { ok: false, err: "Esiste già una commessa con questo codice." };
         await sbPost("commesse", { id, nome: d.Nome, cliente: d.Cliente || "", data_apertura: new Date().toISOString().slice(0,10), stato: d.Stato || "aperta", note: d.Note || "" });
         return { ok: true, id };
       }
@@ -2067,7 +2071,7 @@ function optCommesse(sel){return '<option value="">- Nessuna -</option>'+STATE.c
 function onCommessaChange(id){if(document.getElementById(id).value==="__new__"){document.getElementById(id).value="";openNuovaCommessa();}}
 function openNuovaCommessa(){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova commessa</h2><div class="form-group"><label>Codice / Nome *</label><input id="nc-nome" placeholder="es. C2025-005 Villa Rossi"></div><div class="form-group"><label>Cliente</label><input id="nc-cli" placeholder="es. Mario Rossi"></div><div id="nc-err"></div><button class="btn-primary" onclick="submitNuovaCommessa()">Crea commessa</button></div>');}
 function submitNuovaCommessa(){const n=document.getElementById("nc-nome").value.trim();if(!n){showErr("nc-err","Inserisci il codice/nome.");return;}
-  call("salvaCommessa",{Nome:n,Cliente:document.getElementById("nc-cli").value.trim()}).then(r=>{if(!r.ok){showErr("nc-err",r.err||"Errore.");return;}STATE.commesse.push({ID:r.id,Nome:n,Stato:"aperta"});closeModal();toast("Commessa creata: "+n);});}
+  call("salvaCommessa",{Nome:n,Cliente:document.getElementById("nc-cli").value.trim()}).then(r=>{if(!r.ok){showErr("nc-err",r.err||"Errore.");return;}call("getCommesse").then(c=>{STATE.commesse=c||[];if(typeof FAB_COMM!=='undefined')FAB_COMM=r.id;closeModal();toast("Commessa creata: "+n);renderPage(STATE.pagina);});});}
 
 // -- MOVIMENTO ARTICOLO --
 function openMovimento(artId,tipo){
