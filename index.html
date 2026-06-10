@@ -193,6 +193,7 @@
     <div class="sidebar-header" style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
       <img id="side-logo" alt="Atelier Tonini" style="height:30px">
       <small id="sidebar-utente">Caricamento...</small>
+      <small id="logout-link" onclick="doLogout()" style="display:block;margin-top:3px;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:11px">Esci</small>
     </div>
     <nav id="sidebar-nav">
       <a class="active" data-page="dashboard"><span class="nav-dot"></span>Dashboard</a>
@@ -260,7 +261,10 @@ function pdfHead(sub,right){return '<div style="display:flex;justify-content:spa
 
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("nav a").forEach(a => a.addEventListener("click", e => { e.preventDefault(); if(a.dataset.page) navTo(a.dataset.page); }));
-  const savedLogin = sessionStorage.getItem("at_utente");
+  // URL dell'app (per generare i QR) e lettura del parametro ?qr=...
+  APP_URL = window.location.origin + window.location.pathname;
+  try { const params = new URLSearchParams(window.location.search); const q = params.get("qr"); if (q) QR_TARGET = q; } catch(e){}
+  const savedLogin = localStorage.getItem("at_utente");
   if (savedLogin) { try { UTENTE_CORRENTE = JSON.parse(savedLogin); } catch(e){} }
   loadAll();
 });
@@ -555,7 +559,11 @@ async function call(fn, args) {
         await sbPatch("articoli", "id=eq." + encodeURIComponent(d.ID), row);
         return { ok: true, id: d.ID };
       } else {
-        const id = newId("ART-");
+        // Genera ID progressivo ART-NNNN
+        const tutti = await sbGet("articoli", "select=id");
+        let mx = 0;
+        tutti.forEach(a => { const m = String(a.id || "").match(/^ART-(\d+)$/); if (m) { const n = parseInt(m[1], 10) || 0; if (n > mx) mx = n; } });
+        const id = "ART-" + String(mx + 1).padStart(4, "0");
         await sbPost("articoli", { ...row, id });
         return { ok: true, id };
       }
@@ -1113,14 +1121,19 @@ async function doLogin(){
     if(u.password!==pwd){err.textContent="Password errata.";return;}
     if(!u.attivo){err.textContent="Account disabilitato.";return;}
     UTENTE_CORRENTE={Email:u.email,Nome:u.nome||u.email,Ruolo:u.ruolo||"operator",autorizzato:true};
-    sessionStorage.setItem("at_utente",JSON.stringify(UTENTE_CORRENTE));
+    localStorage.setItem("at_utente",JSON.stringify(UTENTE_CORRENTE));
     document.querySelector("aside").style.display="";
     document.querySelector(".mobile-nav").style.display="";
     document.querySelector(".fab").style.display="";
     loadAll();
   } catch(e){err.textContent="Errore: "+e.message;}
 }
-
+function doLogout(){
+  if(!confirm("Vuoi uscire dall'app? Dovrai reinserire la password al prossimo accesso."))return;
+  try{localStorage.removeItem("at_utente");}catch(e){}
+  UTENTE_CORRENTE=null;
+  location.reload();
+}
 // Aggiorna: ricarica i dati dal foglio senza cambiare pagina.
 // Reload completo della pagina con doppio click o pressione prolungata (utile dopo una nuova pubblicazione).
 let _refreshTimer=null;
@@ -1415,7 +1428,7 @@ function cardArticolo(a){const s=+a.Stock<=+a.SogliaRiordino;const sog=+a.Soglia
 function articoliCont(q,cat){
   let list=STATE.articoli.filter(a=>a.Categoria!=='Pannelli'&&a.Categoria!=='Massello'&&a.IsPannello!=='SI');
   if(cat)list=list.filter(a=>a.Categoria===cat);
-  if(q){const s=q.toLowerCase();list=list.filter(a=>(a.Nome||"").toLowerCase().indexOf(s)>=0||(a.ID||"").toLowerCase().indexOf(s)>=0||(a.Fornitore||"").toLowerCase().indexOf(s)>=0);}
+  if(q){const s=q.toLowerCase();list=list.filter(a=>(a.Nome||"").toLowerCase().indexOf(s)>=0||(a.ID||"").toLowerCase().indexOf(s)>=0||(a.Fornitore||"").toLowerCase().indexOf(s)>=0||(a.CodiceFornitore||"").toLowerCase().indexOf(s)>=0||(a.Note||"").toLowerCase().indexOf(s)>=0);}
   if(!list.length)return '<div class="card" style="color:var(--gray)">Nessun articolo.</div>';
   if(ART_VIEW==='griglia'){const ord=list.slice().sort((a,b)=>String(a.Nome).localeCompare(String(b.Nome)));return '<div class="piece-grid">'+ord.map(cardArticolo).join("")+'</div>';}
   const g={}; list.forEach(a=>{(g[a.Categoria||'Altro']=g[a.Categoria||'Altro']||[]).push(a);});
@@ -1444,7 +1457,7 @@ function cardPannello(p){const pct=+p.Residuale_pct||0,c=colorPct(pct),iu=imgUrl
 }
 function pannelliCont(filtro){
   let list=STATE.pannelli;
-  if(filtro){const q=filtro.toLowerCase();list=list.filter(p=>{const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);return (p.ID+' '+(art?art.Nome:'')+' '+p.ArticoloID).toLowerCase().indexOf(q)>=0;});}
+  if(filtro){const q=filtro.toLowerCase();list=list.filter(p=>{const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);return (p.ID+' '+(art?art.Nome:'')+' '+p.ArticoloID+' '+(p.Fornitore||'')+' '+(p.Note||'')).toLowerCase().indexOf(q)>=0;});}
   if(!list.length)return '<div class="card" style="color:var(--gray)">Nessun pannello.</div>';
   if(PANN_VIEW==='griglia'){const ord=list.slice().sort((a,b)=>String(a.ID).localeCompare(String(b.ID)));return '<div class="piece-grid">'+ord.map(cardPannello).join("")+'</div>';}
   const g={}; list.forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
@@ -2387,7 +2400,7 @@ function openDettaglio(tipo,id){
   if(tipo==='articolo'){
     const a=STATE.articoli.find(x=>x.ID===id);if(!a)return;const s=+a.Stock<=+a.SogliaRiordino;
     head='<div class="det-tag">Articolo</div><h2 style="margin-bottom:14px">'+a.Nome+'</h2>'+imgBlock(a.ID);
-    rows=dr("Codice",a.ID)+dr("Categoria",a.Categoria)+dr("Stock attuale",'<span style="'+(s?'color:var(--red)':'')+'">'+a.Stock+' '+a.UnitaMisura+'</span>')+(impegnatoArt(a)>0?'<div class="det-row" style="cursor:pointer" onclick="openDestinati(\''+esc(a.ID)+'\',\'articolo\')"><span>Destinati a commesse</span><span style="color:var(--accent);text-decoration:underline">'+impegnatoArt(a)+' '+a.UnitaMisura+' &rsaquo;</span></div>':'')+dr("Soglia",a.SogliaRiordino+' '+a.UnitaMisura+' ('+a.TipoRiordino+')')+dr("Fornitore",(a.Fornitore||'-')+(a.CodiceFornitore?' - '+a.CodiceFornitore:''));
+    rows=dr("Codice",a.ID)+dr("Categoria",a.Categoria)+dr("Stock attuale",'<span style="'+(s?'color:var(--red)':'')+'">'+a.Stock+' '+a.UnitaMisura+'</span>')+(impegnatoArt(a)>0?'<div class="det-row" style="cursor:pointer" onclick="openDestinati(\''+esc(a.ID)+'\',\'articolo\')"><span>Destinati a commesse</span><span style="color:var(--accent);text-decoration:underline">'+impegnatoArt(a)+' '+a.UnitaMisura+' &rsaquo;</span></div>':'')+dr("Soglia",a.SogliaRiordino+' '+a.UnitaMisura+' ('+a.TipoRiordino+')')+dr("Fornitore",(a.Fornitore||'-')+(a.CodiceFornitore?' - '+a.CodiceFornitore:''))+(a.Note?dr("Note",a.Note):'');
     btns='<button class="det-btn" style="background:var(--green-light);color:var(--green)" onclick="closeModal();openMovimento(\''+esc(a.ID)+'\',\'carico\')">Carico</button><button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openMovimento(\''+esc(a.ID)+'\',\'scarico\')">Scarico</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaArticolo(\''+esc(a.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'articolo\',\''+esc(a.ID)+'\')">Assegna a commessa</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'articolo\',\''+esc(a.ID)+'\')">Elimina elemento</button>';
     hist=histRows(m=>m.ArticoloID===id&&!m.PezzoID);
   } else if(tipo==='pannello'){
