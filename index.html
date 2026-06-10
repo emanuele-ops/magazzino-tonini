@@ -2161,18 +2161,49 @@ function openMovimento(artId,tipo){
     +'<div id="stk" class="info-box" style="'+(art?'':'display:none')+'">Stock attuale: <strong id="stk-v">'+(art?art.Stock+' '+art.UnitaMisura:'')+'</strong></div>'
     +'<div class="form-group"><label>Quantita *</label><input type="number" id="mov-qty" min="0.001" step="any" placeholder="0"></div>'
     +'<div class="form-group" id="forn-wrap" style="'+(tipo==='carico'?'':'display:none')+'"><label>Fornitore</label><input id="mov-forn" value="'+(art?(art.Fornitore||''):'')+'" placeholder="es. Saviola"></div>'
-    +'<div class="form-group"><label>Commessa</label><select id="mov-comm" onchange="onCommessaChange(\'mov-comm\')">'+optCommesse()+'</select></div>'
+    +'<div class="form-group"><label>Commessa</label><select id="mov-comm" onchange="onCommessaChange(\'mov-comm\');aggiornaDestinazione()">'+optCommesse()+'</select></div>'
+    +'<div class="form-group" id="dest-wrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="mov-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note</label><input id="mov-note" placeholder="Opzionale..."></div>'
     +'<div id="mov-err"></div><button class="btn-primary" onclick="submitMov()">Conferma</button></div>');
 }
-function setTipo(t){document.getElementById("mov-tipo").value=t;document.getElementById("t-c").className=t==='carico'?'on-green':'';document.getElementById("t-s").className=t==='scarico'?'on-red':'';document.getElementById("forn-wrap").style.display=t==='carico'?'block':'none';}
+// Mostra il selettore destinazione solo se: carico + commessa scelta
+function aggiornaDestinazione(){
+  const t=document.getElementById("mov-tipo").value;
+  const c=document.getElementById("mov-comm").value;
+  const w=document.getElementById("dest-wrap");
+  if(w)w.style.display=(t==='carico'&&c)?'block':'none';
+}
+function setTipo(t){document.getElementById("mov-tipo").value=t;document.getElementById("t-c").className=t==='carico'?'on-green':'';document.getElementById("t-s").className=t==='scarico'?'on-red':'';document.getElementById("forn-wrap").style.display=t==='carico'?'block':'none';aggiornaDestinazione();}
 function updStock(){const a=STATE.articoli.find(x=>x.ID===comboVal('mov'));const b=document.getElementById("stk");if(a){b.style.display="block";document.getElementById("stk-v").textContent=a.Stock+" "+a.UnitaMisura;const f=document.getElementById("mov-forn");if(f&&!f.value)f.value=a.Fornitore||"";}else b.style.display="none";}
 function submitMov(){
   const id=comboVal('mov'),t=document.getElementById("mov-tipo").value,q=parseFloat(document.getElementById("mov-qty").value),c=document.getElementById("mov-comm").value,n=document.getElementById("mov-note").value;
   const forn=t==='carico'?document.getElementById("mov-forn").value:"";
+  const dest=(document.getElementById("mov-dest")||{}).value||"destina";
   if(!id||!q||q<=0){showErr("mov-err","Compila articolo e quantita.");return;}
   const a=STATE.articoli.find(x=>x.ID===id);
   if(t==="scarico"&&q>+a.Stock){showErr("mov-err","Stock insufficiente. Disponibile: "+a.Stock+" "+a.UnitaMisura);return;}
+  // CARICO con commessa + "scarica subito": carico e poi scarico immediato nella commessa
+  if(t==='carico'&&c&&dest==='scarica'){
+    call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn}).then(r1=>{
+      if(!r1.ok){showErr("mov-err",r1.err);return;}
+      call("registraMovimento",{ArticoloID:id,Tipo:"scarico",Quantita:q,Commessa:c,Note:n||("Consumo diretto commessa "+c)}).then(r2=>{
+        if(!r2.ok){showErr("mov-err",r2.err);return;}
+        refreshDopoMov();toast("Caricato e scaricato subito nella commessa "+c);
+      });
+    });
+    return;
+  }
+  // CARICO con commessa + "destina": carico normale + riserva alla commessa
+  if(t==='carico'&&c&&dest==='destina'){
+    call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn}).then(r1=>{
+      if(!r1.ok){showErr("mov-err",r1.err);return;}
+      call("assegnaArticoloSingolo",{artId:id,commessa:c,quantita:q}).then(()=>{
+        refreshDopoMov();toast("Caricato e destinato alla commessa "+c);
+      });
+    });
+    return;
+  }
+  // Caso normale (solo carico senza commessa, o scarico)
   call("registraMovimento",{ArticoloID:id,Tipo:t,Quantita:q,Commessa:c,Note:n,Fornitore:forn}).then(r=>{
     if(!r.ok){showErr("mov-err",r.err);return;}
     STATE.articoli=STATE.articoli.map(x=>x.ID===id?Object.assign({},x,{Stock:r.nuovoStock}):x);
@@ -2180,6 +2211,9 @@ function submitMov(){
     closeModal();toast((t==='carico'?'Carico':'Scarico')+" registrato");renderPage(STATE.pagina);
     if(t==='scarico'&&c)setTimeout(function(){call("getRiserve").then(rs=>{const r2=(rs||[]).find(x=>x.ArticoloID===id&&x.Commessa===c);if(r2&&r2.Quantita>0)promptRiserva(id,c,r2.Quantita,a.UnitaMisura);});},300);
   });
+}
+function refreshDopoMov(){
+  Promise.all([call("getArticoli"),call("getMovimenti"),call("getRiserve")]).then(([a,m,ri])=>{STATE.articoli=a||[];STATE.movimenti=m||[];STATE.riserve=ri||[];closeModal();renderPage(STATE.pagina);});
 }
 function promptRiserva(artId,commessa,q,unita){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Riserva residua</h2>'
@@ -2221,9 +2255,12 @@ function openCaricoPannelli(){
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm *</label><input type="number" id="cp-w" placeholder="2800" oninput="cpPrev()"></div><div class="form-group"><label>Altezza mm *</label><input type="number" id="cp-h" placeholder="2070" oninput="cpPrev()"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>N. pannelli *</label><input type="number" id="cp-q" min="1" placeholder="10" oninput="cpPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cp-f" value="'+next+'" oninput="cpPrev()"></div></div>'
     +'<div class="form-group"><label>Fornitore</label><input id="cp-forn" placeholder="es. Saviola"></div>'
+    +'<div class="form-group"><label>Commessa (opzionale)</label><select id="cp-comm" onchange="cpDestChange()">'+optCommesse()+'</select></div>'
+    +'<div class="form-group" id="cp-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="cp-dest"><option value="destina">Destina alla commessa (i pannelli restano a magazzino, riservati)</option><option value="scarica">Scarica subito nella commessa (consumati ora)</option></select></div>'
     +'<div class="form-group"><label>Note (sempre visibili sul pannello)</label><input id="cp-note" placeholder="es. avanzo cantiere, difetto angolo..."></div>'
     +'<div id="cp-prev" class="info-box" style="display:none"></div><div id="cp-err"></div><button class="btn-primary" onclick="submitCP()">Carica pannelli</button></div>');
 }
+function cpDestChange(){const c=document.getElementById("cp-comm").value;const w=document.getElementById("cp-destwrap");if(w)w.style.display=c?'block':'none';}
 function cpTipoChange(){const v=document.getElementById("cp-tipo").value;const w=document.getElementById("cp-newwrap");w.style.display=v==="__new__"?"block":"none";const a=STATE.articoli.find(x=>x.ID===v);const f=document.getElementById("cp-forn");if(a&&!f.value)f.value=a.Fornitore||"";}
 function cpPrev(){const w=+document.getElementById("cp-w").value,h=+document.getElementById("cp-h").value,q=+document.getElementById("cp-q").value,f=+document.getElementById("cp-f").value,p=document.getElementById("cp-prev");
   if(w&&h&&q&&f){p.style.display="block";p.innerHTML='Crea P'+String(f).padStart(4,"0")+' - P'+String(f+q-1).padStart(4,"0")+' ('+((w/1000)*(h/1000)*q).toFixed(2)+' m2 totali)';}else p.style.display="none";}
@@ -2236,6 +2273,19 @@ function submitCP(){
   if(!w||!h||!q||!f){showErr("cp-err","Compila dimensioni, quantita e primo ID.");return;}
   call("caricaPannelli",d).then(r=>{
     if(!r.ok){showErr("cp-err",r.err||"Errore.");return;}
+    const c=document.getElementById("cp-comm").value;
+    const dest=(document.getElementById("cp-dest")||{}).value||"destina";
+    const ids=r.ids||[];
+    if(c&&ids.length){
+      // Destina o scarica i pannelli appena creati
+      const azione=dest==='scarica'
+        ? ids.map(pid=>call("scaricaPannelloTotale",{PannelloID:pid,Commessa:c,Note:"Consumo diretto commessa "+c}))
+        : ids.map(pid=>call("assegnaPezzoSingolo",{tipo:"pannello",id:pid,commessa:c}));
+      Promise.all(azione).then(()=>{
+        Promise.all([call("getPannelli"),call("getMovimenti")]).then(([pn,mv])=>{STATE.pannelli=pn||[];STATE.movimenti=mv||[];closeModal();toast(dest==='scarica'?("Caricati e scaricati "+ids.length+" pannelli nella commessa "+c):("Caricati "+ids.length+" pannelli destinati a "+c));renderPage(STATE.pagina);});
+      });
+      return;
+    }
     closeModal();toast("Caricati "+q+" pannelli - "+r.totM2+" m2");
     Promise.all([call("getPannelli"),call("getArticoli")]).then(([pn,ar])=>{STATE.pannelli=pn||[];STATE.articoli=ar||[];renderPage(STATE.pagina);});
   });
@@ -2280,9 +2330,12 @@ function openCaricoMassiccio(){
     +'<div id="cm-misure"><div class="form-row-3"><div class="form-group"><label>Lungh. mm *</label><input type="number" id="cm-l" placeholder="2500" oninput="cmPrev()"></div><div class="form-group"><label>Largh. mm *</label><input type="number" id="cm-w" placeholder="200" oninput="cmPrev()"></div><div class="form-group"><label>Spess. mm *</label><input type="number" id="cm-s" placeholder="50" oninput="cmPrev()"></div></div><div class="form-row"><div class="form-group"><label>N. pezzi *</label><input type="number" id="cm-q" min="1" value="1" oninput="cmPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cm-f" value="'+next+'" oninput="cmPrev()"></div></div></div>'
     +'<div id="cm-totale" style="display:none"><div class="form-row"><div class="form-group"><label>m3 totali *</label><input type="number" step="any" id="cm-m3" placeholder="0.025" oninput="cmPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cm-f2" value="'+next+'"></div></div></div>'
     +'<div class="form-group"><label>Fornitore</label><input id="cm-forn" placeholder="es. Falegnameria X"></div>'
+    +'<div class="form-group"><label>Commessa (opzionale)</label><select id="cm-comm" onchange="cmDestChange()">'+optCommesse()+'</select></div>'
+    +'<div class="form-group" id="cm-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="cm-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note (sempre visibili sul massiccio)</label><input id="cm-note" placeholder="es. nodo, fessura..."></div>'
     +'<div id="cm-prev" class="info-box" style="display:none"></div><div id="cm-err"></div><button class="btn-primary" onclick="submitCM()">Carica massiccio</button></div>');
 }
+function cmDestChange(){const c=document.getElementById("cm-comm").value;const w=document.getElementById("cm-destwrap");if(w)w.style.display=c?'block':'none';}
 function cmTipoChange(){const v=document.getElementById("cm-tipo").value;document.getElementById("cm-newwrap").style.display=v==="__new__"?"block":"none";const a=STATE.articoli.find(x=>x.ID===v);const f=document.getElementById("cm-forn");if(a&&!f.value)f.value=a.Fornitore||"";}
 function cmModo(m){document.getElementById("cm-modo").value=m;document.getElementById("cm-tm").className=m==='misure'?'on-accent':'';document.getElementById("cm-tt").className=m==='totale'?'on-accent':'';document.getElementById("cm-misure").style.display=m==='misure'?'block':'none';document.getElementById("cm-totale").style.display=m==='totale'?'block':'none';cmPrev();}
 function cmPrev(){const p=document.getElementById("cm-prev");if(document.getElementById("cm-modo").value==='misure'){const l=+document.getElementById("cm-l").value,w=+document.getElementById("cm-w").value,s=+document.getElementById("cm-s").value,q=+document.getElementById("cm-q").value;if(l&&w&&s&&q){const m3=(l/1000)*(w/1000)*(s/1000);p.style.display="block";p.innerHTML='Ogni pezzo <strong>'+m3.toFixed(5)+' m3</strong> - totale <strong>'+(m3*q).toFixed(5)+' m3</strong>';}else p.style.display="none";}else{const m=+document.getElementById("cm-m3").value;if(m){p.style.display="block";p.innerHTML='Lotto da <strong>'+m.toFixed(5)+' m3</strong>';}else p.style.display="none";}}
@@ -2295,6 +2348,18 @@ function submitCM(){
   if(modo==='misure'){d.Lunghezza_mm=document.getElementById("cm-l").value;d.Larghezza_mm=document.getElementById("cm-w").value;d.Spessore_mm=document.getElementById("cm-s").value;d.Quantita=document.getElementById("cm-q").value;d.PrimoID=document.getElementById("cm-f").value;if(!d.Lunghezza_mm||!d.Larghezza_mm||!d.Spessore_mm||!d.Quantita){showErr("cm-err","Compila misure e quantita.");return;}}
   else{d.M3totale=document.getElementById("cm-m3").value;d.PrimoID=document.getElementById("cm-f2").value;if(!d.M3totale){showErr("cm-err","Inserisci i m3 totali.");return;}}
   call("caricaMassicci",d).then(r=>{if(!r.ok){showErr("cm-err",r.err||"Errore.");return;}
+    const c=document.getElementById("cm-comm").value;
+    const dest=(document.getElementById("cm-dest")||{}).value||"destina";
+    const ids=r.ids||[];
+    if(c&&ids.length){
+      const azione=dest==='scarica'
+        ? ids.map(mid=>call("scaricaMassiccioTotale",{MassiccioID:mid,Commessa:c,Note:"Consumo diretto commessa "+c}))
+        : ids.map(mid=>call("assegnaPezzoSingolo",{tipo:"massiccio",id:mid,commessa:c}));
+      Promise.all(azione).then(()=>{
+        Promise.all([call("getMassicci"),call("getMovimenti")]).then(([ms,mv])=>{STATE.massicci=ms||[];STATE.movimenti=mv||[];closeModal();toast(dest==='scarica'?("Caricati e scaricati nella commessa "+c):("Caricati e destinati a "+c));renderPage(STATE.pagina);});
+      });
+      return;
+    }
     closeModal();toast("Caricato massiccio - "+r.totM3+" m3");
     Promise.all([call("getMassicci"),call("getArticoli")]).then(([ms,ar])=>{STATE.massicci=ms||[];STATE.articoli=ar||[];renderPage(STATE.pagina);});
   });
