@@ -1598,21 +1598,56 @@ function dispoFab(f){
   if(f.Tipo==='pannello'){const lib=STATE.pannelli.filter(p=>p.ArticoloID===f.ArticoloID&&!String(p.Commesse||'').trim()).reduce((s,p)=>s+(+p.M2_residuo||0),0);const need=((+f.Dim1||0)/1000)*((+f.Dim2||0)/1000)*(+f.NumPezzi||0);return {ok:lib>=need,libero:lib,testo:'liberi '+lib.toFixed(2)+' / serve '+need.toFixed(2)+' m2'};}
   const lib=STATE.massicci.filter(p=>p.ArticoloID===f.ArticoloID&&!String(p.Commesse||'').trim()).reduce((s,p)=>s+(+p.M3_residuo||0),0);const need=((+f.Dim1||0)/1000)*((+f.Dim2||0)/1000)*((+f.Dim3||0)/1000)*(+f.NumPezzi||0);return {ok:lib>=need,libero:lib,testo:'liberi '+lib.toFixed(3)+' / serve '+need.toFixed(3)+' m3'};
 }
+// Conta quanti pezzi/quantita sono REALMENTE assegnati a questo fabbisogno (in tempo reale)
+function assegnatoReale(f){
+  if(f.Tipo==='articolo'){
+    const r=(STATE.riserve||[]).find(x=>x.ArticoloID===f.ArticoloID&&x.Commessa===f.Commessa);
+    return r?(+r.Quantita||0):0;
+  }
+  const pezzi=(f.Tipo==='pannello'?STATE.pannelli:STATE.massicci)
+    .filter(p=>p.ArticoloID===f.ArticoloID && String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(f.Commessa)>=0);
+  return pezzi.length;
+}
+// Stato effettivo calcolato dalla realta (non dal flag salvato)
+function statoEffettivo(f){
+  if(f.Stato==='ricevuto')return 'ricevuto';
+  const ass=assegnatoReale(f);
+  if(f.Tipo==='articolo'){
+    const need=parseFloat(f.Quantita)||0;
+    if(ass>0&&ass>=need)return 'assegnato';
+    if(ass>0)return 'parziale';
+  } else {
+    const need=parseInt(f.NumPezzi)||1;
+    if(ass>=need)return 'assegnato';
+    if(ass>0)return 'parziale';
+  }
+  return (f.Stato==='ordinato')?'ordinato':'da_ordinare';
+}
 function ordiniCont(){
   if(!FAB_COMM)return '<div class="card" style="color:var(--gray)">Crea o seleziona una commessa.</div>';
   const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM);
-  const badge=s=>{const m={da_ordinare:['badge-amber','da ordinare'],ordinato:['badge-accent','ordinato'],assegnato:['badge-green','assegnato'],ricevuto:['badge-green','ricevuto']};const x=m[s]||['badge-gray',s];return '<span class="badge '+x[0]+'">'+x[1]+'</span>';};
+  const badge=s=>{const m={da_ordinare:['badge-amber','da ordinare'],ordinato:['badge-accent','ordinato'],assegnato:['badge-green','assegnato'],parziale:['badge-amber','parz. assegnato'],ricevuto:['badge-green','ricevuto']};const x=m[s]||['badge-gray',s];return '<span class="badge '+x[0]+'">'+x[1]+'</span>';};
   let rows=list.map(f=>{const d=dispoFab(f);const db=d.ok?'<span class="badge badge-green">disponibile</span>':'<span class="badge badge-red">insufficiente</span>';
+    const st=statoEffettivo(f);
+    const ass=assegnatoReale(f);
+    const need=f.Tipo==='articolo'?(parseFloat(f.Quantita)||0):(parseInt(f.NumPezzi)||1);
+    const assTxt=ass>0?(' - <span style="color:var(--green)">assegnati '+ass+'/'+need+'</span>'):'';
     let act='';
-    if(f.Stato!=='ricevuto'&&f.Stato!=='assegnato'){
+    if(st==='ricevuto'){
+      // nulla
+    } else if(st==='assegnato'){
+      act+='<button class="btn btn-ghost" onclick="disassegnaFab(\''+esc(f.ID)+'\')">Annulla assegnazione</button> <button class="btn btn-red" onclick="eliminaFab(\''+esc(f.ID)+'\')">Elimina</button>';
+    } else {
+      // da_ordinare, ordinato o parziale: si puo ancora assegnare/ordinare
       if(d.libero>0)act+='<button class="btn btn-accent" onclick="assegnaFab(\''+esc(f.ID)+'\')">Assegna a magazzino</button> ';
+      if(st==='parziale')act+='<button class="btn btn-ghost" onclick="disassegnaFab(\''+esc(f.ID)+'\')">Annulla parziale</button> ';
       act+='<button class="btn btn-green" onclick="riceviFab(\''+esc(f.ID)+'\')">Ricevuto</button> ';
-      if(f.Stato==='da_ordinare')act+='<button class="btn btn-ghost" onclick="setStatoFab(\''+esc(f.ID)+'\',\'ordinato\')">Segna ordinato</button> ';
+      if(st==='da_ordinare')act+='<button class="btn btn-ghost" onclick="setStatoFab(\''+esc(f.ID)+'\',\'ordinato\')">Segna ordinato</button> ';
       act+='<button class="btn btn-red" onclick="eliminaFab(\''+esc(f.ID)+'\')">Elimina</button>';
-    } else if(f.Stato==='assegnato') act+='<button class="btn btn-ghost" onclick="disassegnaFab(\''+esc(f.ID)+'\')">Annulla assegnazione</button> <button class="btn btn-red" onclick="eliminaFab(\''+esc(f.ID)+'\')">Elimina</button>';
-    return '<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600">'+f.Descrizione+' '+badge(f.Stato)+'</div><div style="font-size:12px;color:var(--gray);margin:3px 0">'+fabDettaglio(f)+(f.Fornitore?(' - forn: '+f.Fornitore):'')+' - '+db+' '+d.testo+'</div>'+(act?'<div style="margin-top:6px">'+act+'</div>':'')+'</div>';
+    }
+    return '<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600">'+f.Descrizione+' '+badge(st)+'</div><div style="font-size:12px;color:var(--gray);margin:3px 0">'+fabDettaglio(f)+(f.Fornitore?(' - forn: '+f.Fornitore):'')+' - '+db+' '+d.testo+assTxt+'</div>'+(act?'<div style="margin-top:6px">'+act+'</div>':'')+'</div>';
   }).join("")||'<div style="color:var(--gray);font-size:13px">Nessun materiale in lista. Usa "+ Aggiungi materiale".</div>';
-  const daOrd=list.filter(f=>f.Stato!=='ricevuto'&&f.Stato!=='assegnato');
+  const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale'||statoEffettivo(f)==='ordinato');
   const gruppi={}; daOrd.forEach(f=>{const fo=f.Fornitore||'(senza fornitore)';(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===fo.trim().toLowerCase())||{}).Email||'';
@@ -1698,9 +1733,17 @@ function eliminaFab(id){
   else after();
 }
 function disassegnaFab(id){const f=STATE.fabbisogni.find(x=>x.ID===id);if(!f)return;
-  call("annullaAssegnazione",{tipo:f.Tipo,artId:f.ArticoloID,commessa:f.Commessa,numPezzi:f.NumPezzi,quantita:f.Quantita}).then(()=>{
-    call("aggiornaStatoFabbisogno",{id:id,stato:'da_ordinare'}).then(()=>{Promise.all([call("getFabbisogno"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([fb,a,p,m])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];toast("Assegnazione annullata");renderPage(STATE.pagina);});});
-  });
+  if(f.Tipo==='articolo'){
+    call("annullaAssegnazione",{tipo:'articolo',artId:f.ArticoloID,commessa:f.Commessa,quantita:f.Quantita}).then(()=>{
+      call("aggiornaStatoFabbisogno",{id:id,stato:'da_ordinare'}).then(()=>{Promise.all([call("getFabbisogno"),call("getArticoli"),call("getRiserve")]).then(([fb,a,ri])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.riserve=ri||[];toast("Assegnazione annullata");renderPage(STATE.pagina);});});
+    });
+    return;
+  }
+  // Pannelli/massicci: togli la commessa da tutti i pezzi di questo tipo assegnati a questa commessa
+  const pezzi=(f.Tipo==='pannello'?STATE.pannelli:STATE.massicci)
+    .filter(p=>p.ArticoloID===f.ArticoloID && String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(f.Commessa)>=0);
+  Promise.all(pezzi.map(p=>call("assegnaPezzoSingolo",{tipo:f.Tipo,id:p.ID,commessa:""})))
+    .then(()=>{call("aggiornaStatoFabbisogno",{id:id,stato:'da_ordinare'}).then(()=>{Promise.all([call("getFabbisogno"),call("getPannelli"),call("getMassicci")]).then(([fb,p,m])=>{STATE.fabbisogni=fb||[];STATE.pannelli=p||[];STATE.massicci=m||[];toast("Assegnazione annullata");renderPage(STATE.pagina);});});});
 }
 function assegnaFab(id){
   const f=STATE.fabbisogni.find(x=>x.ID===id); if(!f)return;
