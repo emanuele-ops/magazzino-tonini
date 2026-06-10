@@ -165,6 +165,9 @@
   .fab{display:none}
   #ver-badge{position:fixed;top:8px;right:54px;z-index:950;font-size:10px;color:var(--gray);background:var(--white);border:1px solid var(--border);padding:3px 9px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   #btn-refresh{position:fixed;top:6px;right:10px;z-index:952;width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:18px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center}
+  #btn-backup{position:fixed;bottom:18px;right:18px;z-index:951;height:44px;padding:0 16px;border-radius:24px;background:#fff;color:var(--accent);border:1.5px solid var(--accent);cursor:pointer;font-size:15px;line-height:1;box-shadow:0 3px 12px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600}
+  #btn-backup:hover{background:var(--accent);color:#fff}
+  @media(max-width:768px){#btn-backup{bottom:80px;right:14px;padding:0;width:44px;border-radius:50%}#btn-backup .bk-txt{display:none}}
   #btn-refresh:hover{background:#74583c}
   #btn-refresh.spin-on{animation:spin .7s linear infinite}
   @media(max-width:680px){
@@ -182,7 +185,7 @@
     #bulk-bar{bottom:74px;width:calc(100% - 28px);justify-content:center}
   }
   #print-area{display:none}
-  @media print{aside,.mobile-nav,.fab,#toast,.qr-toolbar,#ver-badge,#btn-refresh{display:none!important}main{padding:0!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid;border:1px solid #000}
+  @media print{aside,.mobile-nav,.fab,#toast,.qr-toolbar,#ver-badge,#btn-refresh,#btn-backup{display:none!important}main{padding:0!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid;border:1px solid #000}
     body.printing #app,body.printing #toast,body.printing #modal-container,body.printing #bulk-bar,body.printing #ver-badge{display:none!important}
     body.printing #print-area{display:block!important;padding:0}}
 </style>
@@ -229,6 +232,7 @@
     <a onclick="openMobileMenu()"><span class="mn-dot"></span>Altro</a>
   </nav>
   <button class="fab" onclick="openSceltaAzione()" aria-label="Nuova operazione">+</button>
+  <button id="btn-backup" title="Scarica backup completo" aria-label="Backup" onclick="scaricaBackup()"><span style="font-size:18px">&#128190;</span><span class="bk-txt">Backup</span></button>
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
   <div id="ver-badge">v46 - Atelier</div>
 </div>
@@ -296,6 +300,8 @@ function loadAll() {
       document.querySelector("aside").style.display="none";
       document.querySelector(".mobile-nav").style.display="none";
       document.querySelector(".fab").style.display="none";
+      var bb=document.getElementById("btn-backup");if(bb)bb.style.display="none";
+      var br=document.getElementById("btn-refresh");if(br)br.style.display="none";
       return;
     }
     const su = document.getElementById("sidebar-utente"); if (su) su.textContent = (u.Nome||"Utente")+" - "+(u.Ruolo||"");
@@ -1125,6 +1131,8 @@ async function doLogin(){
     document.querySelector("aside").style.display="";
     document.querySelector(".mobile-nav").style.display="";
     document.querySelector(".fab").style.display="";
+    var bb2=document.getElementById("btn-backup");if(bb2)bb2.style.display="";
+    var br2=document.getElementById("btn-refresh");if(br2)br2.style.display="";
     loadAll();
   } catch(e){err.textContent="Errore: "+e.message;}
 }
@@ -1277,9 +1285,7 @@ function renderDashboard(){
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openScegliPezzo(\'pannello\')">Scarico pannello</button>'
     +'<button style="background:var(--accent-light);color:var(--accent)" onclick="openCaricoMassiccio()">Carico massiccio</button>'
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openScegliPezzo(\'massiccio\')">Scarico massiccio</button>'
-  +'</div>'
-  +'<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)"><button class="btn btn-ghost" onclick="scaricaBackup()" style="width:100%">&#128190; Scarica backup completo (file da salvare)</button></div>'
-  +'</div></details>';
+  +'</div></div></details>';
   return h;
 }
 // Scarica un backup completo di tutti i dati in un unico file JSON
