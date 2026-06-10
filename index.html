@@ -1277,8 +1277,33 @@ function renderDashboard(){
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openScegliPezzo(\'pannello\')">Scarico pannello</button>'
     +'<button style="background:var(--accent-light);color:var(--accent)" onclick="openCaricoMassiccio()">Carico massiccio</button>'
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openScegliPezzo(\'massiccio\')">Scarico massiccio</button>'
-  +'</div></div></details>';
+  +'</div>'
+  +'<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)"><button class="btn btn-ghost" onclick="scaricaBackup()" style="width:100%">&#128190; Scarica backup completo (file da salvare)</button></div>'
+  +'</div></details>';
   return h;
+}
+// Scarica un backup completo di tutti i dati in un unico file JSON
+function scaricaBackup(){
+  toast("Preparazione backup...");
+  Promise.all([
+    call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),
+    call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
+    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli")
+  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli])=>{
+    const backup={
+      _info:"Backup Magazzino Atelier Tonini",
+      _data:new Date().toISOString(),
+      articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli
+    };
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    const stamp=new Date().toISOString().slice(0,16).replace(/[:T]/g,"-");
+    a.href=url;a.download="backup-magazzino-"+stamp+".json";
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast("Backup scaricato! ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti)");
+  }).catch(e=>toast("Errore backup: "+e.message,"err"));
 }
 
 // -- HOME OPERATORE (immediata) --
