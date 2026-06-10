@@ -205,6 +205,7 @@
       <a data-page="evasi"><span class="nav-dot"></span>Ordini</a>
       <a data-page="destinati"><span class="nav-dot"></span>Destinati commesse</a>
       <a data-page="fornitori"><span class="nav-dot"></span>Fornitori</a>
+      <a data-page="commesse"><span class="nav-dot"></span>Commesse</a>
       <a data-page="offerte"><span class="nav-dot"></span>Offerte</a>
       <a data-page="modelli"><span class="nav-dot"></span>Modelli documenti</a>
       <a data-page="qr"><span class="nav-dot"></span>QR Code</a>
@@ -314,7 +315,7 @@ function loadAll() {
 // Operator: nasconde le voci gestionali, lascia l'essenziale
 function adattaRuolo(ruolo){
   if(ruolo!=="operator")return;
-  ["report","qr","ordini","modelli","evasi","fornitori","offerte","destinati"].forEach(p=>{
+  ["report","qr","ordini","modelli","evasi","fornitori","commesse","offerte","destinati"].forEach(p=>{
     const a=document.querySelector("#sidebar-nav a[data-page='"+p+"']"); if(a)a.style.display="none";
     const b=document.querySelector(".mobile-nav a[data-page='"+p+"']"); if(b)b.style.display="none";
   });
@@ -327,7 +328,7 @@ function collassaFam(){document.querySelectorAll("#main-content .piece-grid").fo
 // Menu completo per mobile: rende raggiungibili tutte le sezioni
 function openMobileMenu(){
   const op = STATE.utente.Ruolo==="operator";
-  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
+  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
   const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr"]:[];
   const items=pages.filter(p=>hide.indexOf(p[0])<0).map(p=>{const att=STATE.pagina===p[0];return '<button class="det-btn" style="margin-top:0;text-align:left;background:'+(att?'var(--accent-light)':'#faf8f4')+';color:'+(att?'var(--accent)':'var(--ink)')+'" onclick="closeModal();navTo(\''+p[0]+'\')">'+p[1]+'</button>';}).join("");
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Menu</h2><div style="display:flex;flex-direction:column;gap:8px">'+items+'</div></div>');
@@ -391,6 +392,7 @@ function renderPage(p){
   else if(p==="evasi")m.innerHTML=renderOrdiniEvasi();
   else if(p==="destinati")m.innerHTML=renderDestinati();
   else if(p==="fornitori")m.innerHTML=renderFornitori();
+  else if(p==="commesse")m.innerHTML=renderCommesse();
   else if(p==="offerte")m.innerHTML=renderOfferte();
   else if(p==="modelli")m.innerHTML=renderModelli();
   else if(p==="qr")m.innerHTML=renderQR();
@@ -2069,7 +2071,68 @@ function proseguiPezzo(tipo){const id=comboVal('sp');if(!id){showErr("sp-err2","
 // -- Commesse --
 function optCommesse(sel){return '<option value="">- Nessuna -</option>'+STATE.commesse.map(c=>'<option value="'+c.ID+'" '+(c.ID===sel?"selected":"")+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(" - "+c.Nome):"")+'</option>').join("")+'<option value="__new__">+ Nuova commessa...</option>';}
 function onCommessaChange(id){if(document.getElementById(id).value==="__new__"){document.getElementById(id).value="";openNuovaCommessa();}}
-function openNuovaCommessa(){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova commessa</h2><div class="form-group"><label>Codice / Nome *</label><input id="nc-nome" placeholder="es. C2025-005 Villa Rossi"></div><div class="form-group"><label>Cliente</label><input id="nc-cli" placeholder="es. Mario Rossi"></div><div id="nc-err"></div><button class="btn-primary" onclick="submitNuovaCommessa()">Crea commessa</button></div>');}
+// ============================================================
+//  PAGINA COMMESSE
+// ============================================================
+function statCommessa(cId){
+  // Materiali destinati a questa commessa
+  const ris=(STATE.riserve||[]).filter(r=>r.Commessa===cId&&r.Quantita>0).length;
+  const pan=STATE.pannelli.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(cId)>=0).length;
+  const mas=STATE.massicci.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(cId)>=0).length;
+  const mov=STATE.movimenti.filter(m=>m.Commessa===cId&&m.Annullato!=="SI").length;
+  return {ris:ris,pan:pan,mas:mas,mov:mov};
+}
+function renderCommesse(){
+  const list=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+  const rows=list.map(c=>{
+    const s=statCommessa(c.ID);
+    const stato=String(c.Stato||'aperta').toLowerCase();
+    const badgeStato=stato==='chiusa'?'<span class="badge badge-gray">chiusa</span>':'<span class="badge badge-green">aperta</span>';
+    const info=[];
+    if(s.ris)info.push(s.ris+' articoli destinati');
+    if(s.pan)info.push(s.pan+' pannelli');
+    if(s.mas)info.push(s.mas+' massicci');
+    if(s.mov)info.push(s.mov+' movimenti');
+    const infoTxt=info.length?info.join(' - '):'nessun materiale collegato';
+    return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
+      +'<div style="flex:1;min-width:200px"><div style="font-weight:600;font-size:15px">'+c.ID+' '+badgeStato+'</div>'
+      +'<div style="font-size:13px;color:var(--gray);margin-top:2px">'+(c.Nome&&c.Nome!==c.ID?(c.Nome+' '):'')+(c.Cliente?('- '+c.Cliente):'')+'</div>'
+      +'<div style="font-size:12px;color:var(--gray);margin-top:4px">'+infoTxt+'</div>'
+      +(c.Note?'<div style="font-size:12px;color:var(--gray);margin-top:4px;font-style:italic">'+c.Note+'</div>':'')+'</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-accent" onclick="openModificaCommessa(\''+esc(c.ID)+'\')">Modifica</button>'
+      +'<button class="btn btn-ghost" onclick="navTo(\'ordini\');setTimeout(function(){if(typeof ordSelComm===\'function\')ordSelComm(\''+esc(c.ID)+'\');},100)">Materiali</button>'
+      +'<button class="btn btn-red" onclick="confEliminaCommessa(\''+esc(c.ID)+'\')">Elimina</button></div></div></div>';
+  }).join("")||'<div class="card" style="color:var(--gray)">Nessuna commessa. Creane una col pulsante qui sopra.</div>';
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Commesse</h1><button class="btn btn-accent" onclick="openNuovaCommessa()">+ Nuova commessa</button></div>'+rows;
+}
+function openModificaCommessa(id){
+  const c=STATE.commesse.find(x=>x.ID===id); if(!c)return;
+  const stato=String(c.Stato||'aperta').toLowerCase();
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Modifica commessa</h2>'
+   +'<div class="info-box">Codice: <strong>'+c.ID+'</strong> (il codice non si puo cambiare)</div>'
+   +'<div class="form-group"><label>Nome / descrizione</label><input id="mc-nome" value="'+(c.Nome||'').replace(/"/g,"&quot;")+'"></div>'
+   +'<div class="form-group"><label>Cliente</label><input id="mc-cli" value="'+(c.Cliente||'').replace(/"/g,"&quot;")+'"></div>'
+   +'<div class="form-group"><label>Stato</label><select id="mc-stato"><option value="aperta"'+(stato==='aperta'?' selected':'')+'>Aperta</option><option value="chiusa"'+(stato==='chiusa'?' selected':'')+'>Chiusa</option></select></div>'
+   +'<div class="form-group"><label>Note</label><input id="mc-note" value="'+(c.Note||'').replace(/"/g,"&quot;")+'"></div>'
+   +'<div id="mc-err"></div><button class="btn-primary" onclick="submitModificaCommessa(\''+esc(id)+'\')">Salva</button></div>');
+}
+function submitModificaCommessa(id){
+  const d={ID:id,Nome:document.getElementById("mc-nome").value.trim(),Cliente:document.getElementById("mc-cli").value.trim(),Stato:document.getElementById("mc-stato").value,Note:document.getElementById("mc-note").value.trim()};
+  call("salvaCommessa",d).then(r=>{if(!r.ok){showErr("mc-err",r.err||"Errore");return;}
+    call("getCommesse").then(c=>{STATE.commesse=c||[];closeModal();toast("Commessa aggiornata");renderPage(STATE.pagina);});});
+}
+function confEliminaCommessa(id){
+  const s=statCommessa(id);
+  const haRoba=s.ris||s.pan||s.mas;
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina commessa</h2>'
+   +'<div class="alert alert-red">Stai per eliminare la commessa <strong>'+id+'</strong>.'+(haRoba?'<br><br><strong>Attenzione:</strong> ci sono materiali ancora destinati a questa commessa. Eliminandola, i pannelli/massicci resteranno assegnati al suo codice ma la commessa non sara piu in elenco. Conviene prima togliere le assegnazioni.':'')+'</div>'
+   +'<div id="ec-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaCommessa(\''+esc(id)+'\')">Elimina definitivamente</button></div>');
+}
+function submitEliminaCommessa(id){
+  call("eliminaCommessa",{id:id}).then(r=>{if(!r.ok){showErr("ec-err",r.err||"Errore");return;}
+    call("getCommesse").then(c=>{STATE.commesse=c||[];closeModal();toast("Commessa eliminata");renderPage(STATE.pagina);});});
+}
+function openNuovaCommessa(){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova commessa</h2><div class="form-group"><label>Codice *</label><input id="nc-nome" placeholder="es. C2026.002.01"></div><div class="form-group"><label>Cliente / descrizione</label><input id="nc-cli" placeholder="es. Cameretta - Mario Rossi"></div><div id="nc-err"></div><button class="btn-primary" onclick="submitNuovaCommessa()">Crea commessa</button></div>');}
 function submitNuovaCommessa(){const n=document.getElementById("nc-nome").value.trim();if(!n){showErr("nc-err","Inserisci il codice/nome.");return;}
   call("salvaCommessa",{Nome:n,Cliente:document.getElementById("nc-cli").value.trim()}).then(r=>{if(!r.ok){showErr("nc-err",r.err||"Errore.");return;}call("getCommesse").then(c=>{STATE.commesse=c||[];if(typeof FAB_COMM!=='undefined')FAB_COMM=r.id;closeModal();toast("Commessa creata: "+n);renderPage(STATE.pagina);});});}
 
