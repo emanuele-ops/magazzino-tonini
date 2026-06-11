@@ -1388,8 +1388,10 @@ function scaricaBackup(){
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
-    const stamp=new Date().toISOString().slice(0,16).replace(/[:T]/g,"-");
-    a.href=url;a.download="backup-magazzino-"+stamp+".json";
+    const d=new Date();
+    const pad=n=>String(n).padStart(2,"0");
+    const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
+    a.href=url;a.download="backup-magazzino_"+stamp+".json";
     document.body.appendChild(a);a.click();document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast("Backup scaricato! ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti)");
