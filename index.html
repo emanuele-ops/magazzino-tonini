@@ -165,9 +165,11 @@
   .fab{display:none}
   #ver-badge{position:fixed;top:8px;right:54px;z-index:950;font-size:10px;color:var(--gray);background:var(--white);border:1px solid var(--border);padding:3px 9px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   #btn-refresh{position:fixed;top:6px;right:10px;z-index:952;width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:18px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center}
-  #btn-backup{position:fixed;bottom:18px;right:18px;z-index:951;height:44px;padding:0 16px;border-radius:24px;background:#fff;color:var(--accent);border:1.5px solid var(--accent);cursor:pointer;font-size:15px;line-height:1;box-shadow:0 3px 12px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600}
+  #btn-backup{position:fixed;bottom:18px;right:18px;z-index:951;height:42px;padding:0 14px;border-radius:22px;background:#fff;color:var(--accent);border:1.5px solid var(--accent);cursor:pointer;font-size:14px;line-height:1;box-shadow:0 3px 12px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600}
+  #btn-restore{position:fixed;bottom:18px;right:150px;z-index:951;height:42px;padding:0 14px;border-radius:22px;background:#fff;color:var(--gray);border:1.5px solid var(--border);cursor:pointer;font-size:14px;line-height:1;box-shadow:0 3px 12px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600}
   #btn-backup:hover{background:var(--accent);color:#fff}
-  @media(max-width:768px){#btn-backup{bottom:80px;right:14px;padding:0;width:44px;border-radius:50%}#btn-backup .bk-txt{display:none}}
+  #btn-restore:hover{border-color:var(--accent);color:var(--accent)}
+  @media(max-width:768px){#btn-backup{bottom:150px;right:14px;padding:0;width:42px;border-radius:50%}#btn-backup .bk-txt{display:none}#btn-restore{bottom:200px;right:14px;padding:0;width:42px;border-radius:50%}#btn-restore .bk-txt{display:none}}
   #btn-refresh:hover{background:#74583c}
   #btn-refresh.spin-on{animation:spin .7s linear infinite}
   @media(max-width:680px){
@@ -185,7 +187,7 @@
     #bulk-bar{bottom:74px;width:calc(100% - 28px);justify-content:center}
   }
   #print-area{display:none}
-  @media print{aside,.mobile-nav,.fab,#toast,.qr-toolbar,#ver-badge,#btn-refresh,#btn-backup{display:none!important}main{padding:0!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid;border:1px solid #000}
+  @media print{aside,.mobile-nav,.fab,#toast,.qr-toolbar,#ver-badge,#btn-refresh,#btn-backup,#btn-restore{display:none!important}main{padding:0!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid;border:1px solid #000}
     body.printing #app,body.printing #toast,body.printing #modal-container,body.printing #bulk-bar,body.printing #ver-badge{display:none!important}
     body.printing #print-area{display:block!important;padding:0}}
 </style>
@@ -233,6 +235,8 @@
   </nav>
   <button class="fab" onclick="openSceltaAzione()" aria-label="Nuova operazione">+</button>
   <button id="btn-backup" title="Scarica backup completo" aria-label="Backup" onclick="scaricaBackup()"><span style="font-size:18px">&#128190;</span><span class="bk-txt">Backup</span></button>
+  <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
+  <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
   <div id="ver-badge">v46 - Atelier</div>
 </div>
@@ -301,6 +305,7 @@ function loadAll() {
       document.querySelector(".mobile-nav").style.display="none";
       document.querySelector(".fab").style.display="none";
       var bb=document.getElementById("btn-backup");if(bb)bb.style.display="none";
+      var bbr=document.getElementById("btn-restore");if(bbr)bbr.style.display="none";
       var br=document.getElementById("btn-refresh");if(br)br.style.display="none";
       return;
     }
@@ -434,6 +439,15 @@ async function sbPost(table, body) {
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+async function sbUpsert(table, body) {
+  const r = await fetch(SB_URL + "/rest/v1/" + table, {
+    method: "POST",
+    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return true;
 }
 async function sbPatch(table, filter, body) {
   const r = await fetch(SB_URL + "/rest/v1/" + table + "?" + filter, {
@@ -1132,6 +1146,7 @@ async function doLogin(){
     document.querySelector(".mobile-nav").style.display="";
     document.querySelector(".fab").style.display="";
     var bb2=document.getElementById("btn-backup");if(bb2)bb2.style.display="";
+    var bbr2=document.getElementById("btn-restore");if(bbr2)bbr2.style.display="";
     var br2=document.getElementById("btn-refresh");if(br2)br2.style.display="";
     loadAll();
   } catch(e){err.textContent="Errore: "+e.message;}
@@ -1288,7 +1303,76 @@ function renderDashboard(){
   +'</div></div></details>';
   return h;
 }
-// Scarica un backup completo di tutti i dati in un unico file JSON
+// ---- RIPRISTINO DA BACKUP ----
+function apriRipristino(){
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Ripristina da backup</h2>'
+   +'<div class="alert alert-red"><strong>Attenzione:</strong> il ripristino reinserisce i dati dal file di backup nel database. I dati con lo stesso codice verranno <strong>sovrascritti</strong> con quelli del file. I dati creati dopo il backup che non sono nel file resteranno. Consigliato solo per recuperare dati persi.</div>'
+   +'<div class="info-box">Scegli un file di backup (.json) scaricato in precedenza con il pulsante Backup.</div>'
+   +'<button class="btn-primary" onclick="document.getElementById(\'restore-file\').click()">Scegli file di backup</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button></div>');
+}
+function ripristinaBackup(input){
+  const file=input.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    let data;
+    try{ data=JSON.parse(e.target.result); }
+    catch(err){ toast("File non valido: non è un backup JSON","err"); return; }
+    if(!data.articoli&&!data.movimenti){ toast("Il file non sembra un backup del magazzino","err"); return; }
+    const conteggi=['articoli','pannelli','massicci','movimenti','commesse','fornitori'].map(k=>(data[k]||[]).length+' '+k).join(', ');
+    openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Conferma ripristino</h2>'
+     +'<div class="info-box">Backup del <strong>'+(data._data?new Date(data._data).toLocaleString('it-IT'):'data sconosciuta')+'</strong><br><br>Contiene: '+conteggi+'</div>'
+     +'<div class="alert alert-red">Procedendo, questi dati verranno reinseriti nel database (sovrascrivendo quelli con lo stesso codice). Continuare?</div>'
+     +'<div id="rip-prog" style="font-size:13px;color:var(--gray);margin-bottom:8px"></div>'
+     +'<button class="btn-primary" style="background:var(--red)" onclick="eseguiRipristino()">Sì, ripristina ora</button>'
+     +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button></div>');
+    window._backupData=data;
+  };
+  reader.readAsText(file);
+  input.value="";
+}
+async function eseguiRipristino(){
+  const data=window._backupData; if(!data)return;
+  const prog=document.getElementById("rip-prog");
+  const setP=(t)=>{if(prog)prog.textContent=t;};
+  const chunk=(arr,n)=>{const o=[];for(let i=0;i<arr.length;i+=n)o.push(arr.slice(i,i+n));return o;};
+  async function up(table,rows,label){
+    if(!rows||!rows.length)return;
+    setP("Ripristino "+label+" ("+rows.length+")...");
+    for(const c of chunk(rows,100)){ await sbUpsert(table,c); }
+  }
+  try{
+    // ARTICOLI
+    await up("articoli",(data.articoli||[]).map(a=>({id:a.ID,nome:a.Nome,categoria:a.Categoria,unita_misura:a.UnitaMisura,stock:parseFloat(a.Stock)||0,soglia_riordino:parseFloat(a.SogliaRiordino)||0,tipo_riordino:a.TipoRiordino||'manuale',urgenza:a.Urgenza||'media',fornitore:a.Fornitore||'',codice_fornitore:a.CodiceFornitore||'',is_pannello:(a.IsPannello===true||a.IsPannello==='SI'),note:a.Note||'',impegnato:parseFloat(a.Impegnato)||0})),"articoli");
+    // FORNITORI
+    await up("fornitori",(data.fornitori||[]).map(f=>({nome:f.Nome,email:f.Email||'',telefono:f.Telefono||'',note:f.Note||''})),"fornitori");
+    // COMMESSE
+    await up("commesse",(data.commesse||[]).map(c=>({id:c.ID,nome:c.Nome,cliente:c.Cliente||'',data_apertura:(c.DataApertura||new Date().toISOString().slice(0,10)),stato:c.Stato||'aperta',note:c.Note||''})),"commesse");
+    // PANNELLI
+    await up("pannelli",(data.pannelli||[]).map(p=>({id:p.ID,articolo_id:p.ArticoloID,larghezza_mm:p.Larghezza_mm,altezza_mm:p.Altezza_mm,residuale_pct:p.Residuale_pct,m2_originale:p.M2_originale,m2_residuo:p.M2_residuo,commesse:p.Commesse||'',data_carico:p.DataCarico||null,note:p.Note||'',fornitore:p.Fornitore||''})),"pannelli");
+    // MASSICCI
+    await up("massicci",(data.massicci||[]).map(m=>({id:m.ID,articolo_id:m.ArticoloID,lunghezza_mm:m.Lunghezza_mm||null,larghezza_mm:m.Larghezza_mm||null,spessore_mm:m.Spessore_mm||null,m3_originale:m.M3_originale,m3_residuo:m.M3_residuo,commesse:m.Commesse||'',fornitore:m.Fornitore||'',data_carico:m.DataCarico||null,note:m.Note||''})),"massicci");
+    // MOVIMENTI
+    await up("movimenti",(data.movimenti||[]).map(m=>({id:m.ID,data:m.Data,utente:m.Utente,articolo_id:m.ArticoloID,nome_articolo:m.NomeArticolo,tipo:m.Tipo,quantita:m.Quantita,unita_misura:m.UnitaMisura,commessa:m.Commessa||'',pezzo_id:m.PezzoID||'',note:m.Note||'',annullato:(m.Annullato==='SI'||m.Annullato===true),fornitore:m.Fornitore||''})),"movimenti");
+    // RISERVE
+    await up("riserve",(data.riserve||[]).map(r=>({articolo_id:r.ArticoloID,commessa:r.Commessa,quantita:r.Quantita})),"riserve");
+    // FABBISOGNI
+    await up("fabbisogni",(data.fabbisogni||[]).map(f=>({id:f.ID,commessa:f.Commessa,tipo:f.Tipo,articolo_id:f.ArticoloID,descrizione:f.Descrizione,num_pezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita_misura:f.UnitaMisura,fornitore:f.Fornitore,stato:f.Stato,data_richiesta:f.DataRichiesta||null,note:f.Note})),"fabbisogni");
+    // ORDINI
+    await up("ordini",(data.ordini||[]).map(o=>({id:o.ID,data:o.Data,commessa:o.Commessa,fornitore:o.Fornitore,stato:o.Stato,righe:JSON.stringify(o.Righe||[]),note:o.Note,email:o.Email})),"ordini");
+    // OFFERTE
+    await up("offerte",(data.offerte||[]).map(o=>({id:o.ID,data:o.Data,cliente:o.Cliente,commessa:o.Commessa,oggetto:o.Oggetto,dati:JSON.stringify(o.Dati||{})})),"offerte");
+    // RETTIFICHE
+    await up("rettifiche",(data.rettifiche||[]).map(r=>({id:r.ID,commessa:r.Commessa,voce:r.Voce,valore:r.Valore,note:r.Note,data:r.Data||null})),"rettifiche");
+    // IMMAGINI
+    await up("immagini",(data.immagini||[]).map(i=>({rif_id:i.RifID,file_id:i.FileID,thumb_url:i.ThumbUrl,data:i.Data||null})),"immagini");
+    // MODELLI
+    await up("modelli",(data.modelli||[]).map(m=>({chiave:m.Chiave,titolo:m.Titolo,oggetto:m.Oggetto,corpo:m.Corpo,note:m.Note})),"modelli");
+    setP("Ripristino completato!");
+    toast("Ripristino completato. Ricarico i dati...");
+    setTimeout(()=>location.reload(),1400);
+  }catch(e){ setP("Errore: "+e.message); toast("Errore durante il ripristino: "+e.message,"err"); }
+}
 function scaricaBackup(){
   toast("Preparazione backup...");
   Promise.all([
