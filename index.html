@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='19' fill='%238a6d4e'/%3E%3Ctext x='20' y='27' font-family='Georgia' font-size='16' fill='white' text-anchor='middle' font-weight='bold'%3EAT%3C/text%3E%3C/svg%3E">
 <title>Magazzino Atelier Tonini</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{
@@ -1245,8 +1246,30 @@ function reportPdf(t){const a=(document.getElementById("pn-anno")||{}).value||St
 function buildReportScarico(anno,mese){
   const pref=mese?(anno+'-'+mese):anno;
   const scar=STATE.movimenti.filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&String(m.Data).startsWith(pref));
-  const byC={}; scar.forEach(m=>{const c=m.Commessa||'(senza commessa)';const ms=String(m.Data).slice(5,7);byC[c]=byC[c]||{};byC[c][ms]=byC[c][ms]||{};const k=m.NomeArticolo+'|'+m.UnitaMisura;byC[c][ms][k]=(byC[c][ms][k]||0)+(+m.Quantita||0);});
-  const body=Object.keys(byC).sort().map(c=>{let rows='';Object.keys(byC[c]).sort().forEach(ms=>{Object.keys(byC[c][ms]).forEach(k=>{const p=k.split('|');rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="right">'+byC[c][ms][k].toFixed(3)+' '+p[1]+'</td></tr>';});});return '<h3 style="font-size:14px;margin:12px 0 6px">Commessa '+c+'</h3><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="right">Quantità</th></tr></thead><tbody>'+rows+'</tbody></table>';}).join("")||'<p style="color:#888">Nessuno scarico nel periodo.</p>';
+  // Raggruppa per commessa > mese > materiale, accumulando quantita e codici pezzo
+  const byC={};
+  scar.forEach(m=>{
+    const c=m.Commessa||'(senza commessa)';
+    const ms=String(m.Data).slice(5,7);
+    const art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID)||{};
+    const cf=art.CodiceFornitore||'';
+    const k=m.NomeArticolo+'|'+m.UnitaMisura+'|'+cf;
+    byC[c]=byC[c]||{}; byC[c][ms]=byC[c][ms]||{};
+    byC[c][ms][k]=byC[c][ms][k]||{q:0,pezzi:[]};
+    byC[c][ms][k].q+=(+m.Quantita||0);
+    if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(byC[c][ms][k].pezzi.indexOf(p)<0)byC[c][ms][k].pezzi.push(p);});
+  });
+  const body=Object.keys(byC).sort().map(c=>{
+    let rows='';
+    Object.keys(byC[c]).sort().forEach(ms=>{
+      Object.keys(byC[c][ms]).forEach(k=>{
+        const p=k.split('|'); const cell=byC[c][ms][k];
+        const pezzi=cell.pezzi.length?cell.pezzi.join(', '):'-';
+        rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td></tr>';
+      });
+    });
+    return '<h3 style="font-size:14px;margin:12px 0 6px">Commessa '+c+'</h3><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantità</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }).join("")||'<p style="color:#888">Nessuno scarico nel periodo.</p>';
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Scarichi '+(mese?(mese+'/'+anno):anno)+' per commessa',new Date().toLocaleDateString('it-IT'))+body+'</div>';
 }
 function buildReportRimanenze(anno){
@@ -1380,22 +1403,33 @@ function scaricaBackup(){
     call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
     call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli")
   ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli])=>{
-    const backup={
-      _info:"Backup Magazzino Atelier Tonini",
-      _data:new Date().toISOString(),
-      articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli
-    };
-    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
     const d=new Date();
     const pad=n=>String(n).padStart(2,"0");
     const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
-    a.href=url;a.download="backup-magazzino_"+stamp+".json";
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast("Backup scaricato! ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti)");
+    // 1) JSON completo (per il ripristino nell'app)
+    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli};
+    scaricaFile(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),"backup-magazzino_"+stamp+".json");
+    // 2) Excel con un foglio per ogni tabella
+    try{
+      const wb=XLSX.utils.book_new();
+      const aggiungi=(nome,dati)=>{ if(dati&&dati.length){ const ws=XLSX.utils.json_to_sheet(dati); XLSX.utils.book_append_sheet(wb,ws,nome.slice(0,31)); } };
+      aggiungi("Articoli",articoli); aggiungi("Pannelli",pannelli); aggiungi("Massicci",massicci);
+      aggiungi("Movimenti",movimenti); aggiungi("Commesse",commesse); aggiungi("Fornitori",fornitori);
+      aggiungi("Fabbisogni",fabbisogni); aggiungi("Ordini",ordini.map(o=>Object.assign({},o,{Righe:JSON.stringify(o.Righe||[])})));
+      aggiungi("Offerte",offerte.map(o=>Object.assign({},o,{Dati:JSON.stringify(o.Dati||{})})));
+      aggiungi("Riserve",riserve); aggiungi("Rettifiche",rettifiche); aggiungi("Immagini",immagini); aggiungi("Modelli",modelli);
+      const xbuf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+      scaricaFile(new Blob([xbuf],{type:"application/octet-stream"}),"magazzino_"+stamp+".xlsx");
+    }catch(e){console.error("Excel non generato:",e);}
+    toast("Backup scaricato: JSON + Excel ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti)");
   }).catch(e=>toast("Errore backup: "+e.message,"err"));
+}
+function scaricaFile(blob,nome){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=nome;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
 // -- HOME OPERATORE (immediata) --
@@ -1715,6 +1749,7 @@ function salvaModelloUI(chiave){
 
 // -- ORDINI / FABBISOGNO PER COMMESSA --
 let FAB_COMM="";
+let FAB_EDIT_ID=null;
 function renderOrdini(){
   const comms=STATE.commesse.slice();
   if((!FAB_COMM||!comms.find(c=>c.ID===FAB_COMM))&&comms.length)FAB_COMM=comms[0].ID;
@@ -1781,6 +1816,7 @@ function ordiniCont(){
       if(st==='da_ordinare')act+='<button class="btn btn-ghost" onclick="setStatoFab(\''+esc(f.ID)+'\',\'ordinato\')">Segna ordinato</button> ';
       act+='<button class="btn btn-red" onclick="eliminaFab(\''+esc(f.ID)+'\')">Elimina</button>';
     }
+    if(st!=='ricevuto'&&st!=='assegnato')act='<button class="btn btn-ghost" onclick="modificaFab(\''+esc(f.ID)+'\')">Modifica</button> '+act;
     return '<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600">'+f.Descrizione+' '+badge(st)+'</div><div style="font-size:12px;color:var(--gray);margin:3px 0">'+fabDettaglio(f)+(f.Fornitore?(' - forn: '+f.Fornitore):'')+' - '+db+' '+d.testo+assTxt+'</div>'+(act?'<div style="margin-top:6px">'+act+'</div>':'')+'</div>';
   }).join("")||'<div style="color:var(--gray);font-size:13px">Nessun materiale in lista. Usa "+ Aggiungi materiale".</div>';
   const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale'||statoEffettivo(f)==='ordinato');
@@ -1794,6 +1830,7 @@ function ordiniCont(){
 }
 function openAddFabbisogno(){
   if(!FAB_COMM){toast("Seleziona prima una commessa","err");return;}
+  FAB_EDIT_ID=null;
   comboInit('fb',[]);
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Aggiungi materiale</h2>'
    +'<div class="toggle"><button id="fb-ta" class="on-accent" onclick="fbTipo(\'articolo\')">Articolo</button><button id="fb-tp" onclick="fbTipo(\'pannello\')">Pannello</button><button id="fb-tm" onclick="fbTipo(\'massiccio\')">Massiccio</button></div>'
@@ -1845,9 +1882,13 @@ function submitFabbisogno(){
     else if(tipo==='pannello'){let w=document.getElementById("fb-w").value,h=document.getElementById("fb-h").value;const np=document.getElementById("fb-np").value;if(!np){showErr("fb-err","Inserisci il numero di pezzi.");return;}if((!w||!h)&&aid){const ex=STATE.pannelli.find(p=>p.ArticoloID===aid&&p.Larghezza_mm);if(ex){w=w||ex.Larghezza_mm;h=h||ex.Altezza_mm;}}if(!w||!h){showErr("fb-err","Dimensioni non trovate per questo tipo: inseriscile.");return;}d.Dim1=w;d.Dim2=h;d.NumPezzi=np;d.UnitaMisura="m2";}
     else{let l=document.getElementById("fb-l").value,mw=document.getElementById("fb-mw").value,s=document.getElementById("fb-s").value;const np=document.getElementById("fb-mnp").value;if(!np){showErr("fb-err","Inserisci il numero di pezzi.");return;}if((!l||!mw||!s)&&aid){const ex=STATE.massicci.find(p=>p.ArticoloID===aid&&p.Lunghezza_mm);if(ex){l=l||ex.Lunghezza_mm;mw=mw||ex.Larghezza_mm;s=s||ex.Spessore_mm;}}if(!l||!mw||!s){showErr("fb-err","Dimensioni non trovate per questo tipo: inseriscile.");return;}d.Dim1=l;d.Dim2=mw;d.Dim3=s;d.NumPezzi=np;d.UnitaMisura="m3";}
     call("aggiungiFabbisogno",d).then(r=>{if(!r.ok){showErr("fb-err",r.err||"Errore");return;}
-      call("getFabbisogno").then(fb=>{STATE.fabbisogni=fb||[];closeModal();
-        const disp=dispoFab(d); toast(disp.ok?"Materiale aggiunto (disponibile a magazzino)":"Aggiunto: mancante, in lista riordino");
+      const finalizza=()=>call("getFabbisogno").then(fb=>{STATE.fabbisogni=fb||[];closeModal();
+        const disp=dispoFab(d); toast(FAB_EDIT_ID?"Riga modificata":(disp.ok?"Materiale aggiunto (disponibile a magazzino)":"Aggiunto: mancante, in lista riordino"));
+        FAB_EDIT_ID=null;
         renderPage(STATE.pagina);});
+      // Se stiamo modificando, elimina la vecchia riga
+      if(FAB_EDIT_ID){call("eliminaFabbisogno",{id:FAB_EDIT_ID}).then(finalizza);}
+      else finalizza();
     });
   };
   if(artId){const a=STATE.articoli.find(x=>x.ID===artId);proc(artId,a?a.Nome:typed);}
@@ -1860,7 +1901,27 @@ function submitFabbisogno(){
     } else proc(typed,typed);
   } else showErr("fb-err","Scegli o scrivi un materiale.");
 }
-function riceviFab(id){call("riceviFabbisogno",{id:id}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}Promise.all([call("getFabbisogno"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti")]).then(([fb,a,p,m,mv])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];toast("Ricevuto e caricato a magazzino");renderPage(STATE.pagina);});});}
+function modificaFab(id){
+  const f=STATE.fabbisogni.find(x=>x.ID===id); if(!f)return;
+  openAddFabbisogno(); // apre la finestra standard (azzera FAB_EDIT_ID)
+  FAB_EDIT_ID=id;
+  // Precompila dopo l'apertura
+  setTimeout(function(){
+    fbTipo(f.Tipo);
+    document.getElementById("fb-tipo").value=f.Tipo;
+    // imposta il materiale scelto
+    if(f.ArticoloID){document.getElementById("fb-val").value=f.ArticoloID;const q=document.getElementById("fb-q");if(q)q.value=f.Descrizione||f.ArticoloID;}
+    else{const q=document.getElementById("fb-q");if(q)q.value=f.Descrizione||"";}
+    if(f.Fornitore)document.getElementById("fb-forn").value=f.Fornitore;
+    if(document.getElementById("fb-nota"))document.getElementById("fb-nota").value=f.Note||"";
+    if(f.Tipo==='articolo'){if(document.getElementById("fb-qta"))document.getElementById("fb-qta").value=f.Quantita||"";}
+    else if(f.Tipo==='pannello'){if(document.getElementById("fb-w"))document.getElementById("fb-w").value=f.Dim1||"";if(document.getElementById("fb-h"))document.getElementById("fb-h").value=f.Dim2||"";if(document.getElementById("fb-np"))document.getElementById("fb-np").value=f.NumPezzi||"1";}
+    else{if(document.getElementById("fb-l"))document.getElementById("fb-l").value=f.Dim1||"";if(document.getElementById("fb-mw"))document.getElementById("fb-mw").value=f.Dim2||"";if(document.getElementById("fb-s"))document.getElementById("fb-s").value=f.Dim3||"";if(document.getElementById("fb-mnp"))document.getElementById("fb-mnp").value=f.NumPezzi||"1";}
+    // cambia titolo e bottone
+    const h2=document.querySelector(".modal h2");if(h2)h2.textContent="Modifica materiale";
+    const btn=document.querySelector(".modal .btn-primary");if(btn){btn.textContent="Salva modifiche";btn.setAttribute("onclick","submitFabbisogno()");}
+  },60);
+}
 function setStatoFab(id,st){call("aggiornaStatoFabbisogno",{id:id,stato:st}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}call("getFabbisogno").then(fb=>{STATE.fabbisogni=fb||[];toast("Stato aggiornato");renderPage(STATE.pagina);});});}
 function eliminaFab(id){
   const f=STATE.fabbisogni.find(x=>x.ID===id);
@@ -2001,17 +2062,32 @@ function ordineCard(o){
 }
 function buildOrdinePDF(o){
   const oggi=new Date().toLocaleDateString('it-IT');
+  const fornObj=(STATE.fornitori||[]).find(f=>String(f.Nome).trim().toLowerCase()===String(o.Fornitore||'').trim().toLowerCase())||{};
+  const email=o.Email||fornObj.Email||'';
+  const tel=fornObj.Telefono||'';
   const righe=(o.Righe||[]).map(r=>{
     const iu=imgUrlFor(r.artId),q=qrImg(r.artId);
+    // Trova il codice fornitore dell'articolo
+    const art=(STATE.articoli||[]).find(a=>a.ID===r.artId)||{};
+    const cf=r.codiceFornitore||art.CodiceFornitore||'';
     return '<tr>'
-      +'<td style="text-align:center;width:64px">'+(iu?'<img src="'+iu+'" referrerpolicy="no-referrer" style="width:54px;height:54px;object-fit:cover;border-radius:6px">':'')+'</td>'
+      +'<td style="text-align:center;width:60px">'+(iu?'<img src="'+iu+'" referrerpolicy="no-referrer" style="width:50px;height:50px;object-fit:cover;border-radius:6px">':'')+'</td>'
       +'<td>'+r.descrizione+'<div style="font-size:11px;color:#777">'+(r.dettaglio||'')+(r.note?(' - '+r.note):'')+'</div></td>'
-      +'<td>'+(o.Fornitore||'-')+'</td>'
-      +'<td style="text-align:center;width:96px"><img src="'+q+'" style="width:84px;height:84px"></td>'
+      +'<td style="text-align:center;font-size:12px">'+(cf||'-')+'</td>'
+      +'<td style="text-align:center;width:84px"><img src="'+q+'" style="width:74px;height:74px"></td>'
       +'</tr>';
   }).join("")||'<tr><td colspan="4" style="color:#888">Nessuna riga</td></tr>';
-  return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Ordine '+o.ID+(o.Commessa?(' - commessa '+o.Commessa):''),oggi+'<br>Fornitore: '+o.Fornitore)
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="left">Fornitore</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
+  let sottotitolo=oggi+'<br>Ordine n. <strong>'+o.ID+'</strong>';
+  if(o.Commessa)sottotitolo+='<br>Commessa: '+o.Commessa;
+  let fornBox='<div style="margin:14px 0;padding:10px 14px;background:#f7f3ec;border-radius:8px;font-size:13px"><strong>Fornitore:</strong> '+(o.Fornitore||'-');
+  if(email)fornBox+=' &nbsp;|&nbsp; <strong>Email:</strong> '+email;
+  if(tel)fornBox+=' &nbsp;|&nbsp; <strong>Tel:</strong> '+tel;
+  fornBox+='</div>';
+  return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Ordine '+o.ID,sottotitolo)
+   +fornBox
+   +'<p style="font-size:13px">Spett.le <strong>'+(o.Fornitore||'')+'</strong>, Vi richiediamo i seguenti materiali:</p>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. fornitore</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
+   +'<p style="margin-top:18px;font-size:13px">Cordiali saluti,<br>Atelier Tonini</p>'
    +'</div>';
 }
 function esportaOrdinePDF(id){const o=(STATE.ordini||[]).find(x=>x.ID===id);if(!o)return;stampaHTML(buildOrdinePDF(o));}
@@ -2614,9 +2690,13 @@ function comboHTML(idBase,placeholder,valId,valLabel){
 }
 function comboFilter(idBase){
   const q=(document.getElementById(idBase+"-q").value||"").toLowerCase();
-  const items=(COMBO[idBase]||[]).filter(it=>it.label.toLowerCase().indexOf(q)>=0).slice(0,40);
+  const all=(COMBO[idBase]||[]).filter(it=>it.label.toLowerCase().indexOf(q)>=0);
+  const items=all.slice(0,300);
   const list=document.getElementById(idBase+"-list");
-  list.innerHTML=items.map(it=>'<div class="combo-item" style="display:flex;align-items:center;gap:9px" onclick="comboPick(\''+idBase+'\',\''+esc(it.id)+'\')">'+(it.img?'<img src="'+it.img+'" referrerpolicy="no-referrer" style="width:34px;height:34px;object-fit:cover;border-radius:6px;flex-shrink:0">':'<div style="width:34px;height:34px;border-radius:6px;background:var(--accent-light);flex-shrink:0"></div>')+'<span>'+it.label+'</span></div>').join("")||'<div class="combo-item" style="color:var(--gray)">'+(idBase==='fb'?'Nessun tipo esistente — scrivi un nome per crearne uno nuovo, poi compila le misure.':'Nessun risultato')+'</div>';
+  let html=items.map(it=>'<div class="combo-item" style="display:flex;align-items:center;gap:9px" onclick="comboPick(\''+idBase+'\',\''+esc(it.id)+'\')">'+(it.img?'<img src="'+it.img+'" referrerpolicy="no-referrer" style="width:34px;height:34px;object-fit:cover;border-radius:6px;flex-shrink:0">':'<div style="width:34px;height:34px;border-radius:6px;background:var(--accent-light);flex-shrink:0"></div>')+'<span>'+it.label+'</span></div>').join("");
+  if(all.length>items.length)html+='<div class="combo-item" style="color:var(--gray);font-size:12px;text-align:center">...e altri '+(all.length-items.length)+'. Scrivi per filtrare.</div>';
+  if(!items.length)html='<div class="combo-item" style="color:var(--gray)">'+(idBase==='fb'?'Nessun tipo esistente — scrivi un nome per crearne uno nuovo, poi compila le misure.':'Nessun risultato')+'</div>';
+  list.innerHTML=html;
   list.style.display="block";
 }
 function comboShow(idBase){comboFilter(idBase);}
