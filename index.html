@@ -2012,8 +2012,31 @@ function inviaOrdComm(forn){
 function stampaOrdineCommessa(forn){
   const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&((f.Fornitore||'(senza fornitore)')===forn));
   const oggi=new Date().toLocaleDateString('it-IT');
-  const righe=list.map(f=>'<tr><td>'+f.Descrizione+'</td><td>'+fabDettaglio(f)+'</td></tr>').join("")||'<tr><td colspan="2" style="color:#888">Nessun materiale</td></tr>';
-  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d"><div style="display:flex;justify-content:space-between;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:16px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Ordine materiali - commessa '+FAB_COMM+'</div></div><div style="font-size:12px;color:#777">'+oggi+'</div></div><p>Spett.le <strong>'+forn+'</strong>, per la commessa <strong>'+FAB_COMM+'</strong> Vi richiediamo i seguenti materiali:</p><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="left">Dettaglio</th></tr></thead><tbody>'+righe+'</tbody></table><p style="margin-top:18px">Cordiali saluti,<br>Atelier Tonini</p></div>');
+  const fornObj=(STATE.fornitori||[]).find(f=>String(f.Nome).trim().toLowerCase()===String(forn).trim().toLowerCase())||{};
+  const email=fornObj.Email||'';
+  const tel=fornObj.Telefono||'';
+  const righe=list.map(f=>{
+    const iu=imgUrlFor(f.ArticoloID);
+    const art=(STATE.articoli||[]).find(a=>a.ID===f.ArticoloID)||{};
+    const cf=art.CodiceFornitore||'';
+    const q=qrImg(f.ArticoloID);
+    return '<tr>'
+      +'<td style="text-align:center;width:60px">'+(iu?'<img src="'+iu+'" referrerpolicy="no-referrer" style="width:50px;height:50px;object-fit:cover;border-radius:6px">':'')+'</td>'
+      +'<td>'+f.Descrizione+'<div style="font-size:11px;color:#777">'+fabDettaglio(f)+(f.Note?(' - '+f.Note):'')+'</div></td>'
+      +'<td style="text-align:center;font-size:12px">'+(cf||'-')+'</td>'
+      +'<td style="text-align:center;width:84px"><img src="'+q+'" style="width:74px;height:74px"></td>'
+      +'</tr>';
+  }).join("")||'<tr><td colspan="4" style="color:#888">Nessun materiale</td></tr>';
+  let fornBox='<div style="margin:14px 0;padding:10px 14px;background:#f7f3ec;border-radius:8px;font-size:13px"><strong>Fornitore:</strong> '+forn;
+  if(email)fornBox+=' &nbsp;|&nbsp; <strong>Email:</strong> '+email;
+  if(tel)fornBox+=' &nbsp;|&nbsp; <strong>Tel:</strong> '+tel;
+  fornBox+='</div>';
+  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
+   +'<div style="display:flex;justify-content:space-between;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Ordine materiali - commessa '+FAB_COMM+'</div></div><div style="font-size:12px;color:#777">'+oggi+'</div></div>'
+   +fornBox
+   +'<p style="font-size:13px">Spett.le <strong>'+forn+'</strong>, per la commessa <strong>'+FAB_COMM+'</strong> Vi richiediamo i seguenti materiali:</p>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. fornitore</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
+   +'<p style="margin-top:18px">Cordiali saluti,<br>Atelier Tonini</p></div>');
 }
 
 // -- ORDINE GENERICO --
