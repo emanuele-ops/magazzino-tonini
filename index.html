@@ -1251,11 +1251,13 @@ function buildReportScarico(anno,mese){
   scar.forEach(m=>{
     const c=m.Commessa||'(senza commessa)';
     const ms=String(m.Data).slice(5,7);
-    const art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID)||{};
-    const cf=art.CodiceFornitore||'';
+    // Cerca l'articolo per ID, oppure per nome (pannelli/massicci hanno il nome in ArticoloID)
+    let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);
+    if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);
+    const cf=(art&&art.CodiceFornitore)||'';
     const k=m.NomeArticolo+'|'+m.UnitaMisura+'|'+cf;
     byC[c]=byC[c]||{}; byC[c][ms]=byC[c][ms]||{};
-    byC[c][ms][k]=byC[c][ms][k]||{q:0,pezzi:[]};
+    byC[c][ms][k]=byC[c][ms][k]||{q:0,pezzi:[],artCode:(art&&/^ART-/.test(art.ID))?art.ID:''};
     byC[c][ms][k].q+=(+m.Quantita||0);
     if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(byC[c][ms][k].pezzi.indexOf(p)<0)byC[c][ms][k].pezzi.push(p);});
   });
@@ -1264,7 +1266,7 @@ function buildReportScarico(anno,mese){
     Object.keys(byC[c]).sort().forEach(ms=>{
       Object.keys(byC[c][ms]).forEach(k=>{
         const p=k.split('|'); const cell=byC[c][ms][k];
-        const pezzi=cell.pezzi.length?cell.pezzi.join(', '):'-';
+        const pezzi=cell.pezzi.length?cell.pezzi.join(', '):(cell.artCode||'-');
         rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td></tr>';
       });
     });
@@ -1645,10 +1647,11 @@ function renderMassicci(){
 // -- MOVIMENTI --
 function renderMovimenti(){
   return '<h1 class="page-title">Movimenti</h1><div class="filters"><select id="flt-tipo" onchange="filterMov()"><option value="">Tutti i tipi</option><option value="carico">Solo carichi</option><option value="scarico">Solo scarichi</option></select><input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMov()"></div>'
-  +'<div class="table-wrap"><table><thead><tr><th>Data</th><th>Operatore</th><th>Articolo</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
+  +'<div class="table-wrap"><table><thead><tr><th>Data</th><th>Operatore</th><th>Articolo</th><th>Cod. forn.</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
 }
 function rowsMov(list){
-  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="7" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
+  const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'-';};
+  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="8" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
 }
 function filterMov(){
   const t=document.getElementById("flt-tipo").value,c=document.getElementById("flt-comm").value.toLowerCase();
@@ -1676,9 +1679,11 @@ function renderReport(){
 function buildReportCommessa(comm){
   const c=STATE.commesse.find(x=>x.ID===comm)||{ID:comm,Nome:"",Cliente:""};
   const movs=movCommessa(comm).filter(m=>m.Tipo==="scarico");
-  const tot={}; movs.forEach(m=>{const k=m.NomeArticolo+'||'+m.UnitaMisura; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,q:0,n:0}; tot[k].q+=(+m.Quantita||0); tot[k].n++;});
-  const righeTot=Object.keys(tot).map(k=>{const t=tot[k];return '<tr><td>'+t.nome+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:right">'+t.n+'</td></tr>';}).join("")||'<tr><td colspan="3" style="color:#888">Nessun consumo registrato</td></tr>';
-  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td>'+(m.PezzoID||"-")+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="5" style="color:#888">Nessun movimento</td></tr>';
+  const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'';};
+  const codeDi=(m)=>{if(m.PezzoID)return m.PezzoID;let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);return (art&&/^ART-/.test(art.ID))?art.ID:'-';};
+  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0}; tot[k].q+=(+m.Quantita||0); tot[k].n++;});
+  const righeTot=Object.keys(tot).map(k=>{const t=tot[k];return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:right">'+t.n+'</td></tr>';}).join("")||'<tr><td colspan="4" style="color:#888">Nessun consumo registrato</td></tr>';
+  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="6" style="color:#888">Nessun movimento</td></tr>';
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
   const rettBlock=rett.length?('<h3 style="font-size:15px;margin:18px 0 8px">Rettifiche manuali</h3><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Voce</th><th align="left">Valore</th><th align="left">Note</th></tr></thead><tbody>'+rett.map(r=>'<tr><td>'+r.Voce+'</td><td>'+r.Valore+'</td><td>'+r.Note+'</td></tr>').join("")+'</tbody></table>'):'';
   const oggi=new Date().toLocaleDateString('it-IT');
@@ -1686,9 +1691,9 @@ function buildReportCommessa(comm){
    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:16px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Report commessa</div></div><div style="text-align:right;font-size:12px;color:#777">Generato il '+oggi+'</div></div>'
    +'<table style="width:100%;font-size:13px;margin-bottom:16px"><tr><td style="color:#777;width:130px">Commessa</td><td style="font-weight:700">'+c.ID+'</td></tr>'+(c.Nome&&c.Nome!==c.ID?'<tr><td style="color:#777">Descrizione</td><td>'+c.Nome+'</td></tr>':'')+(c.Cliente?'<tr><td style="color:#777">Cliente</td><td>'+c.Cliente+'</td></tr>':'')+'</table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="right">Totale</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="left">Pezzo</th><th align="right">Quantita</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
    +rettBlock
    +'</div>';
 }
