@@ -1824,7 +1824,7 @@ function ordiniCont(){
     if(st!=='ricevuto'&&st!=='assegnato')act='<button class="btn btn-ghost" onclick="modificaFab(\''+esc(f.ID)+'\')">Modifica</button> '+act;
     return '<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600">'+f.Descrizione+' '+badge(st)+'</div><div style="font-size:12px;color:var(--gray);margin:3px 0">'+fabDettaglio(f)+(f.Fornitore?(' - forn: '+f.Fornitore):'')+' - '+db+' '+d.testo+assTxt+'</div>'+(act?'<div style="margin-top:6px">'+act+'</div>':'')+'</div>';
   }).join("")||'<div style="color:var(--gray);font-size:13px">Nessun materiale in lista. Usa "+ Aggiungi materiale".</div>';
-  const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale'||statoEffettivo(f)==='ordinato');
+  const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale');
   const gruppi={}; daOrd.forEach(f=>{const fo=f.Fornitore||'(senza fornitore)';(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===fo.trim().toLowerCase())||{}).Email||'';
@@ -1928,6 +1928,11 @@ function modificaFab(id){
   },60);
 }
 function setStatoFab(id,st){call("aggiornaStatoFabbisogno",{id:id,stato:st}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}call("getFabbisogno").then(fb=>{STATE.fabbisogni=fb||[];toast("Stato aggiornato");renderPage(STATE.pagina);});});}
+function riceviFab(id){
+  call("riceviFabbisogno",{id:id}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
+    Promise.all([call("getFabbisogno"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti")]).then(([fb,a,p,m,mv])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];toast("Ricevuto e caricato a magazzino");renderPage(STATE.pagina);});
+  });
+}
 function eliminaFab(id){
   const f=STATE.fabbisogni.find(x=>x.ID===id);
   const after=()=>call("eliminaFabbisogno",{id:id}).then(()=>Promise.all([call("getFabbisogno"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([fb,a,p,m])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];toast("Rimosso");renderPage(STATE.pagina);}));
@@ -2019,23 +2024,27 @@ function stampaOrdineCommessa(forn){
     const iu=imgUrlFor(f.ArticoloID);
     const art=(STATE.articoli||[]).find(a=>a.ID===f.ArticoloID)||{};
     const cf=art.CodiceFornitore||'';
-    const q=qrImg(f.ArticoloID);
+    // Codice gestionale: ART-NNNN per articoli, oppure il codice del tipo per pannelli/massicci
+    const codGest=(art&&/^ART-/.test(art.ID))?art.ID:(f.ArticoloID||'-');
     return '<tr>'
       +'<td style="text-align:center;width:60px">'+(iu?'<img src="'+iu+'" referrerpolicy="no-referrer" style="width:50px;height:50px;object-fit:cover;border-radius:6px">':'')+'</td>'
       +'<td>'+f.Descrizione+'<div style="font-size:11px;color:#777">'+fabDettaglio(f)+(f.Note?(' - '+f.Note):'')+'</div></td>'
+      +'<td style="text-align:center;font-size:11px;font-family:monospace;color:#555">'+codGest+'</td>'
       +'<td style="text-align:center;font-size:12px">'+(cf||'-')+'</td>'
-      +'<td style="text-align:center;width:84px"><img src="'+q+'" style="width:74px;height:74px"></td>'
       +'</tr>';
   }).join("")||'<tr><td colspan="4" style="color:#888">Nessun materiale</td></tr>';
+  // Cerca il numero ordine piu recente per questa commessa+fornitore
+  const ord=(STATE.ordini||[]).filter(o=>o.Commessa===FAB_COMM&&String(o.Fornitore).trim().toLowerCase()===String(forn).trim().toLowerCase()).sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))[0];
+  const numOrd=ord?ord.ID:'(da emettere)';
   let fornBox='<div style="margin:14px 0;padding:10px 14px;background:#f7f3ec;border-radius:8px;font-size:13px"><strong>Fornitore:</strong> '+forn;
   if(email)fornBox+=' &nbsp;|&nbsp; <strong>Email:</strong> '+email;
   if(tel)fornBox+=' &nbsp;|&nbsp; <strong>Tel:</strong> '+tel;
   fornBox+='</div>';
   stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
-   +'<div style="display:flex;justify-content:space-between;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Ordine materiali - commessa '+FAB_COMM+'</div></div><div style="font-size:12px;color:#777">'+oggi+'</div></div>'
+   +'<div style="display:flex;justify-content:space-between;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Ordine n. '+numOrd+' - commessa '+FAB_COMM+'</div></div><div style="font-size:12px;color:#777">'+oggi+'</div></div>'
    +fornBox
    +'<p style="font-size:13px">Spett.le <strong>'+forn+'</strong>, per la commessa <strong>'+FAB_COMM+'</strong> Vi richiediamo i seguenti materiali:</p>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. fornitore</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. gestionale</th><th align="center">Cod. fornitore</th></tr></thead><tbody>'+righe+'</tbody></table>'
    +'<p style="margin-top:18px">Cordiali saluti,<br>Atelier Tonini</p></div>');
 }
 
@@ -2098,11 +2107,13 @@ function buildOrdinePDF(o){
     // Trova il codice fornitore dell'articolo
     const art=(STATE.articoli||[]).find(a=>a.ID===r.artId)||{};
     const cf=r.codiceFornitore||art.CodiceFornitore||'';
+    const codGest=(art&&/^ART-/.test(art.ID))?art.ID:(r.artId||'-');
     return '<tr>'
-      +'<td style="text-align:center;width:60px">'+(iu?'<img src="'+iu+'" referrerpolicy="no-referrer" style="width:50px;height:50px;object-fit:cover;border-radius:6px">':'')+'</td>'
+      +'<td style="text-align:center;width:54px">'+(iu?'<img src="'+iu+'" referrerpolicy="no-referrer" style="width:46px;height:46px;object-fit:cover;border-radius:6px">':'')+'</td>'
       +'<td>'+r.descrizione+'<div style="font-size:11px;color:#777">'+(r.dettaglio||'')+(r.note?(' - '+r.note):'')+'</div></td>'
+      +'<td style="text-align:center;font-size:11px;font-family:monospace;color:#555">'+codGest+'</td>'
       +'<td style="text-align:center;font-size:12px">'+(cf||'-')+'</td>'
-      +'<td style="text-align:center;width:84px"><img src="'+q+'" style="width:74px;height:74px"></td>'
+      +'<td style="text-align:center;width:80px"><img src="'+q+'" style="width:70px;height:70px"></td>'
       +'</tr>';
   }).join("")||'<tr><td colspan="4" style="color:#888">Nessuna riga</td></tr>';
   let sottotitolo=oggi+'<br>Ordine n. <strong>'+o.ID+'</strong>';
@@ -2114,7 +2125,7 @@ function buildOrdinePDF(o){
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Ordine '+o.ID,sottotitolo)
    +fornBox
    +'<p style="font-size:13px">Spett.le <strong>'+(o.Fornitore||'')+'</strong>, Vi richiediamo i seguenti materiali:</p>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. fornitore</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. gestionale</th><th align="center">Cod. fornitore</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
    +'<p style="margin-top:18px;font-size:13px">Cordiali saluti,<br>Atelier Tonini</p>'
    +'</div>';
 }
