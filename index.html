@@ -1683,7 +1683,7 @@ function buildReportCommessa(comm){
   const codeDi=(m)=>{if(m.PezzoID)return m.PezzoID;let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);return (art&&/^ART-/.test(art.ID))?art.ID:'-';};
   const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0}; tot[k].q+=(+m.Quantita||0); tot[k].n++;});
   const righeTot=Object.keys(tot).map(k=>{const t=tot[k];return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:right">'+t.n+'</td></tr>';}).join("")||'<tr><td colspan="4" style="color:#888">Nessun consumo registrato</td></tr>';
-  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="6" style="color:#888">Nessun movimento</td></tr>';
+  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="7" style="color:#888">Nessun movimento</td></tr>';
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
   const rettBlock=rett.length?('<h3 style="font-size:15px;margin:18px 0 8px">Rettifiche manuali</h3><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Voce</th><th align="left">Valore</th><th align="left">Note</th></tr></thead><tbody>'+rett.map(r=>'<tr><td>'+r.Voce+'</td><td>'+r.Valore+'</td><td>'+r.Note+'</td></tr>').join("")+'</tbody></table>'):'';
   const oggi=new Date().toLocaleDateString('it-IT');
@@ -1693,7 +1693,7 @@ function buildReportCommessa(comm){
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
    +rettBlock
    +'</div>';
 }
