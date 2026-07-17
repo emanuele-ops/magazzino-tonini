@@ -1681,8 +1681,15 @@ function buildReportCommessa(comm){
   const movs=movCommessa(comm).filter(m=>m.Tipo==="scarico");
   const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'';};
   const codeDi=(m)=>{if(m.PezzoID)return m.PezzoID;let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);return (art&&/^ART-/.test(art.ID))?art.ID:'-';};
-  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0}; tot[k].q+=(+m.Quantita||0); tot[k].n++;});
-  const righeTot=Object.keys(tot).map(k=>{const t=tot[k];return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:right">'+t.n+'</td></tr>';}).join("")||'<tr><td colspan="4" style="color:#888">Nessun consumo registrato</td></tr>';
+  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0,pezzi:[]}; tot[k].q+=(+m.Quantita||0); tot[k].n++; if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
+  const righeTot=Object.keys(tot).map(k=>{const t=tot[k];
+    // Ordina i codici pezzo (P1014, P1015...) in ordine
+    t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    const nPezzi=t.pezzi.length;
+    const codiciCell=nPezzi?('<div style="font-size:11px;color:#555;font-family:monospace">'+t.pezzi.join(', ')+'</div>'):'-';
+    return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
+      +(nPezzi?'<tr><td colspan="5" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
+  }).join("")||'<tr><td colspan="5" style="color:#888">Nessun consumo registrato</td></tr>';
   const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="7" style="color:#888">Nessun movimento</td></tr>';
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
   const rettBlock=rett.length?('<h3 style="font-size:15px;margin:18px 0 8px">Rettifiche manuali</h3><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Voce</th><th align="left">Valore</th><th align="left">Note</th></tr></thead><tbody>'+rett.map(r=>'<tr><td>'+r.Voce+'</td><td>'+r.Valore+'</td><td>'+r.Note+'</td></tr>').join("")+'</tbody></table>'):'';
@@ -1691,7 +1698,7 @@ function buildReportCommessa(comm){
    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:16px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Report commessa</div></div><div style="text-align:right;font-size:12px;color:#777">Generato il '+oggi+'</div></div>'
    +'<table style="width:100%;font-size:13px;margin-bottom:16px"><tr><td style="color:#777;width:130px">Commessa</td><td style="font-weight:700">'+c.ID+'</td></tr>'+(c.Nome&&c.Nome!==c.ID?'<tr><td style="color:#777">Descrizione</td><td>'+c.Nome+'</td></tr>':'')+(c.Cliente?'<tr><td style="color:#777">Cliente</td><td>'+c.Cliente+'</td></tr>':'')+'</table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
    +rettBlock
