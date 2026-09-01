@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v52 - Atelier</div>
+  <div id="ver-badge">v54 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -904,12 +904,20 @@ async function call(fn, args) {
 
     // ---- ASSEGNAZIONI ----
     if (fn === "assegnaPezzoSingolo") {
-      if (args.tipo === "pannello") {
-        await sbPatch("pannelli", "id=eq." + encodeURIComponent(args.id), { commesse: args.commessa || "" });
-      } else {
-        await sbPatch("massicci", "id=eq." + encodeURIComponent(args.id), { commesse: args.commessa || "" });
-      }
-      return { ok: true };
+      const tabP = args.tipo === "pannello" ? "pannelli" : "massicci";
+      await sbPatch(tabP, "id=eq." + encodeURIComponent(args.id), { commesse: args.commessa || "" });
+      // IMPORTANTE: i report leggono i MOVIMENTI, non il campo commesse del pezzo.
+      // Se il pezzo e' gia' stato scaricato, allineo anche i suoi movimenti di
+      // scarico, altrimenti resterebbe nel report della vecchia commessa.
+      // Gli scarichi hanno sempre un solo pezzo, quindi il confronto esatto e' sicuro.
+      let allineati = 0;
+      try {
+        const mv = await sbPatch("movimenti",
+          "pezzo_id=eq." + encodeURIComponent(args.id) + "&tipo=eq.scarico&annullato=is.false",
+          { commessa: args.commessa || "" });
+        allineati = (mv || []).length;
+      } catch (e) { /* nessun movimento da allineare */ }
+      return { ok: true, movAllineati: allineati };
     }
 
     // ---- INVIO ORDINE ----
@@ -1709,10 +1717,17 @@ function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct
 }
 function renderMassicci(){
   const tb='<div style="display:flex;gap:6px"><button class="btn '+(MASS_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'fam\')">Famiglie</button><button class="btn '+(MASS_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'griglia\')">Griglia</button></div>';
-  let html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Legni massicci</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefiloMassiccio()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoMassiccio()">+ Carico massiccio</button></div></div>';
-  if(!STATE.massicci.length)return html+'<div class="card" style="color:var(--gray)">Nessun massiccio caricato.</div>';
-  if(MASS_VIEW==='griglia'){const ord=STATE.massicci.slice().sort((a,b)=>String(a.ID).localeCompare(String(b.ID)));return html+'<div class="piece-grid">'+ord.map(cardMassiccio).join("")+'</div>';}
-  const g={}; STATE.massicci.forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Legni massicci</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefiloMassiccio()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoMassiccio()">+ Carico massiccio</button></div></div>'
+    +'<div class="filters"><input id="mass-q" placeholder="Cerca massiccio per codice o tipo..." oninput="filtraMassicci()"></div>'
+    +'<div id="mass-cont">'+massicciCont("")+'</div>';
+}
+function massicciCont(filtro){
+  let list=STATE.massicci;
+  if(filtro){const q=filtro.toLowerCase();list=list.filter(p=>{const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);return (p.ID+' '+(art?art.Nome:'')+' '+p.ArticoloID+' '+(p.Fornitore||'')+' '+(p.Note||'')).toLowerCase().indexOf(q)>=0;});}
+  if(!list.length)return '<div class="card" style="color:var(--gray)">Nessun massiccio.</div>';
+  if(MASS_VIEW==='griglia'){const ord=list.slice().sort((a,b)=>String(a.ID).localeCompare(String(b.ID)));return '<div class="piece-grid">'+ord.map(cardMassiccio).join("")+'</div>';}
+  const g={}; list.forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
+  let html='';
   Object.keys(g).forEach(id=>{
     const ps=g[id],art=STATE.articoli.find(a=>a.ID===id);
     const tot=ps.reduce((s,p)=>s+(+p.M3_residuo||0),0),us=ps.filter(p=>+p.M3_residuo>0.0001).length;const dest=destinatoMassicci(id);
@@ -1720,6 +1735,7 @@ function renderMassicci(){
   });
   return html;
 }
+function filtraMassicci(){document.getElementById("mass-cont").innerHTML=massicciCont(document.getElementById("mass-q").value);if(MASS_VIEW==='fam')collassaFam();}
 
 // -- MOVIMENTI --
 function renderMovimenti(){
@@ -3099,7 +3115,10 @@ function dr(k,v){return '<div class="det-row"><span>'+k+'</span><span>'+v+'</spa
 function openAssegnaItem(tipo,id){
   let info='',qInput='';
   if(tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===id)||{};const lib=Math.max(0,(+a.Stock||0)-impegnatoArt(a));info=a.Nome+' - liberi '+lib+' '+a.UnitaMisura;qInput='<div class="form-group"><label>Quantita da assegnare</label><input type="number" step="any" id="asg-q" value="'+lib+'"></div>';}
-  else{const p=(tipo==='pannello'?STATE.pannelli:STATE.massicci).find(x=>x.ID===id)||{};info=id+' - '+nomeTipo(p.ArticoloID)+(String(p.Commesse||'').trim()?(' (ora: '+p.Commesse+')'):'');}
+  else{const p=(tipo==='pannello'?STATE.pannelli:STATE.massicci).find(x=>x.ID===id)||{};
+    info=id+' - '+nomeTipo(p.ArticoloID)+(String(p.Commesse||'').trim()?(' (ora: '+p.Commesse+')'):'');
+    const scarichi=STATE.movimenti.filter(m=>m.PezzoID===id&&m.Tipo==='scarico'&&m.Annullato!=='SI');
+    if(scarichi.length)info+='<div style="margin-top:6px;color:var(--accent)">Pezzo gia scaricato: verranno spostati sulla nuova commessa anche i suoi '+scarichi.length+' movimenti, cosi i report tornano subito.</div>';}
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Assegna a commessa</h2>'
    +'<div class="info-box">'+info+'</div>'
    +'<div class="form-group"><label>Commessa</label><select id="asg-c">'+optCommesse()+'</select></div>'+qInput
@@ -3109,9 +3128,11 @@ function openAssegnaItem(tipo,id){
 function submitAssegnaItem(tipo,id,togli){
   const c=togli?"":document.getElementById("asg-c").value;
   if(!togli&&!c){showErr("asg-err","Scegli una commessa.");return;}
-  const done=()=>Promise.all([call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([a,p,m])=>{STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];closeModal();toast(togli?"Tolto dalla commessa":"Assegnato alla commessa");renderPage(STATE.pagina);});
+  const done=(msg)=>Promise.all([call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti")]).then(([a,p,m,mv])=>{STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];closeModal();toast(msg||(togli?"Tolto dalla commessa":"Assegnato alla commessa"));renderPage(STATE.pagina);});
   if(tipo==='articolo'){const q=document.getElementById("asg-q").value;call("assegnaArticoloSingolo",{artId:id,commessa:c,quantita:q}).then(r=>{if(!r.ok){showErr("asg-err",r.err||"Errore");return;}if(+r.daOrdinare>0)toast("Assegnati "+r.assegnato+", "+r.daOrdinare+" non disponibili","err");done();});}
-  else call("assegnaPezzoSingolo",{tipo:tipo,id:id,commessa:c}).then(r=>{if(!r.ok){showErr("asg-err",r.err||"Errore");return;}done();});
+  else call("assegnaPezzoSingolo",{tipo:tipo,id:id,commessa:c}).then(r=>{if(!r.ok){showErr("asg-err",r.err||"Errore");return;}
+    const n=+r.movAllineati||0;
+    done(n?((togli?"Tolto dalla commessa":"Assegnato alla commessa")+": aggiornati anche "+n+" movimenti, i report sono allineati"):null);});
 }
 function openDestinati(artId,tipo){
   let h='';
@@ -3137,7 +3158,7 @@ function togliDestinazione(tipo,id,commessa){
   } else {
     call("assegnaPezzoSingolo",{tipo:tipo,id:id,commessa:""}).then(r=>{
       if(!r.ok){toast(r.err||"Errore","err");return;}
-      Promise.all([call("getPannelli"),call("getMassicci"),call("getFabbisogno")]).then(([p,m,fb])=>{STATE.pannelli=p||[];STATE.massicci=m||[];STATE.fabbisogni=fb||[];toast("Pezzo "+id+" tolto dalla commessa");closeModal();renderPage(STATE.pagina);});
+      Promise.all([call("getPannelli"),call("getMassicci"),call("getFabbisogno"),call("getMovimenti")]).then(([p,m,fb,mv])=>{STATE.pannelli=p||[];STATE.massicci=m||[];STATE.fabbisogni=fb||[];STATE.movimenti=mv||[];toast("Pezzo "+id+" tolto dalla commessa");closeModal();renderPage(STATE.pagina);});
     });
   }
 }
