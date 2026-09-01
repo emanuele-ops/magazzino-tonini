@@ -213,6 +213,7 @@
       <a data-page="destinati"><span class="nav-dot"></span>Destinati commesse</a>
       <a data-page="fornitori"><span class="nav-dot"></span>Fornitori</a>
       <a data-page="commesse"><span class="nav-dot"></span>Commesse</a>
+      <a data-page="voci"><span class="nav-dot"></span>Altre voci</a>
       <a data-page="offerte"><span class="nav-dot"></span>Offerte</a>
       <a data-page="modelli"><span class="nav-dot"></span>Modelli documenti</a>
       <a data-page="qr"><span class="nav-dot"></span>QR Code</a>
@@ -239,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v47 - Atelier</div>
+  <div id="ver-badge">v49 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -258,7 +259,8 @@ window.onerror = function(msg, src, line, col){
 </script>
 
 <script>
-let STATE = { articoli:[], pannelli:[], massicci:[], movimenti:[], commesse:[], fornitori:[], fabbisogni:[], modelli:[], immagini:[], ordini:[], riserve:[], utente:{}, pagina:"dashboard" };
+let STATE = { articoli:[], pannelli:[], massicci:[], movimenti:[], commesse:[], fornitori:[], fabbisogni:[], modelli:[], immagini:[], ordini:[], riserve:[], voci:[], utente:{}, pagina:"dashboard" };
+const CAT_VOCI = ["Conto lavorazione","Forniture di terzi","Componenti","Trasporti","Manutenzioni","Pasti e trasferte","Noleggi","Servizi e consulenze","Altro"];
 let CURRENT_DETAIL=null;
 let QR_TARGET = null, APP_URL = "";
 let SEL = {}, SELTIPO = null, QRSEL = {};
@@ -281,7 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function loadAll() {
   try{var sl=document.getElementById("side-logo");if(sl)sl.src=LOGO_IMG;}catch(e){}
   const sc = fn => call(fn).catch(e => ({ __err: String((e && e.message) || e) }));
-  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve")])
+  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve"),sc("getVoci")])
   .then(res => {
     const errs = [];
     const ok = (v,name,def) => { if (v && v.__err) { errs.push(name); return def; } return (v==null?def:v); };
@@ -297,6 +299,7 @@ function loadAll() {
     STATE.ordini    = ok(res[9],"Ordini",[]);
     STATE.utente    = ok(res[10],"Utente",{});
     STATE.riserve   = ok(res[11],"Riserve",[]);
+    STATE.voci      = ok(res[12],"Altre voci",[]);
     const u = STATE.utente || {};
     // Login Supabase
     if (u.autorizzato === "__login__") {
@@ -331,7 +334,7 @@ function loadAll() {
 // Operator: nasconde le voci gestionali, lascia l'essenziale
 function adattaRuolo(ruolo){
   if(ruolo!=="operator")return;
-  ["report","qr","ordini","modelli","evasi","fornitori","commesse","offerte","destinati"].forEach(p=>{
+  ["report","qr","ordini","modelli","evasi","fornitori","commesse","offerte","destinati","voci"].forEach(p=>{
     const a=document.querySelector("#sidebar-nav a[data-page='"+p+"']"); if(a)a.style.display="none";
     const b=document.querySelector(".mobile-nav a[data-page='"+p+"']"); if(b)b.style.display="none";
   });
@@ -344,8 +347,8 @@ function collassaFam(){document.querySelectorAll("#main-content .piece-grid").fo
 // Menu completo per mobile: rende raggiungibili tutte le sezioni
 function openMobileMenu(){
   const op = STATE.utente.Ruolo==="operator";
-  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
-  const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr"]:[];
+  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["voci","Altre voci"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
+  const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr","voci"]:[];
   const items=pages.filter(p=>hide.indexOf(p[0])<0).map(p=>{const att=STATE.pagina===p[0];return '<button class="det-btn" style="margin-top:0;text-align:left;background:'+(att?'var(--accent-light)':'#faf8f4')+';color:'+(att?'var(--accent)':'var(--ink)')+'" onclick="closeModal();navTo(\''+p[0]+'\')">'+p[1]+'</button>';}).join("");
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Menu</h2><div style="display:flex;flex-direction:column;gap:8px">'+items+'</div></div>');
 }
@@ -409,6 +412,7 @@ function renderPage(p){
   else if(p==="destinati")m.innerHTML=renderDestinati();
   else if(p==="fornitori")m.innerHTML=renderFornitori();
   else if(p==="commesse")m.innerHTML=renderCommesse();
+  else if(p==="voci")m.innerHTML=renderVoci();
   else if(p==="offerte")m.innerHTML=renderOfferte();
   else if(p==="modelli")m.innerHTML=renderModelli();
   else if(p==="qr")m.innerHTML=renderQR();
@@ -554,6 +558,35 @@ async function call(fn, args) {
     if (fn === "getRettifiche") {
       const rows = await sbGet("rettifiche");
       return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Voce: r.voce, Valore: r.valore, Note: r.note, Data: r.data }));
+    }
+    if (fn === "getVoci") {
+      const rows = await sbGet("voci_commessa", "select=*&order=data.desc");
+      return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Data: r.data, Categoria: r.categoria,
+        Descrizione: r.descrizione, Fornitore: r.fornitore || "", Quantita: r.quantita,
+        Unita: r.unita || "", Importo: r.importo, NrFattura: r.nr_fattura || "",
+        Stato: r.stato, InOrdine: !!r.in_ordine, OrdineID: r.ordine_id || "", Note: r.note || "" }));
+    }
+    if (fn === "salvaVoce") {
+      const d = args;
+      const row = { commessa: d.Commessa || "", data: d.Data || new Date().toISOString().slice(0,10),
+        categoria: d.Categoria || "Altro", descrizione: d.Descrizione || "", fornitore: d.Fornitore || "",
+        quantita: d.Quantita === "" || d.Quantita == null ? null : parseFloat(d.Quantita),
+        unita: d.Unita || "", importo: d.Importo === "" || d.Importo == null ? null : parseFloat(d.Importo),
+        nr_fattura: d.NrFattura || "", stato: d.Stato || "da_ordinare",
+        in_ordine: !!d.InOrdine, note: d.Note || "" };
+      if (d.ID) { await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(d.ID), row); return { ok: true, id: d.ID }; }
+      const r = await sbPost("voci_commessa", row);
+      return { ok: true, id: (r && r[0] && r[0].id) || "" };
+    }
+    if (fn === "eliminaVoce") {
+      await sbDelete("voci_commessa", "id=eq." + encodeURIComponent(args.id));
+      return { ok: true };
+    }
+    if (fn === "aggiornaStatoVoce") {
+      const upd = { stato: args.stato };
+      if (args.ordineId !== undefined) upd.ordine_id = args.ordineId || "";
+      await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(args.id), upd);
+      return { ok: true };
     }
     if (fn === "getOfferte") {
       const rows = await sbGet("offerte", "select=*&order=data.desc");
@@ -1147,6 +1180,7 @@ async function call(fn, args) {
           }
         }
         if (r.fabId) await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(r.fabId), { stato: "ricevuto" }).catch(()=>{});
+        if (r.voceId) await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(r.voceId), { stato: "ricevuto" }).catch(()=>{});
       }
       await sbPatch("ordini", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto" });
       return { ok: true };
@@ -1206,10 +1240,10 @@ function refreshApp(){
   const btn=document.getElementById("btn-refresh"); if(btn)btn.classList.add("spin-on");
   const cur=STATE.pagina||"dashboard";
   const sc=fn=>call(fn).catch(()=>[]);
-  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getRiserve")])
-  .then(([a,p,m,mv,c,f,fb,md,im,or,ri])=>{
+  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getRiserve"),sc("getVoci")])
+  .then(([a,p,m,mv,c,f,fb,md,im,or,ri,vc])=>{
     STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];
-    STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];
+    STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.voci=vc||[];
     renderPage(cur);toast("Dati aggiornati");
   })
   .catch(()=>toast("Errore durante l'aggiornamento da Supabase","err"))
@@ -1434,6 +1468,8 @@ async function eseguiRipristino(){
     await up("immagini",(data.immagini||[]).map(i=>({rif_id:i.RifID,file_id:i.FileID,thumb_url:i.ThumbUrl,data:i.Data||null})),"immagini");
     // MODELLI
     await up("modelli",(data.modelli||[]).map(m=>({chiave:m.Chiave,titolo:m.Titolo,oggetto:m.Oggetto,corpo:m.Corpo,note:m.Note})),"modelli");
+    // ALTRE VOCI DI COMMESSA
+    await up("voci_commessa",(data.voci||[]).map(v=>({id:v.ID,commessa:v.Commessa,data:v.Data||null,categoria:v.Categoria,descrizione:v.Descrizione,fornitore:v.Fornitore||'',quantita:v.Quantita,unita:v.Unita||'',importo:v.Importo,nr_fattura:v.NrFattura||'',stato:v.Stato||'solo_costo',in_ordine:!!v.InOrdine,ordine_id:v.OrdineID||'',note:v.Note||''})),"altre voci");
     setP("Ripristino completato!");
     toast("Ripristino completato. Ricarico i dati...");
     setTimeout(()=>location.reload(),1400);
@@ -1444,13 +1480,13 @@ function scaricaBackup(){
   Promise.all([
     call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),
     call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
-    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli")
-  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli])=>{
+    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci")
+  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci])=>{
     const d=new Date();
     const pad=n=>String(n).padStart(2,"0");
     const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
     // 1) JSON completo (per il ripristino nell'app)
-    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli};
+    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci};
     scaricaFile(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),"backup-magazzino_"+stamp+".json");
     // 2) Excel con un foglio per ogni tabella
     try{
@@ -1460,7 +1496,7 @@ function scaricaBackup(){
       aggiungi("Movimenti",movimenti); aggiungi("Commesse",commesse); aggiungi("Fornitori",fornitori);
       aggiungi("Fabbisogni",fabbisogni); aggiungi("Ordini",ordini.map(o=>Object.assign({},o,{Righe:JSON.stringify(o.Righe||[])})));
       aggiungi("Offerte",offerte.map(o=>Object.assign({},o,{Dati:JSON.stringify(o.Dati||{})})));
-      aggiungi("Riserve",riserve); aggiungi("Rettifiche",rettifiche); aggiungi("Immagini",immagini); aggiungi("Modelli",modelli);
+      aggiungi("Riserve",riserve); aggiungi("Rettifiche",rettifiche); aggiungi("Immagini",immagini); aggiungi("Modelli",modelli); aggiungi("Altre voci",voci);
       const xbuf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
       scaricaFile(new Blob([xbuf],{type:"application/octet-stream"}),"magazzino_"+stamp+".xlsx");
     }catch(e){console.error("Excel non generato:",e);}
@@ -1732,6 +1768,22 @@ function buildReportCommessa(comm){
       +(nPezzi?'<tr><td colspan="5" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
   }).join("")||'<tr><td colspan="5" style="color:#888">Nessun consumo registrato</td></tr>';
   const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="7" style="color:#888">Nessun movimento</td></tr>';
+  // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
+  const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
+    .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(a.Data).localeCompare(String(b.Data)));
+  let vociBlock='';
+  if(voci.length){
+    let catPrec=null,totV=0,rr='';
+    voci.forEach(function(v){
+      totV+=(+v.Importo||0);
+      if(v.Categoria!==catPrec){catPrec=v.Categoria;rr+='<tr><td colspan="5" style="background:#f7f3ec;font-weight:bold;padding:5px 6px">'+catPrec+'</td></tr>';}
+      const q=(v.Quantita!=null&&v.Quantita!=="")?(v.Quantita+' '+(v.Unita||'')):'-';
+      rr+='<tr><td>'+String(v.Data||'').slice(0,10)+'</td><td>'+v.Descrizione+(v.Note?('<div style="font-size:11px;color:#777">'+v.Note+'</div>'):'')+'</td><td>'+(v.Fornitore||'-')+'</td><td align="center">'+q+'</td><td align="right">'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</td></tr>';
+    });
+    rr+='<tr style="background:#efefef"><td colspan="4" align="right" style="font-weight:bold">Totale altre voci</td><td align="right" style="font-weight:bold">&euro; '+euro(totV)+'</td></tr>';
+    vociBlock='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci di commessa</h3>'
+      +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Voce</th><th align="left">Fornitore</th><th align="center">Q.ta</th><th align="right">Importo</th></tr></thead><tbody>'+rr+'</tbody></table>';
+  }
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
   const rettBlock=rett.length?('<h3 style="font-size:15px;margin:18px 0 8px">Rettifiche manuali</h3><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Voce</th><th align="left">Valore</th><th align="left">Note</th></tr></thead><tbody>'+rett.map(r=>'<tr><td>'+r.Voce+'</td><td>'+r.Valore+'</td><td>'+r.Note+'</td></tr>').join("")+'</tbody></table>'):'';
   const oggi=new Date().toLocaleDateString('it-IT');
@@ -1742,6 +1794,7 @@ function buildReportCommessa(comm){
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
+   +vociBlock
    +rettBlock
    +'</div>';
 }
@@ -1882,6 +1935,15 @@ function renderOrdini(){
    +'<div id="ord-cont">'+ordiniCont()+'</div>';
 }
 function ordSelComm(c){FAB_COMM=c;document.getElementById("ord-cont").innerHTML=ordiniCont();}
+// Voci "altre" della commessa marcate per entrare negli ordini al fornitore
+function vociDaOrdinare(comm){
+  return (STATE.voci||[]).filter(v=>v.Commessa===comm&&v.InOrdine&&v.Stato!=='ricevuto'&&v.Stato!=='solo_costo');
+}
+function dettaglioVoce(v){
+  const q=(v.Quantita!=null&&v.Quantita!=="")?(v.Quantita+' '+(v.Unita||'')):'';
+  return (v.Categoria||'')+(q?(' - '+q):'');
+}
+function dettaglioRiga(f){return f.__voce?dettaglioVoce(f):fabDettaglio(f);}
 function fabDettaglio(f){
   if(f.Tipo==='articolo')return (f.Quantita||'')+' '+(f.UnitaMisura||'');
   if(f.Tipo==='pannello')return (f.NumPezzi||'')+' pz '+(f.Dim1||'')+'x'+(f.Dim2||'')+'mm';
@@ -1944,10 +2006,12 @@ function ordiniCont(){
   }).join("")||'<div style="color:var(--gray);font-size:13px">Nessun materiale in lista. Usa "+ Aggiungi materiale".</div>';
   const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale');
   const gruppi={}; daOrd.forEach(f=>{const fo=f.Fornitore||'(senza fornitore)';(gruppi[fo]=gruppi[fo]||[]).push(f);});
+  // le "altre voci" marcate per gli ordini entrano nello stesso raggruppamento per fornitore
+  vociDaOrdinare(FAB_COMM).forEach(v=>{const fo=v.Fornitore||'(senza fornitore)';(gruppi[fo]=gruppi[fo]||[]).push({__voce:true,ID:v.ID,Descrizione:v.Descrizione,Categoria:v.Categoria,Quantita:v.Quantita,Unita:v.Unita,Note:v.Note});});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===fo.trim().toLowerCase())||{}).Email||'';
     return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
-     +gruppi[fo].map(f=>'<div style="font-size:12.5px;color:var(--gray);padding:3px 0">'+f.Descrizione+' - '+fabDettaglio(f)+'</div>').join("")+'</div>';
+     +gruppi[fo].map(f=>'<div style="font-size:12.5px;color:var(--gray);padding:3px 0">'+f.Descrizione+' - '+dettaglioRiga(f)+(f.__voce?' <span class="badge badge-accent">altra voce</span>':'')+'</div>').join("")+'</div>';
   }).join("");
   return '<div class="card" style="margin-bottom:16px"><div class="card-title">Materiali della commessa '+FAB_COMM+'</div>'+rows+'</div>'+(ordini?'<div class="op-sec">Riordino per questa commessa</div>'+ordini:'');
 }
@@ -2155,12 +2219,16 @@ function inviaOrdComm(forn){
   const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&((f.Fornitore||'(senza fornitore)')===forn));
   const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===forn.trim().toLowerCase())||{}).Email||'';
   if(!em){toast("Imposta prima l'email del fornitore","err");openFornitore(forn);return;}
-  if(!list.length){toast("Nessun materiale da ordinare","err");return;}
-  const righe=list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}));
+  const voci=vociDaOrdinare(FAB_COMM).filter(v=>(v.Fornitore||'(senza fornitore)')===forn);
+  if(!list.length&&!voci.length){toast("Nessun materiale da ordinare","err");return;}
+  const righe=list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
+    .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
   toast("Invio in corso...");
   call("emettiOrdineCommessa",{commessa:FAB_COMM,fornitore:forn,email:em,righe:righe}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
-    toast("Ordine registrato per "+forn+" (esporta il PDF per inviarlo)");
-    Promise.all([call("getFabbisogno"),call("getOrdini")]).then(([fb,or])=>{STATE.fabbisogni=fb||[];STATE.ordini=or||[];renderPage(STATE.pagina);});
+    Promise.all(voci.map(v=>call("aggiornaStatoVoce",{id:v.ID,stato:'ordinato',ordineId:r.id}))).then(()=>{
+      toast("Ordine registrato per "+forn+" (esporta il PDF per inviarlo)");
+      Promise.all([call("getFabbisogno"),call("getOrdini"),call("getVoci")]).then(([fb,or,vc])=>{STATE.fabbisogni=fb||[];STATE.ordini=or||[];STATE.voci=vc||[];renderPage(STATE.pagina);});
+    });
   });
 }
 function stampaOrdineCommessa(forn){
@@ -2181,7 +2249,11 @@ function stampaOrdineCommessa(forn){
       +'<td style="text-align:center;font-size:11px;font-family:monospace;color:#555">'+codGest+'</td>'
       +'<td style="text-align:center;font-size:12px">'+(cf||'-')+'</td>'
       +'</tr>';
-  }).join("")||'<tr><td colspan="4" style="color:#888">Nessun materiale</td></tr>';
+  }).join("")
+  + vociDaOrdinare(FAB_COMM).filter(v=>(v.Fornitore||'(senza fornitore)')===forn).map(function(v){
+      return '<tr><td></td><td>'+v.Descrizione+'<div style="font-size:11px;color:#777">'+dettaglioVoce(v)+(v.Note?(' - '+v.Note):'')+'</div></td><td style="text-align:center;font-size:11px;color:#555">-</td><td style="text-align:center;font-size:12px">-</td></tr>';
+    }).join("")
+  || '<tr><td colspan="4" style="color:#888">Nessun materiale</td></tr>';
   // Cerca il numero ordine piu recente per questa commessa+fornitore
   const ord=(STATE.ordini||[]).filter(o=>o.Commessa===FAB_COMM&&String(o.Fornitore).trim().toLowerCase()===String(forn).trim().toLowerCase()).sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))[0];
   const numOrd=ord?ord.ID:'(da emettere)';
@@ -2281,8 +2353,8 @@ function buildOrdinePDF(o){
 function esportaOrdinePDF(id){const o=(STATE.ordini||[]).find(x=>x.ID===id);if(!o)return;stampaHTML(buildOrdinePDF(o));}
 function caricaOrdineMagazzino(id){
   call("riceviOrdine",{id:id}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
-    Promise.all([call("getOrdini"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),call("getFabbisogno")]).then(([or,a,p,m,mv,fb])=>{
-      STATE.ordini=or||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];STATE.fabbisogni=fb||[];
+    Promise.all([call("getOrdini"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),call("getFabbisogno"),call("getVoci")]).then(([or,a,p,m,mv,fb,vc])=>{
+      STATE.ordini=or||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];STATE.fabbisogni=fb||[];STATE.voci=vc||[];
       toast("Ordine caricato a magazzino");renderPage(STATE.pagina);});
   });
 }
@@ -2530,6 +2602,110 @@ function openNuovaCommessa(){openModal('<div class="modal"><button class="modal-
 function submitNuovaCommessa(){const n=document.getElementById("nc-nome").value.trim();if(!n){showErr("nc-err","Inserisci il codice/nome.");return;}
   call("salvaCommessa",{Nome:n,Cliente:document.getElementById("nc-cli").value.trim()}).then(r=>{if(!r.ok){showErr("nc-err",r.err||"Errore.");return;}call("getCommesse").then(c=>{STATE.commesse=c||[];if(typeof FAB_COMM!=='undefined')FAB_COMM=r.id;closeModal();toast("Commessa creata: "+n);renderPage(STATE.pagina);});});}
 
+// ============================================================
+//  ALTRE VOCI DI COMMESSA
+//  Tutto cio che non e pannello, massiccio o articolo:
+//  conto lavorazione, forniture di terzi, componenti, trasporti,
+//  manutenzioni, pasti e trasferte. Compilate a mano, finiscono
+//  nel report della commessa e possono entrare negli ordini.
+// ============================================================
+let VOCI_COMM="", VOCI_CAT="";
+function vociDi(comm){return (STATE.voci||[]).filter(v=>!comm||v.Commessa===comm);}
+function categorieVoci(){
+  const s={};CAT_VOCI.forEach(c=>s[c]=1);(STATE.voci||[]).forEach(v=>{if(v.Categoria)s[v.Categoria]=1;});
+  return Object.keys(s).sort();
+}
+function renderVoci(){
+  const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+  const optC='<option value="">Tutte le commesse</option>'+comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===VOCI_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
+  const optK='<option value="">Tutte le categorie</option>'+categorieVoci().map(k=>'<option'+(k===VOCI_CAT?' selected':'')+'>'+k+'</option>').join("");
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Altre voci</h1><button class="btn btn-accent" onclick="openNuovaVoce()">+ Nuova voce</button></div>'
+   +'<div class="info-box">Qui imputi alle commesse tutto quello che non passa dal magazzino: conto lavorazione, forniture di terzi, componenti, trasporti, manutenzioni, pasti e trasferte. Compare nel report della commessa insieme ai materiali.</div>'
+   +'<div class="filters"><select id="vc-comm" onchange="vociFiltro()">'+optC+'</select><select id="vc-cat" onchange="vociFiltro()">'+optK+'</select></div>'
+   +'<div id="vc-cont">'+vociCont()+'</div>';
+}
+function vociFiltro(){
+  VOCI_COMM=document.getElementById("vc-comm").value;
+  VOCI_CAT=document.getElementById("vc-cat").value;
+  document.getElementById("vc-cont").innerHTML=vociCont();
+}
+function badgeStatoVoce(s){
+  const m={da_ordinare:['badge-amber','da ordinare'],ordinato:['badge-accent','ordinato'],ricevuto:['badge-green','ricevuto'],solo_costo:['badge-gray','solo costo']};
+  const x=m[s]||['badge-gray',s];return '<span class="badge '+x[0]+'">'+x[1]+'</span>';
+}
+function vociCont(){
+  let list=vociDi(VOCI_COMM);
+  if(VOCI_CAT)list=list.filter(v=>v.Categoria===VOCI_CAT);
+  if(!list.length)return '<div class="card" style="color:var(--gray)">Nessuna voce. Usa "+ Nuova voce" per aggiungerne una.</div>';
+  // riepilogo per categoria
+  const perCat={};let tot=0;
+  list.forEach(v=>{const k=v.Categoria||'Altro';perCat[k]=(perCat[k]||0)+(+v.Importo||0);tot+=(+v.Importo||0);});
+  const riep='<div class="card" style="margin-bottom:14px"><div class="card-title">Totale '+(VOCI_COMM?('commessa '+VOCI_COMM):'di tutte le commesse')+'</div>'
+    +Object.keys(perCat).sort().map(k=>'<div class="det-row"><span>'+k+'</span><span>&euro; '+euro(perCat[k])+'</span></div>').join("")
+    +'<div class="det-row" style="border-bottom:none"><span style="font-weight:700">Totale</span><span style="font-weight:700">&euro; '+euro(tot)+'</span></div></div>';
+  // raggruppa per commessa quando le vedo tutte
+  const g={};list.forEach(v=>{(g[v.Commessa||'(senza commessa)']=g[v.Commessa||'(senza commessa)']||[]).push(v);});
+  const blocchi=Object.keys(g).sort().map(function(c){
+    const righe=g[c].sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).map(function(v){
+      const q=(v.Quantita!=null&&v.Quantita!=="")?(v.Quantita+' '+(v.Unita||'')):'';
+      return '<div style="padding:11px 0;border-top:1px solid var(--border)">'
+       +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:200px">'
+       +'<div style="font-weight:600">'+v.Descrizione+' '+badgeStatoVoce(v.Stato)+(v.InOrdine?' <span class="badge badge-accent">negli ordini</span>':'')+'</div>'
+       +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+v.Categoria+(v.Fornitore?(' &middot; '+v.Fornitore):'')+(q?(' &middot; '+q):'')+' &middot; '+String(v.Data||'').slice(0,10)+(v.NrFattura?(' &middot; ft. '+v.NrFattura):'')+'</div>'
+       +(v.Note?'<div style="font-size:12px;color:var(--gray);font-style:italic;margin-top:2px">'+v.Note+'</div>':'')
+       +'</div><div style="text-align:right;white-space:nowrap"><div style="font-weight:700">'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</div>'
+       +'<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button class="btn btn-accent" onclick="openNuovaVoce(\''+esc(v.ID)+'\')">Modifica</button><button class="btn btn-red" onclick="confEliminaVoce(\''+esc(v.ID)+'\')">Elimina</button></div>'
+       +'</div></div></div>';
+    }).join("");
+    const totC=g[c].reduce((s,v)=>s+(+v.Importo||0),0);
+    return '<div class="card" style="margin-bottom:12px"><div class="card-title">'+(c==='(senza commessa)'?c:('Commessa '+c))+' &nbsp;<span style="font-weight:400;color:var(--gray)">'+g[c].length+' voci &middot; &euro; '+euro(totC)+'</span></div>'+righe+'</div>';
+  }).join("");
+  return riep+blocchi;
+}
+function openNuovaVoce(id){
+  const v=id?(STATE.voci||[]).find(x=>x.ID===id):null;
+  const d=v||{Commessa:VOCI_COMM,Data:new Date().toISOString().slice(0,10),Categoria:"Conto lavorazione",Stato:"solo_costo"};
+  const optC=(STATE.commesse||[]).map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===d.Commessa?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
+  const optS=[["solo_costo","Solo costo (gia sostenuto)"],["da_ordinare","Da ordinare"],["ordinato","Ordinato"],["ricevuto","Ricevuto"]]
+    .map(s=>'<option value="'+s[0]+'"'+(s[0]===d.Stato?' selected':'')+'>'+s[1]+'</option>').join("");
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button><h2>'+(v?'Modifica voce':'Nuova voce di commessa')+'</h2>'
+   +'<div class="form-row"><div class="form-group"><label>Commessa *</label><select id="nv-comm"><option value="">- Scegli -</option>'+optC+'</select></div>'
+   +'<div class="form-group"><label>Data</label><input type="date" id="nv-data" value="'+att(String(d.Data||'').slice(0,10))+'"></div></div>'
+   +'<div class="form-group"><label>Categoria *</label><input id="nv-cat" list="nv-catl" autocomplete="off" value="'+att(d.Categoria)+'" placeholder="Scrivi o scegli">'
+   +'<datalist id="nv-catl">'+categorieVoci().map(k=>'<option value="'+att(k)+'">').join("")+'</datalist></div>'
+   +'<div class="form-group"><label>Descrizione *</label><input id="nv-desc" value="'+att(d.Descrizione)+'" placeholder="es. Verniciatura ante cucina"></div>'
+   +'<div class="form-group"><label>Fornitore</label><input id="nv-forn" list="nv-fornl" autocomplete="off" value="'+att(d.Fornitore)+'">'
+   +'<datalist id="nv-fornl">'+(STATE.fornitori||[]).map(f=>'<option value="'+att(f.Nome)+'">').join("")+'</datalist></div>'
+   +'<div class="form-row-3"><div class="form-group"><label>Quantita</label><input type="number" step="any" id="nv-q" value="'+att(d.Quantita)+'"></div>'
+   +'<div class="form-group"><label>Unita</label><input id="nv-u" value="'+att(d.Unita)+'" placeholder="pz, ore, mq"></div>'
+   +'<div class="form-group"><label>Importo &euro;</label><input type="number" step="any" id="nv-imp" value="'+att(d.Importo)+'"></div></div>'
+   +'<div class="form-row"><div class="form-group"><label>N. fattura</label><input id="nv-ft" value="'+att(d.NrFattura)+'"></div>'
+   +'<div class="form-group"><label>Stato</label><select id="nv-stato">'+optS+'</select></div></div>'
+   +'<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="nv-ord" '+(d.InOrdine?'checked':'')+' style="width:17px;height:17px;accent-color:var(--accent)"> Includi negli ordini al fornitore</label></div>'
+   +'<div class="form-group"><label>Note</label><input id="nv-note" value="'+att(d.Note)+'"></div>'
+   +'<div id="nv-err"></div><button class="btn-primary" onclick="submitVoce(\''+esc(id||"")+'\')">'+(v?'Salva modifiche':'Aggiungi voce')+'</button></div>');
+}
+function submitVoce(id){
+  const d={ID:id||"",Commessa:gv("nv-comm"),Data:gv("nv-data"),Categoria:gv("nv-cat").trim(),
+    Descrizione:gv("nv-desc").trim(),Fornitore:gv("nv-forn").trim(),Quantita:gv("nv-q"),
+    Unita:gv("nv-u").trim(),Importo:gv("nv-imp"),NrFattura:gv("nv-ft").trim(),
+    Stato:gv("nv-stato"),InOrdine:document.getElementById("nv-ord").checked,Note:gv("nv-note").trim()};
+  if(!d.Commessa){showErr("nv-err","Scegli la commessa.");return;}
+  if(!d.Descrizione){showErr("nv-err","Scrivi la descrizione.");return;}
+  if(!d.Categoria)d.Categoria="Altro";
+  call("salvaVoce",d).then(r=>{
+    if(!r.ok){showErr("nv-err",r.err||"Errore");return;}
+    call("getVoci").then(v=>{STATE.voci=v||[];closeModal();toast(id?"Voce aggiornata":"Voce aggiunta");renderPage(STATE.pagina);});
+  });
+}
+function confEliminaVoce(id){
+  const v=(STATE.voci||[]).find(x=>x.ID===id)||{};
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina voce</h2><div class="alert alert-red">Eliminare <strong>'+(v.Descrizione||id)+'</strong> dalla commessa '+(v.Commessa||'')+'? Non e reversibile.</div><div id="ev-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaVoce(\''+esc(id)+'\')">Elimina</button></div>');
+}
+function submitEliminaVoce(id){
+  call("eliminaVoce",{id:id}).then(r=>{if(!r.ok){showErr("ev-err",r.err||"Errore");return;}
+    call("getVoci").then(v=>{STATE.voci=v||[];closeModal();toast("Voce eliminata");renderPage(STATE.pagina);});});
+}
 // -- MOVIMENTO ARTICOLO --
 function openMovimento(artId,tipo){
   artId=artId||"";tipo=tipo||"carico";
@@ -2628,11 +2804,9 @@ function submitArt(){
 
 // -- CARICO PANNELLI --
 function openCaricoPannelli(){
-  const opt=tipiDi('pannello').map(t=>'<option value="'+att(t.id)+'">'+t.nome+'</option>').join("");
   const next=STATE.pannelli.length?Math.max.apply(null,STATE.pannelli.map(p=>parseInt(String(p.ID).replace("P",""))||0))+1:1;
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Carico pannelli</h2>'
-    +'<div class="form-group"><label>Tipo di pannello *</label><select id="cp-tipo" onchange="cpTipoChange()"><option value="">- Seleziona -</option>'+opt+'<option value="__new__">+ Nuovo tipo...</option></select></div>'
-    +'<div class="form-group" id="cp-newwrap" style="display:none"><label>Nome nuovo tipo *</label><input id="cp-new" list="cp-dl" autocomplete="off" placeholder="Scrivi: compaiono i materiali gia usati" oninput="hintNome(\'cp-new\',\'cp-hint\',\'pannello\')">'+datalistHTML('cp-dl','pannello')+'<div id="cp-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
+    +'<div class="form-group"><label>Tipo di pannello *</label><input id="cp-tipo" list="cp-dl" autocomplete="off" placeholder="Scrivi o scegli: compaiono i tipi gia usati" oninput="cpTipoChange()">'+datalistHTML('cp-dl','pannello')+'<div id="cp-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm *</label><input type="number" id="cp-w" placeholder="2800" oninput="cpPrev()"></div><div class="form-group"><label>Altezza mm *</label><input type="number" id="cp-h" placeholder="2070" oninput="cpPrev()"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>N. pannelli *</label><input type="number" id="cp-q" min="1" placeholder="10" oninput="cpPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cp-f" value="'+next+'" oninput="cpPrev()"></div></div>'
     +'<div class="form-group"><label>Fornitore</label><input id="cp-forn" placeholder="es. Saviola"></div>'
@@ -2642,15 +2816,28 @@ function openCaricoPannelli(){
     +'<div id="cp-prev" class="info-box" style="display:none"></div><div id="cp-err"></div><button class="btn-primary" onclick="submitCP()">Carica pannelli</button></div>');
 }
 function cpDestChange(){const c=document.getElementById("cp-comm").value;const w=document.getElementById("cp-destwrap");if(w)w.style.display=c?'block':'none';}
-function cpTipoChange(){const v=document.getElementById("cp-tipo").value;const w=document.getElementById("cp-newwrap");w.style.display=v==="__new__"?"block":"none";const a=STATE.articoli.find(x=>x.ID===v);const f=document.getElementById("cp-forn");if(a&&!f.value)f.value=a.Fornitore||"";}
+function cpTipoChange(){
+  hintNome('cp-tipo','cp-hint','pannello');
+  const v=(document.getElementById("cp-tipo").value||"").trim();
+  if(!v)return;
+  // riprende fornitore e misure dai pannelli gia caricati dello stesso tipo
+  const a=STATE.articoli.find(x=>x.ID===v||x.Nome===v);
+  const f=document.getElementById("cp-forn");
+  const ult=STATE.pannelli.filter(p=>p.ArticoloID===v).slice(-1)[0];
+  if(f&&!f.value)f.value=(ult&&ult.Fornitore)||(a&&a.Fornitore)||"";
+  if(ult){
+    const w=document.getElementById("cp-w"),h=document.getElementById("cp-h");
+    if(w&&!w.value&&ult.Larghezza_mm)w.value=ult.Larghezza_mm;
+    if(h&&!h.value&&ult.Altezza_mm)h.value=ult.Altezza_mm;
+    cpPrev();
+  }
+}
 function cpPrev(){const w=+document.getElementById("cp-w").value,h=+document.getElementById("cp-h").value,q=+document.getElementById("cp-q").value,f=+document.getElementById("cp-f").value,p=document.getElementById("cp-prev");
   if(w&&h&&q&&f){p.style.display="block";p.innerHTML='Crea P'+String(f).padStart(4,"0")+' - P'+String(f+q-1).padStart(4,"0")+' ('+((w/1000)*(h/1000)*q).toFixed(2)+' m2 totali)';}else p.style.display="none";}
 function submitCP(){
-  const tipo=document.getElementById("cp-tipo").value,w=document.getElementById("cp-w").value,h=document.getElementById("cp-h").value,q=document.getElementById("cp-q").value,f=document.getElementById("cp-f").value,forn=document.getElementById("cp-forn").value;
-  if(!tipo){showErr("cp-err","Seleziona il tipo di pannello.");return;}
-  const d={Larghezza_mm:w,Altezza_mm:h,Quantita:q,PrimoID:f,Fornitore:forn,Note:document.getElementById("cp-note").value};
-  if(tipo==="__new__"){const nome=document.getElementById("cp-new").value.trim();if(!nome){showErr("cp-err","Inserisci il nome del nuovo tipo.");return;}d.NuovoTipo=nome;}
-  else d.ArticoloID=tipo;
+  const tipo=document.getElementById("cp-tipo").value.trim(),w=document.getElementById("cp-w").value,h=document.getElementById("cp-h").value,q=document.getElementById("cp-q").value,f=document.getElementById("cp-f").value,forn=document.getElementById("cp-forn").value;
+  if(!tipo){showErr("cp-err","Scrivi o scegli il tipo di pannello.");return;}
+  const d={ArticoloID:tipo,Larghezza_mm:w,Altezza_mm:h,Quantita:q,PrimoID:f,Fornitore:forn,Note:document.getElementById("cp-note").value};
   if(!w||!h||!q||!f){showErr("cp-err","Compila dimensioni, quantita e primo ID.");return;}
   call("caricaPannelli",d).then(r=>{
     if(!r.ok){showErr("cp-err",r.err||"Errore.");return;}
@@ -2782,11 +2969,9 @@ function submitSPtot(pid){const c=document.getElementById("sp-comm").value,n=doc
 
 // -- CARICO MASSICCIO --
 function openCaricoMassiccio(){
-  const opt=tipiDi('massiccio').map(t=>'<option value="'+att(t.id)+'">'+t.nome+'</option>').join("");
   const next=STATE.massicci.length?Math.max.apply(null,STATE.massicci.map(p=>parseInt(String(p.ID).replace("M",""))||0))+1:1;
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Carico massiccio</h2>'
-    +'<div class="form-group"><label>Tipo di legno *</label><select id="cm-tipo" onchange="cmTipoChange()"><option value="">- Seleziona -</option>'+opt+'<option value="__new__">+ Nuovo tipo...</option></select></div>'
-    +'<div class="form-group" id="cm-newwrap" style="display:none"><label>Nome nuovo tipo *</label><input id="cm-new" list="cm-dl" autocomplete="off" placeholder="Scrivi: compaiono i materiali gia usati" oninput="hintNome(\'cm-new\',\'cm-hint\',\'massiccio\')">'+datalistHTML('cm-dl','massiccio')+'<div id="cm-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
+    +'<div class="form-group"><label>Tipo di legno *</label><input id="cm-tipo" list="cm-dl" autocomplete="off" placeholder="Scrivi o scegli: compaiono i tipi gia usati" oninput="cmTipoChange()">'+datalistHTML('cm-dl','massiccio')+'<div id="cm-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
     +'<div class="toggle"><button id="cm-tm" class="on-accent" onclick="cmModo(\'misure\')">Da misure</button><button id="cm-tt" onclick="cmModo(\'totale\')">m3 diretti</button></div>'
     +'<input type="hidden" id="cm-modo" value="misure">'
     +'<div id="cm-misure"><div class="form-row-3"><div class="form-group"><label>Lungh. mm *</label><input type="number" id="cm-l" placeholder="2500" oninput="cmPrev()"></div><div class="form-group"><label>Largh. mm *</label><input type="number" id="cm-w" placeholder="200" oninput="cmPrev()"></div><div class="form-group"><label>Spess. mm *</label><input type="number" id="cm-s" placeholder="50" oninput="cmPrev()"></div></div><div class="form-row"><div class="form-group"><label>N. pezzi *</label><input type="number" id="cm-q" min="1" value="1" oninput="cmPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cm-f" value="'+next+'" oninput="cmPrev()"></div></div></div>'
@@ -2798,15 +2983,28 @@ function openCaricoMassiccio(){
     +'<div id="cm-prev" class="info-box" style="display:none"></div><div id="cm-err"></div><button class="btn-primary" onclick="submitCM()">Carica massiccio</button></div>');
 }
 function cmDestChange(){const c=document.getElementById("cm-comm").value;const w=document.getElementById("cm-destwrap");if(w)w.style.display=c?'block':'none';}
-function cmTipoChange(){const v=document.getElementById("cm-tipo").value;document.getElementById("cm-newwrap").style.display=v==="__new__"?"block":"none";const a=STATE.articoli.find(x=>x.ID===v);const f=document.getElementById("cm-forn");if(a&&!f.value)f.value=a.Fornitore||"";}
+function cmTipoChange(){
+  hintNome('cm-tipo','cm-hint','massiccio');
+  const v=(document.getElementById("cm-tipo").value||"").trim();
+  if(!v)return;
+  const a=STATE.articoli.find(x=>x.ID===v||x.Nome===v);
+  const f=document.getElementById("cm-forn");
+  const ult=STATE.massicci.filter(p=>p.ArticoloID===v).slice(-1)[0];
+  if(f&&!f.value)f.value=(ult&&ult.Fornitore)||(a&&a.Fornitore)||"";
+  if(ult&&ult.Lunghezza_mm){
+    const l=document.getElementById("cm-l"),w=document.getElementById("cm-w"),s=document.getElementById("cm-s");
+    if(l&&!l.value)l.value=ult.Lunghezza_mm;
+    if(w&&!w.value)w.value=ult.Larghezza_mm;
+    if(s&&!s.value)s.value=ult.Spessore_mm;
+    cmPrev();
+  }
+}
 function cmModo(m){document.getElementById("cm-modo").value=m;document.getElementById("cm-tm").className=m==='misure'?'on-accent':'';document.getElementById("cm-tt").className=m==='totale'?'on-accent':'';document.getElementById("cm-misure").style.display=m==='misure'?'block':'none';document.getElementById("cm-totale").style.display=m==='totale'?'block':'none';cmPrev();}
 function cmPrev(){const p=document.getElementById("cm-prev");if(document.getElementById("cm-modo").value==='misure'){const l=+document.getElementById("cm-l").value,w=+document.getElementById("cm-w").value,s=+document.getElementById("cm-s").value,q=+document.getElementById("cm-q").value;if(l&&w&&s&&q){const m3=(l/1000)*(w/1000)*(s/1000);p.style.display="block";p.innerHTML='Ogni pezzo <strong>'+m3.toFixed(5)+' m3</strong> - totale <strong>'+(m3*q).toFixed(5)+' m3</strong>';}else p.style.display="none";}else{const m=+document.getElementById("cm-m3").value;if(m){p.style.display="block";p.innerHTML='Lotto da <strong>'+m.toFixed(5)+' m3</strong>';}else p.style.display="none";}}
 function submitCM(){
-  const tipo=document.getElementById("cm-tipo").value,modo=document.getElementById("cm-modo").value,forn=document.getElementById("cm-forn").value;
-  if(!tipo){showErr("cm-err","Seleziona il tipo di legno.");return;}
-  const d={modo:modo,Fornitore:forn,Note:document.getElementById("cm-note").value};
-  if(tipo==="__new__"){const nome=document.getElementById("cm-new").value.trim();if(!nome){showErr("cm-err","Inserisci il nome del nuovo tipo.");return;}d.NuovoTipo=nome;}
-  else d.ArticoloID=tipo;
+  const tipo=document.getElementById("cm-tipo").value.trim(),modo=document.getElementById("cm-modo").value,forn=document.getElementById("cm-forn").value;
+  if(!tipo){showErr("cm-err","Scrivi o scegli il tipo di legno.");return;}
+  const d={ArticoloID:tipo,modo:modo,Fornitore:forn,Note:document.getElementById("cm-note").value};
   if(modo==='misure'){d.Lunghezza_mm=document.getElementById("cm-l").value;d.Larghezza_mm=document.getElementById("cm-w").value;d.Spessore_mm=document.getElementById("cm-s").value;d.Quantita=document.getElementById("cm-q").value;d.PrimoID=document.getElementById("cm-f").value;if(!d.Lunghezza_mm||!d.Larghezza_mm||!d.Spessore_mm||!d.Quantita){showErr("cm-err","Compila misure e quantita.");return;}}
   else{d.M3totale=document.getElementById("cm-m3").value;d.PrimoID=document.getElementById("cm-f2").value;if(!d.M3totale){showErr("cm-err","Inserisci i m3 totali.");return;}}
   call("caricaMassicci",d).then(r=>{if(!r.ok){showErr("cm-err",r.err||"Errore.");return;}
