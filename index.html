@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v51 - Atelier</div>
+  <div id="ver-badge">v52 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1771,7 +1771,7 @@ function buildReportCommessa(comm){
   // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
   const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(a.Data).localeCompare(String(b.Data)));
-  let vociBlock='';
+  let vociBlock='',vociRiep='';
   if(voci.length){
     let catPrec=null,totV=0,rr='';
     voci.forEach(function(v){
@@ -1781,7 +1781,15 @@ function buildReportCommessa(comm){
       rr+='<tr><td>'+String(v.Data||'').slice(0,10)+'</td><td>'+v.Descrizione+(v.Note?('<div style="font-size:11px;color:#777">'+v.Note+'</div>'):'')+'</td><td>'+(v.Fornitore||'-')+'</td><td align="center">'+q+'</td><td align="right">'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</td></tr>';
     });
     rr+='<tr style="background:#efefef"><td colspan="4" align="right" style="font-weight:bold">Totale altre voci</td><td align="right" style="font-weight:bold">&euro; '+euro(totV)+'</td></tr>';
-    vociBlock='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci di commessa</h3>'
+    // riepilogo per categoria, da mettere in alto sotto i materiali consumati
+    const perCat={};
+    voci.forEach(function(v){const k=v.Categoria||'Altro';if(!perCat[k])perCat[k]={n:0,imp:0};perCat[k].n++;perCat[k].imp+=(+v.Importo||0);});
+    vociRiep='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci (riepilogo)</h3>'
+      +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Categoria</th><th align="center">N. voci</th><th align="right">Importo</th></tr></thead><tbody>'
+      +Object.keys(perCat).sort().map(k=>'<tr><td>'+k+'</td><td align="center">'+perCat[k].n+'</td><td align="right">&euro; '+euro(perCat[k].imp)+'</td></tr>').join("")
+      +'<tr style="background:#efefef"><td style="font-weight:bold">Totale altre voci</td><td align="center" style="font-weight:bold">'+voci.length+'</td><td align="right" style="font-weight:bold">&euro; '+euro(totV)+'</td></tr>'
+      +'</tbody></table>';
+    vociBlock='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci — dettaglio</h3>'
       +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Voce</th><th align="left">Fornitore</th><th align="center">Q.ta</th><th align="right">Importo</th></tr></thead><tbody>'+rr+'</tbody></table>';
   }
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
@@ -1792,6 +1800,7 @@ function buildReportCommessa(comm){
    +'<table style="width:100%;font-size:13px;margin-bottom:16px"><tr><td style="color:#777;width:130px">Commessa</td><td style="font-weight:700">'+c.ID+'</td></tr>'+(c.Nome&&c.Nome!==c.ID?'<tr><td style="color:#777">Descrizione</td><td>'+c.Nome+'</td></tr>':'')+(c.Cliente?'<tr><td style="color:#777">Cliente</td><td>'+c.Cliente+'</td></tr>':'')+'</table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
+   +vociRiep
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
    +vociBlock
