@@ -677,6 +677,28 @@ async function call(fn, args) {
       await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: tipo, nome_articolo: tipo, tipo: "carico", quantita: totM2, unita_misura: "m²", commessa: "", pezzo_id: nuovi.join(","), note: "Carico " + qty + " pannelli " + w + "x" + h + "mm", annullato: false, fornitore: forn });
       return { ok: true, ids: nuovi, totM2, newStock: null, articoloId: tipo };
     }
+    // ---- PANNELLO REFILO (extra numerazione, codice R-progressivo nascosto) ----
+    if (fn === "caricaRefilo") {
+      const d = args;
+      const desc = (d.Descrizione || "").trim();
+      if (!desc) return { ok: false, err: "Inserisci una descrizione." };
+      const w = parseInt(d.Larghezza_mm) || null, h = parseInt(d.Altezza_mm) || null;
+      const forn = d.Fornitore || "";
+      // Calcola m2: da misure se ci sono, altrimenti dal campo m2 manuale, altrimenti 0
+      let m2 = 0;
+      if (w && h) m2 = round5((w/1000)*(h/1000));
+      else if (d.M2) m2 = round5(parseFloat(d.M2));
+      // Codice R-progressivo nascosto
+      const tutti = await sbGet("pannelli", "select=id");
+      let mx = 0;
+      tutti.forEach(p => { const m = String(p.id||"").match(/^R(\d+)$/); if (m) { const n = parseInt(m[1],10)||0; if (n>mx) mx=n; } });
+      const pid = "R" + String(mx + 1).padStart(4, "0");
+      // articolo_id = descrizione (fa da "tipo" cosi si raggruppa per descrizione), ma il nome mostrato e la descrizione
+      await sbPost("pannelli", { id: pid, articolo_id: desc, larghezza_mm: w, altezza_mm: h, residuale_pct: 100, m2_originale: m2, m2_residuo: m2, commesse: "", data_carico: nowStr(), note: d.Note || "REFILO", fornitore: forn });
+      const movId = newId("MOV-");
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m2, unita_misura: "m²", commessa: "", pezzo_id: pid, note: "Carico refilo: " + desc, annullato: false, fornitore: forn });
+      return { ok: true, id: pid, m2 };
+    }
     if (fn === "scaricaPannello") {
       const d = args;
       const pRows = await sbGet("pannelli", "select=*&id=eq." + encodeURIComponent(d.PannelloID));
@@ -1601,7 +1623,7 @@ let PANN_VIEW='fam';
 function setPannView(v){PANN_VIEW=v;renderPage('pannelli');}
 function renderPannelli(){
   const tb='<div style="display:flex;gap:6px"><button class="btn '+(PANN_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'fam\')">Famiglie</button><button class="btn '+(PANN_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'griglia\')">Griglia</button></div>';
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Pannelli</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-accent" onclick="openCaricoPannelli()">+ Carico pannelli</button></div></div>'
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Pannelli</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefilo()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoPannelli()">+ Carico pannelli</button></div></div>'
     +'<div class="filters"><input id="pann-q" placeholder="Cerca pannello per codice o tipo..." oninput="filtraPannelli()"></div>'
     +'<div id="pann-cont">'+pannelliCont("")+'</div>';
 }
@@ -1712,7 +1734,77 @@ function _openReportCommessa(comm){
   const rrows=rett.map(r=>'<div class="alert-row" style="border-top:1px solid var(--border)"><span>'+r.Voce+': <strong>'+r.Valore+'</strong>'+(r.Note?(' <span style="color:var(--gray)">('+r.Note+')</span>'):'')+'</span><span style="color:var(--red);cursor:pointer" onclick="delRettifica(\''+esc(r.ID)+'\',\''+esc(comm)+'\')">&times;</span></div>').join("")||'<div style="color:var(--gray);font-size:12px">Nessuna rettifica manuale.</div>';
   const editor='<div class="card" style="margin-top:14px"><div class="card-title">Rettifiche manuali (correzioni al report)</div>'+rrows
     +'<div class="form-row" style="margin-top:8px"><div class="form-group" style="margin:0"><label>Voce</label><input id="rt-v" placeholder="es. Cerniere consegnate"></div><div class="form-group" style="margin:0"><label>Valore</label><input id="rt-val" placeholder="es. 50 pz"></div></div><div class="form-group"><label>Note</label><input id="rt-n"></div><button class="btn btn-accent" onclick="addRettifica(\''+esc(comm)+'\')">+ Aggiungi rettifica</button></div>';
-  openModal('<div class="modal" style="width:680px"><button class="modal-close" onclick="closeModal()">&times;</button>'+buildReportCommessa(comm)+editor+'<button class="btn-primary" onclick="stampaReportCommessa(\''+esc(comm)+'\')">Stampa / Salva PDF</button></div>');
+  openModal('<div class="modal" style="width:680px"><button class="modal-close" onclick="closeModal()">&times;</button>'+buildReportCommessa(comm)+buildDestinatiSection(comm)+editor+'<button class="btn-primary" onclick="stampaReportCommessa(\''+esc(comm)+'\')">Stampa / Salva PDF</button></div>');
+}
+// Riepilogo materiali DESTINATI a questa commessa ma NON ancora scaricati, con azioni
+function destinatiNonScaricati(comm){
+  const out={articoli:[],pannelli:[],massicci:[]};
+  // Articoli: dalle riserve
+  (STATE.riserve||[]).filter(r=>r.Commessa===comm&&r.Quantita>0).forEach(r=>{
+    const a=STATE.articoli.find(x=>x.ID===r.ArticoloID)||{};
+    out.articoli.push({id:r.ArticoloID,nome:a.Nome||r.ArticoloID,q:r.Quantita,unita:a.UnitaMisura||''});
+  });
+  // Pannelli assegnati a questa commessa con residuo
+  STATE.pannelli.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(comm)>=0 && (+p.M2_residuo>0)).forEach(p=>{
+    out.pannelli.push({id:p.ID,nome:nomeTipo(p.ArticoloID),q:+p.M2_residuo||0});
+  });
+  // Massicci assegnati con residuo
+  STATE.massicci.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(comm)>=0 && (+p.M3_residuo>0)).forEach(p=>{
+    out.massicci.push({id:p.ID,nome:nomeTipo(p.ArticoloID),q:+p.M3_residuo||0});
+  });
+  return out;
+}
+function buildDestinatiSection(comm){
+  const d=destinatiNonScaricati(comm);
+  const tot=d.articoli.length+d.pannelli.length+d.massicci.length;
+  if(!tot)return '<div class="card" style="margin-top:14px"><div class="card-title">Destinati a questa commessa (non ancora scaricati)</div><div style="color:var(--gray);font-size:13px">Niente in attesa: tutto il materiale destinato è già stato scaricato.</div></div>';
+  const riga=(tipo,it,qtxt)=>'<label style="display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--border);cursor:pointer"><input type="checkbox" class="ds-chk" data-tipo="'+tipo+'" value="'+esc(it.id)+'" style="width:17px;height:17px;accent-color:var(--accent)"><span style="flex:1;font-size:13px">'+(it.id&&/^[PMR]\d|^R\d/.test(it.id)?('<strong>'+it.id+'</strong> - '):'')+it.nome+'</span><span style="font-size:12px;color:var(--gray)">'+qtxt+'</span></label>';
+  let body='';
+  d.articoli.forEach(it=>body+=riga('articolo',it,it.q+' '+it.unita));
+  d.pannelli.forEach(it=>body+=riga('pannello',it,it.q.toFixed(2)+' m2'));
+  d.massicci.forEach(it=>body+=riga('massiccio',it,it.q.toFixed(3)+' m3'));
+  return '<div class="card" style="margin-top:14px"><div class="card-title">Destinati a questa commessa (non ancora scaricati) - '+tot+'</div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Seleziona i pezzi da gestire, poi scegli l\'azione. Senza selezione, le azioni valgono per TUTTI.</div>'
+   +body
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+   +'<button class="btn btn-red" onclick="scaricaDestinati(\''+esc(comm)+'\',false)">Scarica selezionati/tutti</button>'
+   +'<button class="btn btn-ghost" onclick="scaricaDestinati(\''+esc(comm)+'\',true)">Togli assegnazione (senza scaricare)</button>'
+   +'</div></div>';
+}
+// Raccoglie le selezioni; se nessuna, prende tutto
+function _raccogliDestinati(comm){
+  const chk=Array.prototype.slice.call(document.querySelectorAll(".ds-chk:checked"));
+  let sel=chk.map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value}));
+  if(!sel.length){const d=destinatiNonScaricati(comm);sel=d.articoli.map(x=>({tipo:'articolo',id:x.id})).concat(d.pannelli.map(x=>({tipo:'pannello',id:x.id}))).concat(d.massicci.map(x=>({tipo:'massiccio',id:x.id})));}
+  return sel;
+}
+function scaricaDestinati(comm,soloTogli){
+  const sel=_raccogliDestinati(comm);
+  if(!sel.length){toast("Niente da gestire","err");return;}
+  const azione=soloTogli?"Rimozione assegnazione":"Scarico";
+  toast(azione+" in corso...");
+  const ops=sel.map(it=>{
+    if(soloTogli){
+      // Togli assegnazione: articoli via annullaAssegnazione, pezzi via assegnaPezzoSingolo vuoto
+      if(it.tipo==='articolo')return call("annullaAssegnazione",{tipo:"articolo",artId:it.id,commessa:comm});
+      return call("assegnaPezzoSingolo",{tipo:it.tipo,id:it.id,commessa:""});
+    } else {
+      // Scarica del tutto verso la commessa
+      if(it.tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===it.id)||{};const r=(STATE.riserve||[]).find(x=>x.ArticoloID===it.id&&x.Commessa===comm);const q=r?r.Quantita:0;
+        // scarico q, poi libera la riserva
+        return call("registraMovimento",{ArticoloID:it.id,Tipo:"scarico",Quantita:q,Commessa:comm,Note:"Scarico da report commessa"}).then(()=>call("liberaRiserva",{artId:it.id,commessa:comm}));
+      }
+      if(it.tipo==='pannello')return call("scaricaPannelloTotale",{PannelloID:it.id,Commessa:comm,Note:"Scarico da report commessa"});
+      return call("scaricaMassiccioTotale",{MassiccioID:it.id,Commessa:comm,Note:"Scarico da report commessa"});
+    }
+  });
+  Promise.all(ops).then(()=>{
+    Promise.all([call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),call("getRiserve")]).then(([a,p,m,mv,ri])=>{
+      STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];STATE.riserve=ri||[];
+      toast(azione+" completato: "+sel.length+" elementi");
+      _openReportCommessa(comm);
+    });
+  }).catch(e=>toast("Errore: "+e.message,"err"));
 }
 function addRettifica(comm){const v=document.getElementById("rt-v").value.trim(),val=document.getElementById("rt-val").value.trim();if(!v){toast("Inserisci la voce","err");return;}
   call("salvaRettifica",{Commessa:comm,Voce:v,Valore:val,Note:document.getElementById("rt-n").value}).then(()=>{call("getRettifiche").then(rt=>{STATE.rettifiche=rt||[];_openReportCommessa(comm);toast("Rettifica aggiunta");});});}
@@ -2527,6 +2619,32 @@ function submitCP(){
     }
     closeModal();toast("Caricati "+q+" pannelli - "+r.totM2+" m2");
     Promise.all([call("getPannelli"),call("getArticoli")]).then(([pn,ar])=>{STATE.pannelli=pn||[];STATE.articoli=ar||[];renderPage(STATE.pagina);});
+  });
+}
+// -- PEZZO DI REFILO (extra numerazione) --
+function openCaricoRefilo(){
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Aggiungi pezzo di refilo</h2>'
+    +'<div class="info-box">Per avanzi e refili senza numerazione. Scrivi una descrizione; le misure sono facoltative. Il pezzo entra tra i pannelli con un codice interno automatico.</div>'
+    +'<div class="form-group"><label>Descrizione *</label><input id="rf-desc" placeholder="es. Refilo rovere 18mm, angolo cantiere"></div>'
+    +'<div class="form-row"><div class="form-group"><label>Larghezza mm (facolt.)</label><input type="number" id="rf-w" oninput="rfPrev()"></div><div class="form-group"><label>Altezza mm (facolt.)</label><input type="number" id="rf-h" oninput="rfPrev()"></div></div>'
+    +'<div class="form-group"><label>Oppure m2 a mano (se non hai le misure)</label><input type="number" step="any" id="rf-m2" placeholder="es. 0.5" oninput="rfPrev()"></div>'
+    +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rf-forn"></div>'
+    +'<div class="form-group"><label>Note (facolt.)</label><input id="rf-note"></div>'
+    +'<div id="rf-prev" class="info-box" style="display:none"></div><div id="rf-err"></div><button class="btn-primary" onclick="submitRefilo()">Aggiungi refilo</button></div>');
+}
+function rfPrev(){
+  const w=+document.getElementById("rf-w").value,h=+document.getElementById("rf-h").value,m2m=+document.getElementById("rf-m2").value;
+  const p=document.getElementById("rf-prev");
+  let m2=0; if(w&&h)m2=(w/1000)*(h/1000); else if(m2m)m2=m2m;
+  if(m2){p.style.display="block";p.innerHTML='Superficie: <strong>'+m2.toFixed(4)+' m2</strong>';}else p.style.display="none";
+}
+function submitRefilo(){
+  const desc=document.getElementById("rf-desc").value.trim();
+  if(!desc){showErr("rf-err","Inserisci una descrizione.");return;}
+  const d={Descrizione:desc,Larghezza_mm:document.getElementById("rf-w").value,Altezza_mm:document.getElementById("rf-h").value,M2:document.getElementById("rf-m2").value,Fornitore:document.getElementById("rf-forn").value,Note:document.getElementById("rf-note").value};
+  call("caricaRefilo",d).then(r=>{if(!r.ok){showErr("rf-err",r.err||"Errore.");return;}
+    closeModal();toast("Refilo aggiunto ("+(r.m2||0).toFixed(3)+" m2)");
+    call("getPannelli").then(pn=>{STATE.pannelli=pn||[];renderPage(STATE.pagina);});
   });
 }
 
