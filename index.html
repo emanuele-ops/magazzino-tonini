@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v54 - Atelier</div>
+  <div id="ver-badge">v55 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -760,6 +760,44 @@ async function call(fn, args) {
       const movId = newId("MOV-");
       await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: m2_usati, unita_misura: "m²", commessa: d.Commessa || "", pezzo_id: d.PannelloID, note: d.Note || "Scarico totale residuo", annullato: false, fornitore: "" });
       return { ok: true, newStock: null };
+    }
+    // Modifica anagrafica di un pezzo gia caricato (pannello o massiccio).
+    // Se cambiano le misure, ricalcola la superficie/volume mantenendo la
+    // stessa percentuale di residuo gia consumata.
+    if (fn === "modificaPezzo") {
+      const d = args, pan = d.tipo === "pannello";
+      const tab = pan ? "pannelli" : "massicci";
+      const rows = await sbGet(tab, "select=*&id=eq." + encodeURIComponent(d.id));
+      if (!rows.length) return { ok: false, err: "Pezzo non trovato." };
+      const p = rows[0];
+      const upd = { articolo_id: d.Materiale || p.articolo_id, fornitore: d.Fornitore || "", note: d.Note || "" };
+      if (pan) {
+        const w = parseInt(d.Larghezza_mm) || p.larghezza_mm, h = parseInt(d.Altezza_mm) || p.altezza_mm;
+        if (w !== p.larghezza_mm || h !== p.altezza_mm) {
+          const nuovoOrig = round5((w/1000)*(h/1000));
+          const frazione = (+p.m2_originale > 0) ? (+p.m2_residuo / +p.m2_originale) : 1;
+          upd.larghezza_mm = w; upd.altezza_mm = h;
+          upd.m2_originale = nuovoOrig;
+          upd.m2_residuo = round5(nuovoOrig * frazione);
+          upd.residuale_pct = Math.round(frazione * 10000) / 100;
+        }
+      } else {
+        const L = parseInt(d.Lunghezza_mm) || p.lunghezza_mm, W = parseInt(d.Larghezza_mm) || p.larghezza_mm, S = parseInt(d.Spessore_mm) || p.spessore_mm;
+        if (L !== p.lunghezza_mm || W !== p.larghezza_mm || S !== p.spessore_mm) {
+          const nuovoOrig = round5((L/1000)*(W/1000)*(S/1000));
+          const frazione = (+p.m3_originale > 0) ? (+p.m3_residuo / +p.m3_originale) : 1;
+          upd.lunghezza_mm = L; upd.larghezza_mm = W; upd.spessore_mm = S;
+          upd.m3_originale = nuovoOrig;
+          upd.m3_residuo = round5(nuovoOrig * frazione);
+        }
+      }
+      await sbPatch(tab, "id=eq." + encodeURIComponent(d.id), upd);
+      // se cambia il nome del materiale, allineo anche i movimenti del pezzo
+      if (d.Materiale && d.Materiale !== p.articolo_id) {
+        await sbPatch("movimenti", "pezzo_id=eq." + encodeURIComponent(d.id),
+          { articolo_id: d.Materiale, nome_articolo: d.Materiale }).catch(()=>{});
+      }
+      return { ok: true };
     }
     if (fn === "eliminaPannello") {
       const id = typeof args === "string" ? args : args.id;
@@ -1318,7 +1356,7 @@ function reportBox(){
   const mesi=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
   const mo='<option value="">Tutto l\'anno</option>'+mesi.map((m,i)=>'<option value="'+String(i+1).padStart(2,"0")+'">'+m+'</option>').join("");
   return '<div class="op-sec" style="font-size:15px">Report PDF</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"><div class="form-group" style="margin:0;max-width:140px"><label>Anno</label><select id="pn-anno">'+yo+'</select></div><div class="form-group" style="margin:0;max-width:170px"><label>Mese</label><select id="pn-mese">'+mo+'</select></div></div>'
-   +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="reportPdf(\'scarico\')">Scarichi per commessa</button><button class="btn btn-ghost" onclick="reportPdf(\'rimanenze\')">Rimanenze magazzino</button><button class="btn btn-ghost" onclick="reportPdf(\'aperti\')">Ordini non ricevuti</button><button class="btn btn-accent" onclick="reportPdf(\'riepilogo\')">Riepilogo</button></div>';
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="reportPdf(\'scarico\')">Movimenti e voci per commessa</button><button class="btn btn-ghost" onclick="reportPdf(\'rimanenze\')">Rimanenze magazzino</button><button class="btn btn-ghost" onclick="reportPdf(\'aperti\')">Ordini non ricevuti</button><button class="btn btn-accent" onclick="reportPdf(\'riepilogo\')">Riepilogo</button></div>';
 }
 function reportPdf(t){const a=(document.getElementById("pn-anno")||{}).value||String(new Date().getFullYear());const m=(document.getElementById("pn-mese")||{}).value||"";
   if(t==='scarico')stampaHTML(buildReportScarico(a,m));
@@ -1355,7 +1393,21 @@ function buildReportScarico(anno,mese){
     });
     return '<h3 style="font-size:14px;margin:12px 0 6px">Commessa '+c+'</h3><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantità</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }).join("")||'<p style="color:#888">Nessuno scarico nel periodo.</p>';
-  return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Scarichi '+(mese?(mese+'/'+anno):anno)+' per commessa',new Date().toLocaleDateString('it-IT'))+body+'</div>';
+  // ALTRE VOCI dello stesso periodo, per commessa e categoria
+  const vociP=(STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref));
+  let vociBody='';
+  if(vociP.length){
+    const byCV={};let totG=0;
+    vociP.forEach(function(v){const c=v.Commessa||'(senza commessa)';const k=v.Categoria||'Altro';
+      byCV[c]=byCV[c]||{};byCV[c][k]=byCV[c][k]||{n:0,imp:0};
+      byCV[c][k].n++;byCV[c][k].imp+=(+v.Importo||0);totG+=(+v.Importo||0);});
+    vociBody='<h3 style="font-size:14px;margin:20px 0 6px">Altre voci del periodo</h3>'
+      +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Commessa</th><th align="left">Categoria</th><th align="center">N.</th><th align="right">Importo</th></tr></thead><tbody>'
+      +Object.keys(byCV).sort().map(c=>Object.keys(byCV[c]).sort().map(k=>'<tr><td>'+c+'</td><td>'+k+'</td><td align="center">'+byCV[c][k].n+'</td><td align="right">&euro; '+euro(byCV[c][k].imp)+'</td></tr>').join("")).join("")
+      +'<tr style="background:#efefef"><td colspan="3" align="right" style="font-weight:bold">Totale altre voci</td><td align="right" style="font-weight:bold">&euro; '+euro(totG)+'</td></tr>'
+      +'</tbody></table>';
+  }
+  return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Movimenti '+(mese?(mese+'/'+anno):anno)+' per commessa',new Date().toLocaleDateString('it-IT'))+body+vociBody+'</div>';
 }
 function buildReportRimanenze(anno){
   const T='border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"';
@@ -1390,25 +1442,63 @@ function renderDashboard(){
   const m2=STATE.pannelli.reduce((s,p)=>s+(+p.M2_residuo||0),0);
   const m3=STATE.massicci.reduce((s,p)=>s+(+p.M3_residuo||0),0);
   const oggi=new Date().toISOString().slice(0,10);
-  const movOggi=STATE.movimenti.filter(m=>m.Data&&String(m.Data).startsWith(oggi)&&m.Annullato!=="SI").length;
-  const recent=STATE.movimenti.filter(m=>m.Annullato!=="SI").slice(-6).reverse();
+  const mesePref=oggi.slice(0,7);
+  const val=(m)=>m.Annullato!=="SI";
+  const movOggi=STATE.movimenti.filter(m=>val(m)&&String(m.Data||'').startsWith(oggi)).length;
+  const movMese=STATE.movimenti.filter(m=>val(m)&&String(m.Data||'').startsWith(mesePref));
+  const scarMese=movMese.filter(m=>m.Tipo==='scarico').length;
+  const carMese=movMese.filter(m=>m.Tipo==='carico').length;
+  const recent=STATE.movimenti.filter(val).slice(-8).reverse();
   const sotto=STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino);
-  const stat=(lbl,val,sub)=>'<div class="card stat"><div><div class="stat-label">'+lbl+'</div><div class="stat-value">'+val+'</div>'+(sub?'<div class="stat-sub">'+sub+'</div>':'')+'</div></div>';
+  const commAperte=(STATE.commesse||[]).filter(c=>String(c.Stato||'aperta').toLowerCase()!=='chiusa');
+  const ordAperti=(STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()!=='ricevuto');
+  const rifiliP=STATE.pannelli.filter(p=>/^R[0-9]/.test(p.ID)&&+p.M2_residuo>0);
+  const rifiliM=STATE.massicci.filter(p=>/^RM[0-9]/.test(p.ID)&&+p.M3_residuo>0);
+  const vociMese=(STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(mesePref));
+  const vociTot=vociMese.reduce((s,v)=>s+(+v.Importo||0),0);
+  const destP=STATE.pannelli.filter(p=>String(p.Commesse||'').trim()&&+p.M2_residuo>0).length;
+  const destM=STATE.massicci.filter(p=>String(p.Commesse||'').trim()&&+p.M3_residuo>0).length;
   const nome=(STATE.utente.Nome||"").split(" ")[0]||"benvenuto";
+  const mesi=["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
+  const nomeMese=mesi[new Date().getMonth()];
+
+  const stat=(lbl,val,sub,col,vai)=>'<div class="card stat"'+(vai?' style="cursor:pointer" onclick="'+vai+'"':'')+'><div><div class="stat-label">'+lbl+'</div><div class="stat-value" style="font-size:26px'+(col?(';color:'+col):'')+'">'+val+'</div>'+(sub?'<div class="stat-sub">'+sub+'</div>':'')+'</div></div>';
+
   let h='<h1 class="page-title">Ciao, '+nome+'</h1>';
-  h+='<details class="acc"><summary>Materiali da riordinare'+(sotto.length?'<span class="sum-badge">'+sotto.length+'</span>':'')+'</summary>'+renderReorderBody()+'</details>';
-  h+='<details class="acc"><summary>Panoramica magazzino</summary>'+renderPanoramicaBody()+'</details>';
-  h+='<details class="acc"><summary>Ultimi movimenti</summary><div class="acc-body">'
-    +(recent.map(m=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><span><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span> &nbsp;'+m.NomeArticolo+'</span><span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessun movimento.</div>')
+
+  // riga di numeri sempre visibile
+  h+='<div class="grid-4" style="margin-bottom:14px">'
+    +stat("Da riordinare",sotto.length,sotto.length?"articoli sotto soglia":"tutto in ordine",sotto.length?"var(--red)":"var(--green)")
+    +stat("Movimenti di "+nomeMese,movMese.length,carMese+" carichi &middot; "+scarMese+" scarichi","","navTo('movimenti')")
+    +stat("Commesse aperte",commAperte.length,"","","navTo('commesse')")
+    +stat("Ordini da ricevere",ordAperti.length,"",ordAperti.length?"var(--amber)":"", "navTo('evasi')")
+    +'</div>';
+  h+='<div class="grid-4" style="margin-bottom:20px">'
+    +stat("Pannelli",m2.toFixed(2)+" m&sup2;",destP+" pezzi destinati a commesse","","navTo('pannelli')")
+    +stat("Massicci",m3.toFixed(3)+" m&sup3;",destM+" pezzi destinati a commesse","","navTo('massicci')")
+    +stat("Rifili disponibili",(rifiliP.length+rifiliM.length),rifiliP.length+" pannelli &middot; "+rifiliM.length+" massicci")
+    +stat("Altre voci di "+nomeMese,"&euro; "+euro(vociTot),vociMese.length+" voci registrate","","navTo('voci')")
+    +'</div>';
+
+  h+='<details class="acc" open><summary>Materiali da riordinare'+(sotto.length?'<span class="sum-badge">'+sotto.length+'</span>':'')+'</summary>'+renderReorderBody()+'</details>';
+  h+='<details class="acc" open><summary>Panoramica magazzino</summary>'+renderPanoramicaBody()+'</details>';
+  h+='<details class="acc" open><summary>Ultimi movimenti</summary><div class="acc-body">'
+    +(recent.map(m=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><span><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span> &nbsp;'+m.NomeArticolo+(m.Commessa?(' <span style="color:var(--gray);font-size:11px;font-family:monospace">'+m.Commessa+'</span>'):'')+'</span><span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessun movimento.</div>')
+    +'<div style="margin-top:10px"><button class="btn btn-ghost" onclick="navTo(\'movimenti\')">Vedi tutti i movimenti</button></div>'
   +'</div></details>';
-  h+='<details class="acc"><summary>Azioni rapide</summary><div class="acc-body"><div class="big-op">'
+  h+='<details class="acc" open><summary>Ultime voci di commessa</summary><div class="acc-body">'
+    +((STATE.voci||[]).slice(0,6).map(v=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="navTo(\'voci\')"><span>'+v.Descrizione+' <span style="color:var(--gray);font-size:11px">'+v.Categoria+(v.Commessa?(' &middot; '+v.Commessa):'')+'</span></span><span>'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessuna voce registrata. Le aggiungi da "Altre voci".</div>')
+  +'</div></details>';
+  h+='<details class="acc" open><summary>Azioni rapide</summary><div class="acc-body"><div class="big-op">'
     +'<button style="background:var(--green-light);color:var(--green)" onclick="openMovimento(\'\',\'carico\')">Carico articolo</button>'
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openMovimento(\'\',\'scarico\')">Scarico articolo</button>'
     +'<button style="background:var(--accent-light);color:var(--accent)" onclick="openCaricoPannelli()">Carico pannelli</button>'
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openScegliPezzo(\'pannello\')">Scarico pannello</button>'
     +'<button style="background:var(--accent-light);color:var(--accent)" onclick="openCaricoMassiccio()">Carico massiccio</button>'
     +'<button style="background:var(--red-light);color:var(--red)" onclick="openScegliPezzo(\'massiccio\')">Scarico massiccio</button>'
-  +'</div></div></details>';
+  +'</div>'
+    +'<div style="margin-top:12px"><button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="navTo(\'voci\');setTimeout(function(){openNuovaVoce();},120)">Nuova altra voce</button></div>'
+  +'</div></details>';
   return h;
 }
 // ---- RIPRISTINO DA BACKUP ----
@@ -1657,8 +1747,10 @@ function renderArticoli(){
   +'<div class="filters"><input id="flt-art" placeholder="Cerca nome, codice, fornitore..." oninput="filterArticoli()"><select id="flt-cat" onchange="filterArticoli()"><option value="">Tutte le categorie</option>'+cats.map(c=>'<option>'+c+'</option>').join("")+'</select></div>'
   +'<div id="art-cont">'+articoliCont("","")+'</div>';
 }
-let ART_VIEW='fam';
-function setArtView(v){ART_VIEW=v;renderPage('articoli');}
+let VISTA_DEF=(function(){try{return localStorage.getItem("at_vista")||"griglia";}catch(e){return "griglia";}})();
+function setVistaDefault(v){VISTA_DEF=v;ART_VIEW=PANN_VIEW=MASS_VIEW=v;try{localStorage.setItem("at_vista",v);}catch(e){}renderPage(STATE.pagina);toast("Vista "+(v==='griglia'?'Griglia':'Famiglie')+" impostata come predefinita");}
+let ART_VIEW=VISTA_DEF;
+function setArtView(v){setVistaDefault(v);}
 function nomeTipo(id){const a=STATE.articoli.find(x=>x.ID===id);return a?a.Nome:id;}
 function cardArticolo(a){const s=+a.Stock<=+a.SogliaRiordino;const sog=+a.SogliaRiordino||0;const pct=sog>0?Math.max(0,Math.min(100,(+a.Stock/(sog*2))*100)):(+a.Stock>0?100:0);const c=s?'var(--red)':colorPct(pct);const iu=imgUrlFor(a.ID);
   return '<div class="piece" onclick="openDettaglio(\'articolo\',\''+esc(a.ID)+'\')"><input type="checkbox" class="sel-chk" '+(SEL[a.ID]&&SELTIPO==='articolo'?'checked':'')+' onclick="toggleSel(event,\'articolo\',\''+esc(a.ID)+'\')"><div class="piece-row">'+(iu?'<img class="piece-thumb" src="'+iu+'" referrerpolicy="no-referrer">':'')+'<div class="piece-body"><h4>'+a.Nome+'</h4><small>'+a.ID+(ART_VIEW==='griglia'?(' - '+a.Categoria):'')+(a.Fornitore?(' - '+a.Fornitore):'')+'</small><div class="bar-wrap" style="margin-bottom:7px"><div class="bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div><div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:600;color:'+c+'">'+a.Stock+' '+a.UnitaMisura+(s?' (!)':'')+'</span><span style="color:var(--gray)">soglia '+a.SogliaRiordino+'</span></div>'+(impegnatoArt(a)>0?'<div style="margin-top:4px;font-size:10.5px;color:var(--accent)">di cui '+impegnatoArt(a)+' '+a.UnitaMisura+' destinati a commesse</div>':'')+'</div></div><div style="display:flex;gap:8px;margin-top:9px"><button class="btn btn-green" style="flex:1" onclick="event.stopPropagation();openMovimento(\''+esc(a.ID)+'\',\'carico\')">Carico</button><button class="btn btn-red" style="flex:1" onclick="event.stopPropagation();openMovimento(\''+esc(a.ID)+'\',\'scarico\')">Scarico</button></div></div>';
@@ -1682,8 +1774,8 @@ function filterArticoli(){
 }
 
 // -- PANNELLI --
-let PANN_VIEW='fam';
-function setPannView(v){PANN_VIEW=v;renderPage('pannelli');}
+let PANN_VIEW=VISTA_DEF;
+function setPannView(v){setVistaDefault(v);}
 function renderPannelli(){
   const tb='<div style="display:flex;gap:6px"><button class="btn '+(PANN_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'fam\')">Famiglie</button><button class="btn '+(PANN_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'griglia\')">Griglia</button></div>';
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Pannelli</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefilo()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoPannelli()">+ Carico pannelli</button></div></div>'
@@ -1710,8 +1802,8 @@ function pannelliCont(filtro){
 function filtraPannelli(){document.getElementById("pann-cont").innerHTML=pannelliCont(document.getElementById("pann-q").value);if(PANN_VIEW==='fam')collassaFam();}
 
 // -- MASSICCI --
-let MASS_VIEW='fam';
-function setMassView(v){MASS_VIEW=v;renderPage('massicci');}
+let MASS_VIEW=VISTA_DEF;
+function setMassView(v){setVistaDefault(v);}
 function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct=orig>0?(res/orig)*100:0,c=colorPct(pct);const dim=p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3';const iu=imgUrlFor(p.ArticoloID),art=STATE.articoli.find(a=>a.ID===p.ArticoloID);
   return '<div class="piece" onclick="openDettaglio(\'massiccio\',\''+esc(p.ID)+'\')"><input type="checkbox" class="sel-chk" '+(SEL[p.ID]&&SELTIPO==='massiccio'?'checked':'')+' onclick="toggleSel(event,\'massiccio\',\''+esc(p.ID)+'\')"><div class="piece-row">'+(iu?'<img class="piece-thumb" src="'+iu+'" referrerpolicy="no-referrer">':'')+'<div class="piece-body"><h4>'+p.ID+'</h4><small>'+(MASS_VIEW==='griglia'?(nomeTipo(p.ArticoloID)+' - '):'')+dim+'</small><div class="bar-wrap" style="margin-bottom:7px"><div class="bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div><div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:600;color:'+c+'">'+res.toFixed(3)+' m3</span><span style="color:var(--gray)">di '+orig.toFixed(3)+'</span></div>'+(p.Fornitore?'<div style="margin-top:5px;font-size:10.5px;color:var(--gray)">Forn: '+p.Fornitore+'</div>':'')+'</div></div><button class="btn btn-red" style="margin-top:9px;width:100%" onclick="event.stopPropagation();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico</button></div>';
 }
@@ -2702,7 +2794,7 @@ function vociCont(){
 }
 function openNuovaVoce(id){
   const v=id?(STATE.voci||[]).find(x=>x.ID===id):null;
-  const d=v||{Commessa:VOCI_COMM,Data:new Date().toISOString().slice(0,10),Categoria:"Conto lavorazione",Stato:"solo_costo"};
+  const d=v||{Commessa:VOCI_COMM,Data:new Date().toISOString().slice(0,10),Categoria:"",Stato:"solo_costo"};
   const optC=(STATE.commesse||[]).map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===d.Commessa?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
   const optS=[["solo_costo","Solo costo (gia sostenuto)"],["da_ordinare","Da ordinare"],["ordinato","Ordinato"],["ricevuto","Ricevuto"]]
     .map(s=>'<option value="'+s[0]+'"'+(s[0]===d.Stato?' selected':'')+'>'+s[1]+'</option>').join("");
@@ -3175,13 +3267,13 @@ function openDettaglio(tipo,id){
     const p=STATE.pannelli.find(x=>x.ID===id);if(!p)return;const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);const pct=+p.Residuale_pct||0;
     head='<div class="det-tag">Pannello</div><h2 style="margin-bottom:14px">'+p.ID+'</h2>'+imgBlock(p.ArticoloID);
     rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Larghezza_mm+' x '+p.Altezza_mm+' mm')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+pct.toFixed(0)+'% - '+(+p.M2_residuo||0).toFixed(4)+' m2</span>')+dr("Originale",(+p.M2_originale||0).toFixed(4)+' m2')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",p.Commesse||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
-    btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoPannello(\''+esc(p.ID)+'\')">Scarico pannello</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'pannello\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'pannello\',\''+esc(p.ID)+'\')">Elimina pannello</button>';
+    btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoPannello(\''+esc(p.ID)+'\')">Scarico pannello</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaPezzo(\'pannello\',\''+esc(p.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'pannello\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'pannello\',\''+esc(p.ID)+'\')">Elimina pannello</button>';
     hist=histRows(m=>m.PezzoID===id);
   } else if(tipo==='massiccio'){
     const p=STATE.massicci.find(x=>x.ID===id);if(!p)return;const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct=orig>0?(res/orig)*100:0;
     head='<div class="det-tag">Massiccio</div><h2 style="margin-bottom:14px">'+p.ID+'</h2>'+imgBlock(p.ArticoloID);
     rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+res.toFixed(4)+' m3</span>')+dr("Originale",orig.toFixed(4)+' m3')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",p.Commesse||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
-    btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico massiccio</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'massiccio\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'massiccio\',\''+esc(p.ID)+'\')">Elimina massiccio</button>';
+    btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico massiccio</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaPezzo(\'massiccio\',\''+esc(p.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'massiccio\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'massiccio\',\''+esc(p.ID)+'\')">Elimina massiccio</button>';
     hist=histRows(m=>m.PezzoID===id);
   } else if(tipo==='movimento'){
     const m=STATE.movimenti.find(x=>x.ID===id);if(!m)return;
@@ -3240,6 +3332,33 @@ function caricaImmagine(rifId){
 }
 function rimuoviImmagine(rifId){call("eliminaImmagine",{rifId:rifId}).then(()=>{call("getImmagini").then(im=>{STATE.immagini=im||[];toast("Immagine rimossa");if(CURRENT_DETAIL)openDettaglio(CURRENT_DETAIL.tipo,CURRENT_DETAIL.id);else renderPage(STATE.pagina);});});}
 
+// -- MODIFICA ANAGRAFICA DI UN PEZZO GIA CARICATO --
+function openModificaPezzo(tipo,id){
+  const pan=tipo==='pannello';
+  const p=(pan?STATE.pannelli:STATE.massicci).find(x=>x.ID===id); if(!p)return;
+  const mis=pan
+    ?'<div class="form-row"><div class="form-group"><label>Larghezza mm</label><input type="number" id="mp-w" value="'+att(p.Larghezza_mm)+'"></div><div class="form-group"><label>Altezza mm</label><input type="number" id="mp-h" value="'+att(p.Altezza_mm)+'"></div></div>'
+    :'<div class="form-row-3"><div class="form-group"><label>Lungh. mm</label><input type="number" id="mp-l" value="'+att(p.Lunghezza_mm)+'"></div><div class="form-group"><label>Largh. mm</label><input type="number" id="mp-w" value="'+att(p.Larghezza_mm)+'"></div><div class="form-group"><label>Spess. mm</label><input type="number" id="mp-s" value="'+att(p.Spessore_mm)+'"></div></div>';
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Modifica '+id+'</h2>'
+   +'<div class="info-box">Se cambi le misure, la superficie viene ricalcolata mantenendo la stessa percentuale di residuo. I movimenti gia registrati non vengono toccati.</div>'
+   +'<div class="form-group"><label>Materiale *</label><input id="mp-mat" list="mp-dl" autocomplete="off" value="'+att(p.ArticoloID)+'" oninput="hintNome(\'mp-mat\',\'mp-hint\',\''+tipo+'\')">'+datalistHTML('mp-dl',tipo)+'<div id="mp-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
+   +mis
+   +'<div class="form-group"><label>Fornitore</label><input id="mp-forn" value="'+att(p.Fornitore)+'"></div>'
+   +'<div class="form-group"><label>Note</label><input id="mp-note" value="'+att(p.Note)+'"></div>'
+   +'<div id="mp-err"></div><button class="btn-primary" onclick="submitModificaPezzo(\''+tipo+'\',\''+esc(id)+'\')">Salva</button></div>');
+}
+function submitModificaPezzo(tipo,id){
+  const pan=tipo==='pannello';
+  const d={tipo:tipo,id:id,Materiale:gv("mp-mat").trim(),Fornitore:gv("mp-forn").trim(),Note:gv("mp-note").trim(),
+    Larghezza_mm:gv("mp-w")};
+  if(pan)d.Altezza_mm=gv("mp-h"); else {d.Lunghezza_mm=gv("mp-l");d.Spessore_mm=gv("mp-s");}
+  if(!d.Materiale){showErr("mp-err","Il materiale e obbligatorio.");return;}
+  call("modificaPezzo",d).then(r=>{if(!r.ok){showErr("mp-err",r.err||"Errore");return;}
+    Promise.all([call("getPannelli"),call("getMassicci"),call("getMovimenti")]).then(([pn,ms,mv])=>{
+      STATE.pannelli=pn||[];STATE.massicci=ms||[];STATE.movimenti=mv||[];
+      closeModal();toast("Anagrafica di "+id+" aggiornata");renderPage(STATE.pagina);});
+  });
+}
 // -- ELIMINA ELEMENTO --
 function confElimina(tipo,id){
   const extra=tipo==='articolo'?'<br>Verranno eliminati anche eventuali pannelli/massicci collegati a questo tipo.':'';
