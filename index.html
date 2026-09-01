@@ -735,6 +735,25 @@ async function call(fn, args) {
     }
 
     // ---- MASSICCI (indipendenti: non toccano lo stock articoli) ----
+    if (fn === "caricaRefiloMassiccio") {
+      const d = args;
+      const desc = (d.Descrizione || "").trim();
+      if (!desc) return { ok: false, err: "Inserisci una descrizione." };
+      const L = parseInt(d.Lunghezza_mm) || null, W = parseInt(d.Larghezza_mm) || null, S = parseInt(d.Spessore_mm) || null;
+      const forn = d.Fornitore || "";
+      let m3 = 0;
+      if (L && W && S) m3 = round5((L/1000)*(W/1000)*(S/1000));
+      else if (d.M3) m3 = round5(parseFloat(d.M3));
+      // Codice RM-progressivo nascosto
+      const tutti = await sbGet("massicci", "select=id");
+      let mx = 0;
+      tutti.forEach(p => { const m = String(p.id||"").match(/^RM(\d+)$/); if (m) { const n = parseInt(m[1],10)||0; if (n>mx) mx=n; } });
+      const mid = "RM" + String(mx + 1).padStart(4, "0");
+      await sbPost("massicci", { id: mid, articolo_id: desc, lunghezza_mm: L, larghezza_mm: W, spessore_mm: S, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "REFILO" });
+      const movId = newId("MOV-");
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m3, unita_misura: "m³", commessa: "", pezzo_id: mid, note: "Carico refilo massello: " + desc, annullato: false, fornitore: forn });
+      return { ok: true, id: mid, m3 };
+    }
     if (fn === "caricaMassicci") {
       const d = args;
       const tipo = d.ArticoloID || d.NuovoTipo || "Massiccio";
@@ -1654,7 +1673,7 @@ function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct
 }
 function renderMassicci(){
   const tb='<div style="display:flex;gap:6px"><button class="btn '+(MASS_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'fam\')">Famiglie</button><button class="btn '+(MASS_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'griglia\')">Griglia</button></div>';
-  let html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Legni massicci</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-accent" onclick="openCaricoMassiccio()">+ Carico massiccio</button></div></div>';
+  let html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Legni massicci</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefiloMassiccio()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoMassiccio()">+ Carico massiccio</button></div></div>';
   if(!STATE.massicci.length)return html+'<div class="card" style="color:var(--gray)">Nessun massiccio caricato.</div>';
   if(MASS_VIEW==='griglia'){const ord=STATE.massicci.slice().sort((a,b)=>String(a.ID).localeCompare(String(b.ID)));return html+'<div class="piece-grid">'+ord.map(cardMassiccio).join("")+'</div>';}
   const g={}; STATE.massicci.forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
@@ -2629,9 +2648,12 @@ function openCaricoRefilo(){
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm (facolt.)</label><input type="number" id="rf-w" oninput="rfPrev()"></div><div class="form-group"><label>Altezza mm (facolt.)</label><input type="number" id="rf-h" oninput="rfPrev()"></div></div>'
     +'<div class="form-group"><label>Oppure m2 a mano (se non hai le misure)</label><input type="number" step="any" id="rf-m2" placeholder="es. 0.5" oninput="rfPrev()"></div>'
     +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rf-forn"></div>'
+    +'<div class="form-group"><label>Commessa (opzionale)</label><select id="rf-comm" onchange="rfDestChange()">'+optCommesse()+'</select></div>'
+    +'<div class="form-group" id="rf-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="rf-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note (facolt.)</label><input id="rf-note"></div>'
     +'<div id="rf-prev" class="info-box" style="display:none"></div><div id="rf-err"></div><button class="btn-primary" onclick="submitRefilo()">Aggiungi refilo</button></div>');
 }
+function rfDestChange(){const c=document.getElementById("rf-comm").value;const w=document.getElementById("rf-destwrap");if(w)w.style.display=c?'block':'none';}
 function rfPrev(){
   const w=+document.getElementById("rf-w").value,h=+document.getElementById("rf-h").value,m2m=+document.getElementById("rf-m2").value;
   const p=document.getElementById("rf-prev");
@@ -2643,11 +2665,63 @@ function submitRefilo(){
   if(!desc){showErr("rf-err","Inserisci una descrizione.");return;}
   const d={Descrizione:desc,Larghezza_mm:document.getElementById("rf-w").value,Altezza_mm:document.getElementById("rf-h").value,M2:document.getElementById("rf-m2").value,Fornitore:document.getElementById("rf-forn").value,Note:document.getElementById("rf-note").value};
   call("caricaRefilo",d).then(r=>{if(!r.ok){showErr("rf-err",r.err||"Errore.");return;}
+    const c=document.getElementById("rf-comm").value;
+    const dest=(document.getElementById("rf-dest")||{}).value||"destina";
+    const pid=r.id;
+    if(c&&pid){
+      const azione=dest==='scarica'
+        ? call("scaricaPannelloTotale",{PannelloID:pid,Commessa:c,Note:"Consumo diretto commessa "+c})
+        : call("assegnaPezzoSingolo",{tipo:"pannello",id:pid,commessa:c});
+      azione.then(()=>{
+        Promise.all([call("getPannelli"),call("getMovimenti")]).then(([pn,mv])=>{STATE.pannelli=pn||[];STATE.movimenti=mv||[];closeModal();toast(dest==='scarica'?("Refilo scaricato nella commessa "+c):("Refilo destinato a "+c));renderPage(STATE.pagina);});
+      });
+      return;
+    }
     closeModal();toast("Refilo aggiunto ("+(r.m2||0).toFixed(3)+" m2)");
     call("getPannelli").then(pn=>{STATE.pannelli=pn||[];renderPage(STATE.pagina);});
   });
 }
-
+// -- PEZZO DI REFILO MASSICCIO (extra numerazione) --
+function openCaricoRefiloMassiccio(){
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Aggiungi pezzo di refilo (massello)</h2>'
+    +'<div class="info-box">Per avanzi e ritagli di legno massello senza numerazione. Scrivi una descrizione; le misure sono facoltative. Il pezzo entra tra i massicci con un codice interno automatico.</div>'
+    +'<div class="form-group"><label>Descrizione *</label><input id="rfm-desc" placeholder="es. Ritaglio rovere massello, 5cm spessore"></div>'
+    +'<div class="form-row-3"><div class="form-group"><label>Lungh. mm (facolt.)</label><input type="number" id="rfm-l" oninput="rfmPrev()"></div><div class="form-group"><label>Largh. mm (facolt.)</label><input type="number" id="rfm-w" oninput="rfmPrev()"></div><div class="form-group"><label>Spess. mm (facolt.)</label><input type="number" id="rfm-s" oninput="rfmPrev()"></div></div>'
+    +'<div class="form-group"><label>Oppure m3 a mano (se non hai le misure)</label><input type="number" step="any" id="rfm-m3" placeholder="es. 0.02" oninput="rfmPrev()"></div>'
+    +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rfm-forn"></div>'
+    +'<div class="form-group"><label>Commessa (opzionale)</label><select id="rfm-comm" onchange="rfmDestChange()">'+optCommesse()+'</select></div>'
+    +'<div class="form-group" id="rfm-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="rfm-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
+    +'<div class="form-group"><label>Note (facolt.)</label><input id="rfm-note"></div>'
+    +'<div id="rfm-prev" class="info-box" style="display:none"></div><div id="rfm-err"></div><button class="btn-primary" onclick="submitRefiloMassiccio()">Aggiungi refilo</button></div>');
+}
+function rfmDestChange(){const c=document.getElementById("rfm-comm").value;const w=document.getElementById("rfm-destwrap");if(w)w.style.display=c?'block':'none';}
+function rfmPrev(){
+  const l=+document.getElementById("rfm-l").value,w=+document.getElementById("rfm-w").value,s=+document.getElementById("rfm-s").value,m3m=+document.getElementById("rfm-m3").value;
+  const p=document.getElementById("rfm-prev");
+  let m3=0; if(l&&w&&s)m3=(l/1000)*(w/1000)*(s/1000); else if(m3m)m3=m3m;
+  if(m3){p.style.display="block";p.innerHTML='Volume: <strong>'+m3.toFixed(5)+' m3</strong>';}else p.style.display="none";
+}
+function submitRefiloMassiccio(){
+  const desc=document.getElementById("rfm-desc").value.trim();
+  if(!desc){showErr("rfm-err","Inserisci una descrizione.");return;}
+  const d={Descrizione:desc,Lunghezza_mm:document.getElementById("rfm-l").value,Larghezza_mm:document.getElementById("rfm-w").value,Spessore_mm:document.getElementById("rfm-s").value,M3:document.getElementById("rfm-m3").value,Fornitore:document.getElementById("rfm-forn").value,Note:document.getElementById("rfm-note").value};
+  call("caricaRefiloMassiccio",d).then(r=>{if(!r.ok){showErr("rfm-err",r.err||"Errore.");return;}
+    const c=document.getElementById("rfm-comm").value;
+    const dest=(document.getElementById("rfm-dest")||{}).value||"destina";
+    const mid=r.id;
+    if(c&&mid){
+      const azione=dest==='scarica'
+        ? call("scaricaMassiccioTotale",{MassiccioID:mid,Commessa:c,Note:"Consumo diretto commessa "+c})
+        : call("assegnaPezzoSingolo",{tipo:"massiccio",id:mid,commessa:c});
+      azione.then(()=>{
+        Promise.all([call("getMassicci"),call("getMovimenti")]).then(([ms,mv])=>{STATE.massicci=ms||[];STATE.movimenti=mv||[];closeModal();toast(dest==='scarica'?("Refilo scaricato nella commessa "+c):("Refilo destinato a "+c));renderPage(STATE.pagina);});
+      });
+      return;
+    }
+    closeModal();toast("Refilo massello aggiunto ("+(r.m3||0).toFixed(4)+" m3)");
+    call("getMassicci").then(ms=>{STATE.massicci=ms||[];renderPage(STATE.pagina);});
+  });
+}
 // -- SCARICO PANNELLO --
 function openScaricoPannello(pid){
   const p=STATE.pannelli.find(x=>x.ID===pid)||{};
