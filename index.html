@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v55 - Atelier</div>
+  <div id="ver-badge">v56 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1372,7 +1372,6 @@ function buildReportScarico(anno,mese){
   scar.forEach(m=>{
     const c=m.Commessa||'(senza commessa)';
     const ms=String(m.Data).slice(5,7);
-    // Cerca l'articolo per ID, oppure per nome (pannelli/massicci hanno il nome in ArticoloID)
     let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);
     if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);
     const cf=(art&&art.CodiceFornitore)||'';
@@ -1382,32 +1381,48 @@ function buildReportScarico(anno,mese){
     byC[c][ms][k].q+=(+m.Quantita||0);
     if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(byC[c][ms][k].pezzi.indexOf(p)<0)byC[c][ms][k].pezzi.push(p);});
   });
-  const body=Object.keys(byC).sort().map(c=>{
-    let rows='';
-    Object.keys(byC[c]).sort().forEach(ms=>{
-      Object.keys(byC[c][ms]).forEach(k=>{
-        const p=k.split('|'); const cell=byC[c][ms][k];
-        const pezzi=cell.pezzi.length?cell.pezzi.join(', '):(cell.artCode||'-');
-        rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td></tr>';
+  // Altre voci dello stesso periodo, raggruppate per commessa
+  const byV={};
+  (STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref)).forEach(function(v){
+    const c=v.Commessa||'(senza commessa)';
+    (byV[c]=byV[c]||[]).push(v);
+  });
+  // una sezione per commessa: materiali + altre voci, entrambe in dettaglio
+  const comm={};Object.keys(byC).forEach(c=>comm[c]=1);Object.keys(byV).forEach(c=>comm[c]=1);
+  let totGen=0;
+  const body=Object.keys(comm).sort().map(function(c){
+    let out='<h3 style="font-size:14px;margin:16px 0 6px">Commessa '+c+'</h3>';
+    if(byC[c]){
+      let rows='';
+      Object.keys(byC[c]).sort().forEach(ms=>{
+        Object.keys(byC[c][ms]).forEach(k=>{
+          const p=k.split('|'); const cell=byC[c][ms][k];
+          const pezzi=cell.pezzi.length?cell.pezzi.join(', '):(cell.artCode||'-');
+          rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td></tr>';
+        });
       });
-    });
-    return '<h3 style="font-size:14px;margin:12px 0 6px">Commessa '+c+'</h3><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantità</th></tr></thead><tbody>'+rows+'</tbody></table>';
-  }).join("")||'<p style="color:#888">Nessuno scarico nel periodo.</p>';
-  // ALTRE VOCI dello stesso periodo, per commessa e categoria
-  const vociP=(STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref));
-  let vociBody='';
-  if(vociP.length){
-    const byCV={};let totG=0;
-    vociP.forEach(function(v){const c=v.Commessa||'(senza commessa)';const k=v.Categoria||'Altro';
-      byCV[c]=byCV[c]||{};byCV[c][k]=byCV[c][k]||{n:0,imp:0};
-      byCV[c][k].n++;byCV[c][k].imp+=(+v.Importo||0);totG+=(+v.Importo||0);});
-    vociBody='<h3 style="font-size:14px;margin:20px 0 6px">Altre voci del periodo</h3>'
-      +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Commessa</th><th align="left">Categoria</th><th align="center">N.</th><th align="right">Importo</th></tr></thead><tbody>'
-      +Object.keys(byCV).sort().map(c=>Object.keys(byCV[c]).sort().map(k=>'<tr><td>'+c+'</td><td>'+k+'</td><td align="center">'+byCV[c][k].n+'</td><td align="right">&euro; '+euro(byCV[c][k].imp)+'</td></tr>').join("")).join("")
-      +'<tr style="background:#efefef"><td colspan="3" align="right" style="font-weight:bold">Totale altre voci</td><td align="right" style="font-weight:bold">&euro; '+euro(totG)+'</td></tr>'
-      +'</tbody></table>';
-  }
-  return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Movimenti '+(mese?(mese+'/'+anno):anno)+' per commessa',new Date().toLocaleDateString('it-IT'))+body+vociBody+'</div>';
+      out+='<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantita</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    } else {
+      out+='<div style="font-size:12px;color:#888;margin-bottom:6px">Nessun materiale scaricato nel periodo.</div>';
+    }
+    if(byV[c]){
+      const vv=byV[c].slice().sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(a.Data).localeCompare(String(b.Data)));
+      let catPrec=null,tot=0,rr='';
+      vv.forEach(function(v){
+        tot+=(+v.Importo||0);
+        if(v.Categoria!==catPrec){catPrec=v.Categoria;rr+='<tr><td colspan="6" style="background:#f7f3ec;font-weight:bold;padding:4px 6px">'+catPrec+'</td></tr>';}
+        const q=(v.Quantita!=null&&v.Quantita!=="")?(v.Quantita+' '+(v.Unita||'')):'-';
+        rr+='<tr><td>'+String(v.Data||'').slice(0,10)+'</td><td>'+v.Descrizione+(v.Note?('<div style="font-size:10.5px;color:#777">'+v.Note+'</div>'):'')+'</td><td>'+(v.Fornitore||'-')+'</td><td align="center">'+q+'</td><td align="center" style="font-size:11px">'+(v.NrFattura||'-')+'</td><td align="right">'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</td></tr>';
+      });
+      totGen+=tot;
+      rr+='<tr style="background:#efefef"><td colspan="5" align="right" style="font-weight:bold">Totale altre voci commessa</td><td align="right" style="font-weight:bold">&euro; '+euro(tot)+'</td></tr>';
+      out+='<div style="font-size:12.5px;font-weight:bold;margin:10px 0 4px">Altre voci</div>'
+        +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Voce</th><th align="left">Fornitore</th><th align="center">Q.ta</th><th align="center">N. ft.</th><th align="right">Importo</th></tr></thead><tbody>'+rr+'</tbody></table>';
+    }
+    return out;
+  }).join("")||'<p style="color:#888">Nessun movimento nel periodo.</p>';
+  const chiusura=totGen?('<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-top:18px"><tr style="background:#efefef"><td align="right" style="font-weight:bold">Totale altre voci di tutte le commesse</td><td align="right" style="font-weight:bold;width:160px">&euro; '+euro(totGen)+'</td></tr></table>'):'';
+  return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Movimenti e voci '+(mese?(mese+'/'+anno):anno)+' per commessa',new Date().toLocaleDateString('it-IT'))+body+chiusura+'</div>';
 }
 function buildReportRimanenze(anno){
   const T='border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"';
