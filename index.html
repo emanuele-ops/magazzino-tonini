@@ -239,7 +239,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v46 - Atelier</div>
+  <div id="ver-badge">v47 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1975,6 +1975,37 @@ function tipiDi(tipo){
   arr.forEach(p=>{const id=p.ArticoloID;if(id&&!seen[id]){const a=STATE.articoli.find(x=>x.ID===id);out.push({id:id,nome:a?a.Nome:id});seen[id]=1;}});
   return out;
 }
+// ---- SUGGERIMENTI NOMI MATERIALE (evita i doppioni di nome) ----
+// Raccoglie i nomi gia usati per pannelli o massicci, senza ripetizioni.
+function nomiMateriali(tipo){
+  const seen={},out=[];
+  const push=function(n){n=String(n||"").trim();const k=n.toLowerCase();if(n&&!seen[k]){seen[k]=1;out.push(n);}};
+  (tipo==='pannello'?STATE.pannelli:STATE.massicci).forEach(p=>push(p.ArticoloID));
+  const cat=tipo==='pannello'?'Pannelli':'Massello';
+  STATE.articoli.forEach(a=>{if(a.Categoria===cat||(tipo==='pannello'&&a.IsPannello==='SI'))push(a.Nome);});
+  return out.sort(function(a,b){return a.localeCompare(b);});
+}
+function datalistHTML(id,tipo){
+  return '<datalist id="'+id+'">'+nomiMateriali(tipo).map(n=>'<option value="'+att(n)+'">').join("")+'</datalist>';
+}
+// Avvisa se il nome scritto e nuovo e propone quelli simili gia in uso
+function hintNome(inputId,hintId,tipo){
+  const el=document.getElementById(inputId),h=document.getElementById(hintId);
+  if(!el||!h)return;
+  const v=(el.value||"").trim();
+  if(!v){h.innerHTML="";return;}
+  const nomi=nomiMateriali(tipo),q=v.toLowerCase();
+  if(nomi.some(n=>n.toLowerCase()===q)){h.innerHTML='<span style="color:var(--green)">Materiale gia esistente: nessun doppione.</span>';return;}
+  const simili=nomi.filter(n=>{const l=n.toLowerCase();return l.indexOf(q)>=0||q.indexOf(l)>=0;}).slice(0,4);
+  let msg='<span style="color:var(--amber)">Nome nuovo: verra creato un materiale nuovo.</span>';
+  if(simili.length)msg+='<br><span style="color:var(--gray)">Gia in uso, forse intendevi: </span>'+simili.map(n=>'<a style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="usaNome(\''+esc(inputId)+'\',\''+esc(n)+'\',\''+esc(hintId)+'\',\''+tipo+'\')">'+n+'</a>').join(' &middot; ');
+  h.innerHTML=msg;
+}
+function usaNome(inputId,nome,hintId,tipo){
+  const el=document.getElementById(inputId);
+  if(el)el.value=nome;
+  hintNome(inputId,hintId,tipo);
+}
 function fbTipo(t){
   document.getElementById("fb-tipo").value=t;
   document.getElementById("fb-ta").className=t==='articolo'?'on-accent':'';
@@ -2601,7 +2632,7 @@ function openCaricoPannelli(){
   const next=STATE.pannelli.length?Math.max.apply(null,STATE.pannelli.map(p=>parseInt(String(p.ID).replace("P",""))||0))+1:1;
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Carico pannelli</h2>'
     +'<div class="form-group"><label>Tipo di pannello *</label><select id="cp-tipo" onchange="cpTipoChange()"><option value="">- Seleziona -</option>'+opt+'<option value="__new__">+ Nuovo tipo...</option></select></div>'
-    +'<div class="form-group" id="cp-newwrap" style="display:none"><label>Nome nuovo tipo *</label><input id="cp-new" placeholder="es. MDF 18mm"></div>'
+    +'<div class="form-group" id="cp-newwrap" style="display:none"><label>Nome nuovo tipo *</label><input id="cp-new" list="cp-dl" autocomplete="off" placeholder="Scrivi: compaiono i materiali gia usati" oninput="hintNome(\'cp-new\',\'cp-hint\',\'pannello\')">'+datalistHTML('cp-dl','pannello')+'<div id="cp-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm *</label><input type="number" id="cp-w" placeholder="2800" oninput="cpPrev()"></div><div class="form-group"><label>Altezza mm *</label><input type="number" id="cp-h" placeholder="2070" oninput="cpPrev()"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>N. pannelli *</label><input type="number" id="cp-q" min="1" placeholder="10" oninput="cpPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cp-f" value="'+next+'" oninput="cpPrev()"></div></div>'
     +'<div class="form-group"><label>Fornitore</label><input id="cp-forn" placeholder="es. Saviola"></div>'
@@ -2644,7 +2675,7 @@ function submitCP(){
 function openCaricoRefilo(){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Aggiungi pezzo di refilo</h2>'
     +'<div class="info-box">Per avanzi e refili senza numerazione. Scrivi una descrizione; le misure sono facoltative. Il pezzo entra tra i pannelli con un codice interno automatico.</div>'
-    +'<div class="form-group"><label>Descrizione *</label><input id="rf-desc" placeholder="es. Refilo rovere 18mm, angolo cantiere"></div>'
+    +'<div class="form-group"><label>Descrizione *</label><input id="rf-desc" list="rf-dl" autocomplete="off" placeholder="Scrivi: compaiono i materiali gia usati" oninput="hintNome(\'rf-desc\',\'rf-hint\',\'pannello\')">'+datalistHTML('rf-dl','pannello')+'<div id="rf-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm (facolt.)</label><input type="number" id="rf-w" oninput="rfPrev()"></div><div class="form-group"><label>Altezza mm (facolt.)</label><input type="number" id="rf-h" oninput="rfPrev()"></div></div>'
     +'<div class="form-group"><label>Oppure m2 a mano (se non hai le misure)</label><input type="number" step="any" id="rf-m2" placeholder="es. 0.5" oninput="rfPrev()"></div>'
     +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rf-forn"></div>'
@@ -2685,7 +2716,7 @@ function submitRefilo(){
 function openCaricoRefiloMassiccio(){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Aggiungi pezzo di refilo (massello)</h2>'
     +'<div class="info-box">Per avanzi e ritagli di legno massello senza numerazione. Scrivi una descrizione; le misure sono facoltative. Il pezzo entra tra i massicci con un codice interno automatico.</div>'
-    +'<div class="form-group"><label>Descrizione *</label><input id="rfm-desc" placeholder="es. Ritaglio rovere massello, 5cm spessore"></div>'
+    +'<div class="form-group"><label>Descrizione *</label><input id="rfm-desc" list="rfm-dl" autocomplete="off" placeholder="Scrivi: compaiono i materiali gia usati" oninput="hintNome(\'rfm-desc\',\'rfm-hint\',\'massiccio\')">'+datalistHTML('rfm-dl','massiccio')+'<div id="rfm-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
     +'<div class="form-row-3"><div class="form-group"><label>Lungh. mm (facolt.)</label><input type="number" id="rfm-l" oninput="rfmPrev()"></div><div class="form-group"><label>Largh. mm (facolt.)</label><input type="number" id="rfm-w" oninput="rfmPrev()"></div><div class="form-group"><label>Spess. mm (facolt.)</label><input type="number" id="rfm-s" oninput="rfmPrev()"></div></div>'
     +'<div class="form-group"><label>Oppure m3 a mano (se non hai le misure)</label><input type="number" step="any" id="rfm-m3" placeholder="es. 0.02" oninput="rfmPrev()"></div>'
     +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rfm-forn"></div>'
@@ -2755,7 +2786,7 @@ function openCaricoMassiccio(){
   const next=STATE.massicci.length?Math.max.apply(null,STATE.massicci.map(p=>parseInt(String(p.ID).replace("M",""))||0))+1:1;
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Carico massiccio</h2>'
     +'<div class="form-group"><label>Tipo di legno *</label><select id="cm-tipo" onchange="cmTipoChange()"><option value="">- Seleziona -</option>'+opt+'<option value="__new__">+ Nuovo tipo...</option></select></div>'
-    +'<div class="form-group" id="cm-newwrap" style="display:none"><label>Nome nuovo tipo *</label><input id="cm-new" placeholder="es. Rovere massello"></div>'
+    +'<div class="form-group" id="cm-newwrap" style="display:none"><label>Nome nuovo tipo *</label><input id="cm-new" list="cm-dl" autocomplete="off" placeholder="Scrivi: compaiono i materiali gia usati" oninput="hintNome(\'cm-new\',\'cm-hint\',\'massiccio\')">'+datalistHTML('cm-dl','massiccio')+'<div id="cm-hint" style="font-size:11.5px;margin-top:5px;line-height:1.5"></div></div>'
     +'<div class="toggle"><button id="cm-tm" class="on-accent" onclick="cmModo(\'misure\')">Da misure</button><button id="cm-tt" onclick="cmModo(\'totale\')">m3 diretti</button></div>'
     +'<input type="hidden" id="cm-modo" value="misure">'
     +'<div id="cm-misure"><div class="form-row-3"><div class="form-group"><label>Lungh. mm *</label><input type="number" id="cm-l" placeholder="2500" oninput="cmPrev()"></div><div class="form-group"><label>Largh. mm *</label><input type="number" id="cm-w" placeholder="200" oninput="cmPrev()"></div><div class="form-group"><label>Spess. mm *</label><input type="number" id="cm-s" placeholder="50" oninput="cmPrev()"></div></div><div class="form-row"><div class="form-group"><label>N. pezzi *</label><input type="number" id="cm-q" min="1" value="1" oninput="cmPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cm-f" value="'+next+'" oninput="cmPrev()"></div></div></div>'
