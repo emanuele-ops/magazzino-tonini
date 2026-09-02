@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v59 - Atelier</div>
+  <div id="ver-badge">v60 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1398,10 +1398,10 @@ function buildReportScarico(anno,mese){
         Object.keys(byC[c][ms]).forEach(k=>{
           const p=k.split('|'); const cell=byC[c][ms][k];
           const pezzi=cell.pezzi.length?cell.pezzi.join(', '):(cell.artCode||'-');
-          rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td></tr>';
+          rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td><td align="center">'+pctUsoTxt(cell.q,p[0],p[1])+'</td></tr>';
         });
       });
-      out+='<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantita</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      out+='<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantita</th><th align="center">% del caricato</th></tr></thead><tbody>'+rows+'</tbody></table>';
     } else {
       out+='<div style="font-size:12px;color:#888;margin-bottom:6px">Nessun materiale scaricato nel periodo.</div>';
     }
@@ -1429,13 +1429,19 @@ function buildReportRimanenze(anno){
   const art=STATE.articoli.filter(a=>a.Categoria!=='Pannelli'&&a.Categoria!=='Massello'&&a.IsPannello!=='SI');
   const ra=art.map(a=>'<tr><td>'+a.Nome+'</td><td>'+a.Categoria+'</td><td align="right">'+a.Stock+' '+a.UnitaMisura+'</td><td align="right">'+(impegnatoArt(a)||0)+'</td></tr>').join("")||'<tr><td colspan="4" style="color:#888">-</td></tr>';
   const pg={};STATE.pannelli.forEach(p=>{pg[p.ArticoloID]=(pg[p.ArticoloID]||0)+(+p.M2_residuo||0);});
-  const rp=Object.keys(pg).map(id=>{const n=(STATE.articoli.find(a=>a.ID===id)||{}).Nome||id;return '<tr><td>'+n+'</td><td align="right">'+pg[id].toFixed(2)+' m²</td><td align="right">'+destinatoPannelli(id).toFixed(2)+'</td></tr>';}).join("")||'<tr><td colspan="3" style="color:#888">-</td></tr>';
+  const rp=Object.keys(pg).map(id=>{const n=(STATE.articoli.find(a=>a.ID===id)||{}).Nome||id;
+    const car=STATE.pannelli.filter(x=>x.ArticoloID===id).reduce((s,x)=>s+(+x.M2_originale||0),0);
+    const usato=car-pg[id];
+    return '<tr><td>'+n+'</td><td align="right">'+car.toFixed(2)+' m²</td><td align="right">'+pg[id].toFixed(2)+' m²</td><td align="center">'+(car?((usato/car*100).toFixed(1)+'%'):'-')+'</td><td align="right">'+destinatoPannelli(id).toFixed(2)+'</td></tr>';}).join("")||'<tr><td colspan="5" style="color:#888">-</td></tr>';
   const mg={};STATE.massicci.forEach(p=>{mg[p.ArticoloID]=(mg[p.ArticoloID]||0)+(+p.M3_residuo||0);});
-  const rm=Object.keys(mg).map(id=>{const n=(STATE.articoli.find(a=>a.ID===id)||{}).Nome||id;return '<tr><td>'+n+'</td><td align="right">'+mg[id].toFixed(3)+' m³</td><td align="right">'+destinatoMassicci(id).toFixed(3)+'</td></tr>';}).join("")||'<tr><td colspan="3" style="color:#888">-</td></tr>';
+  const rm=Object.keys(mg).map(id=>{const n=(STATE.articoli.find(a=>a.ID===id)||{}).Nome||id;
+    const car=STATE.massicci.filter(x=>x.ArticoloID===id).reduce((s,x)=>s+(+x.M3_originale||0),0);
+    const usato=car-mg[id];
+    return '<tr><td>'+n+'</td><td align="right">'+car.toFixed(3)+' m³</td><td align="right">'+mg[id].toFixed(3)+' m³</td><td align="center">'+(car?((usato/car*100).toFixed(1)+'%'):'-')+'</td><td align="right">'+destinatoMassicci(id).toFixed(3)+'</td></tr>';}).join("")||'<tr><td colspan="5" style="color:#888">-</td></tr>';
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Rimanenze di magazzino '+anno,new Date().toLocaleDateString('it-IT'))
    +'<h3 style="font-size:14px;margin:10px 0 6px">Articoli</h3><table '+T+'><thead><tr style="background:#f0e9e0"><th align="left">Articolo</th><th align="left">Categoria</th><th align="right">Giacenza</th><th align="right">Dest. commesse</th></tr></thead><tbody>'+ra+'</tbody></table>'
-   +'<h3 style="font-size:14px;margin:14px 0 6px">Pannelli</h3><table '+T+'><thead><tr style="background:#f0e9e0"><th align="left">Tipo</th><th align="right">Residuo</th><th align="right">Dest. commesse</th></tr></thead><tbody>'+rp+'</tbody></table>'
-   +'<h3 style="font-size:14px;margin:14px 0 6px">Massicci</h3><table '+T+'><thead><tr style="background:#f0e9e0"><th align="left">Tipo</th><th align="right">Residuo</th><th align="right">Dest. commesse</th></tr></thead><tbody>'+rm+'</tbody></table></div>';
+   +'<h3 style="font-size:14px;margin:14px 0 6px">Pannelli</h3><table '+T+'><thead><tr style="background:#f0e9e0"><th align="left">Tipo</th><th align="right">Caricato</th><th align="right">Residuo</th><th align="center">% usato</th><th align="right">Dest. commesse</th></tr></thead><tbody>'+rp+'</tbody></table>'
+   +'<h3 style="font-size:14px;margin:14px 0 6px">Massicci</h3><table '+T+'><thead><tr style="background:#f0e9e0"><th align="left">Tipo</th><th align="right">Caricato</th><th align="right">Residuo</th><th align="center">% usato</th><th align="right">Dest. commesse</th></tr></thead><tbody>'+rm+'</tbody></table></div>';
 }
 function buildReportOrdiniAperti(){
   const ap=(STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()!=='ricevuto');
@@ -1880,6 +1886,28 @@ function renderReport(){
     +'<div class="op-sec">Materiali sotto soglia</div>'
     +'<div class="card">'+s1+'</div>';
 }
+// ---- QUANTO E' STATO CARICATO A MAGAZZINO, per calcolare la % di utilizzo ----
+// Pannelli e massicci: somma delle superfici/volumi originali dei pezzi.
+// Articoli: somma dei movimenti di carico.
+function caricatoDi(nome,unita){
+  const p=STATE.pannelli.filter(x=>x.ArticoloID===nome).reduce((s,x)=>s+(+x.M2_originale||0),0);
+  if(p>0)return p;
+  const m=STATE.massicci.filter(x=>x.ArticoloID===nome).reduce((s,x)=>s+(+x.M3_originale||0),0);
+  if(m>0)return m;
+  return STATE.movimenti.filter(x=>x.Annullato!=='SI'&&x.Tipo==='carico'
+    &&(x.NomeArticolo===nome||x.ArticoloID===nome)
+    &&(!unita||x.UnitaMisura===unita)).reduce((s,x)=>s+(+x.Quantita||0),0);
+}
+function pctUsoTxt(usato,nome,unita){
+  const car=caricatoDi(nome,unita);
+  if(!car)return '-';
+  return (usato/car*100).toFixed(1)+'%';
+}
+function pctUsoNum(usato,nome,unita){
+  const car=caricatoDi(nome,unita);
+  return car?(usato/car*100):null;
+}
+function colorePct(p){return p==null?'inherit':(p>=90?'var(--red)':(p>=60?'var(--amber)':'var(--green)'));}
 // ---- UTILIZZO MATERIALI: dove e finito ogni materiale, quanto e quando ----
 function utilizzoDati(filtro){
   const q=String(filtro||'').trim().toLowerCase();
@@ -1956,7 +1984,9 @@ function utilizzoCont(filtro){
       +'<div style="font-size:11.5px;color:var(--gray);margin-top:3px">'+metaDi(x)+'</div></div>'
       +'<div style="text-align:right;white-space:nowrap"><div style="font-size:18px;font-weight:700;color:var(--accent)">'
       +(x.voce?('&euro; '+euro(x.imp)):(x.tot.toFixed(dec)+' '+x.unita))+'</div>'
-      +(x.voce&&x.tot?('<div style="font-size:11.5px;color:var(--gray)">'+x.tot+' '+x.unita+'</div>'):'')+'</div></div>';
+      +(x.voce&&x.tot?('<div style="font-size:11.5px;color:var(--gray)">'+x.tot+' '+x.unita+'</div>'):'')
+      +(!x.voce?('<div style="font-size:12px;font-weight:600;margin-top:2px;color:'+colorePct(pctUsoNum(x.tot,x.nome,x.unita))+'">'+pctUsoTxt(x.tot,x.nome,x.unita)+' del caricato</div>'):'')
+      +'</div></div>';
     const righe=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
       const tot=x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita);
@@ -1989,7 +2019,7 @@ function stampaUtilizzo(){
     let out='<h3 style="font-size:13.5px;margin:16px 0 2px">'+x.nome
       +(x.voce?(' <span style="font-weight:400;color:#8a6d4e">['+x.categoria+']</span>'):'')
       +' <span style="font-weight:400;color:#777">&mdash; totale '
-      +(x.voce?('&euro; '+euro(x.imp)+(x.tot?(' / '+x.tot+' '+x.unita):'')):(x.tot.toFixed(dec)+' '+x.unita))+'</span></h3>'
+      +(x.voce?('&euro; '+euro(x.imp)+(x.tot?(' / '+x.tot+' '+x.unita):'')):(x.tot.toFixed(dec)+' '+x.unita+' &middot; '+pctUsoTxt(x.tot,x.nome,x.unita)+' del caricato'))+'</span></h3>'
       +'<div style="font-size:10.5px;color:#777;margin-bottom:5px">'+metaDi(x)+'</div>';
     out+=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
@@ -2022,9 +2052,9 @@ function buildReportCommessa(comm){
     t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
     const nPezzi=t.pezzi.length;
     const codiciCell=nPezzi?('<div style="font-size:11px;color:#555;font-family:monospace">'+t.pezzi.join(', ')+'</div>'):'-';
-    return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
-      +(nPezzi?'<tr><td colspan="5" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
-  }).join("")||'<tr><td colspan="5" style="color:#888">Nessun consumo registrato</td></tr>';
+    return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+pctUsoTxt(t.q,t.nome,t.unita)+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
+      +(nPezzi?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
+  }).join("")||'<tr><td colspan="6" style="color:#888">Nessun consumo registrato</td></tr>';
   const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="7" style="color:#888">Nessun movimento</td></tr>';
   // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
   const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
@@ -2057,7 +2087,7 @@ function buildReportCommessa(comm){
    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:16px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Report commessa</div></div><div style="text-align:right;font-size:12px;color:#777">Generato il '+oggi+'</div></div>'
    +'<table style="width:100%;font-size:13px;margin-bottom:16px"><tr><td style="color:#777;width:130px">Commessa</td><td style="font-weight:700">'+c.ID+'</td></tr>'+(c.Nome&&c.Nome!==c.ID?'<tr><td style="color:#777">Descrizione</td><td>'+c.Nome+'</td></tr>':'')+(c.Cliente?'<tr><td style="color:#777">Cliente</td><td>'+c.Cliente+'</td></tr>':'')+'</table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">% del caricato</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +vociRiep
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
