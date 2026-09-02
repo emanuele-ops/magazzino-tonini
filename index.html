@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v60 - Atelier</div>
+  <div id="ver-badge">v61 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1989,13 +1989,16 @@ function utilizzoCont(filtro){
       +'</div></div>';
     const righe=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
-      const tot=x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita);
-      const th=x.voce?['Data','Importo','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','Pezzi','Fornitore','Operatore','Note'];
+      const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(cc.q,x.nome,x.unita);
+      const tot=(x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita))
+        +' <span style="font-weight:600;color:'+(x.voce?'var(--gray)':colorePct(pctUsoNum(cc.q,x.nome,x.unita)))+'">'+pctC+'</span>';
+      const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','%','Pezzi','Fornitore','Operatore','Note'];
       const det=cc.det.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+        const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
         const dx=x.voce
-          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),(r.q?(r.q+' '+r.unita):''),r.forn,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
-          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,r.pezzo,r.forn,r.chi,r.note];
-        return '<tr>'+dx.map(function(v,i){return '<td style="padding:3px 6px;border-top:1px solid var(--border)'+(i===1?';text-align:right;font-weight:600;white-space:nowrap':'')+'">'+(v||'-')+'</td>';}).join("")+'</tr>';
+          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),pr,(r.q?(r.q+' '+r.unita):''),r.forn,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
+          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo,r.forn,r.chi,r.note];
+        return '<tr>'+dx.map(function(v,i){return '<td style="padding:3px 6px;border-top:1px solid var(--border)'+(i===1?';text-align:right;font-weight:600;white-space:nowrap':'')+(i===2?';text-align:center;color:var(--gray)':'')+'">'+(v||'-')+'</td>';}).join("")+'</tr>';
       }).join("");
       return '<div style="padding:10px 0;border-top:1px solid var(--border)">'
         +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:3px">'
@@ -2023,14 +2026,16 @@ function stampaUtilizzo(){
       +'<div style="font-size:10.5px;color:#777;margin-bottom:5px">'+metaDi(x)+'</div>';
     out+=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
-      const th=x.voce?['Data','Importo','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','Codici pezzo','Fornitore','Operatore','Note'];
+      const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','%','Codici pezzo','Fornitore','Operatore','Note'];
       const rr=cc.det.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+        const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
         const dx=x.voce
-          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ft||'-',r.stato||'-',r.note||'-']
-          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,r.pezzo||'-',r.forn||'-',r.chi||'-',r.note||'-'];
-        return '<tr>'+dx.map(function(v,i){return '<td'+(i===1?' align="right"':'')+'>'+v+'</td>';}).join("")+'</tr>';
+          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),pr,(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ft||'-',r.stato||'-',r.note||'-']
+          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo||'-',r.forn||'-',r.chi||'-',r.note||'-'];
+        return '<tr>'+dx.map(function(v,i){return '<td'+(i===1?' align="right"':(i===2?' align="center"':''))+'>'+v+'</td>';}).join("")+'</tr>';
       }).join("");
-      const tot=x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' / '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita);
+      const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(cc.q,x.nome,x.unita);
+      const tot=(x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' / '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita))+' &middot; '+pctC;
       return '<div style="margin:6px 0 10px"><div style="font-size:12px;font-weight:bold;margin-bottom:2px">Commessa '+c
         +' <span style="font-weight:400;color:#777">&mdash; '+tot+' &middot; '+cc.n+(x.voce?' voci':' movimenti')+'</span></div>'
         +'<table '+T+'><thead><tr style="background:#f0e9e0">'+th.map(function(t){return '<th align="left">'+t+'</th>';}).join("")+'</tr></thead><tbody>'+rr+'</tbody></table></div>';
@@ -2055,7 +2060,7 @@ function buildReportCommessa(comm){
     return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+pctUsoTxt(t.q,t.nome,t.unita)+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
       +(nPezzi?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
   }).join("")||'<tr><td colspan="6" style="color:#888">Nessun consumo registrato</td></tr>';
-  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="7" style="color:#888">Nessun movimento</td></tr>';
+  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctUsoTxt(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
   // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
   const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(a.Data).localeCompare(String(b.Data)));
@@ -2090,7 +2095,7 @@ function buildReportCommessa(comm){
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">% del caricato</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +vociRiep
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="center">% del caricato</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
    +vociBlock
    +rettBlock
    +'</div>';
