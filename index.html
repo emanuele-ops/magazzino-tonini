@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v62 - Atelier</div>
+  <div id="ver-badge">v63 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -668,8 +668,35 @@ async function call(fn, args) {
         const nuovo = m.tipo === "carico" ? round5(st - m.quantita) : round5(st + m.quantita);
         await sbPatch("articoli", "id=eq." + encodeURIComponent(m.articolo_id), { stock: Math.max(0, nuovo) });
       }
+      // Rimette a posto anche i pezzi: annullare uno scarico di un pannello o di
+      // un massiccio deve restituire i m2/m3 al pezzo, non solo lo stock articoli.
+      const pezzi = String(m.pezzo_id || "").split(",").map(x => x.trim()).filter(Boolean);
+      let pezziRipristinati = 0;
+      if (m.tipo === "scarico" && pezzi.length) {
+        const quota = (parseFloat(m.quantita) || 0) / pezzi.length;
+        for (const pid of pezzi) {
+          const pr = await sbGet("pannelli", "select=*&id=eq." + encodeURIComponent(pid));
+          if (pr.length) {
+            const p = pr[0];
+            const nuovo = Math.min(+p.m2_originale, round5((+p.m2_residuo || 0) + quota));
+            await sbPatch("pannelli", "id=eq." + encodeURIComponent(pid), {
+              m2_residuo: nuovo,
+              residuale_pct: (+p.m2_originale > 0) ? Math.round((nuovo / +p.m2_originale) * 10000) / 100 : 0
+            });
+            pezziRipristinati++;
+            continue;
+          }
+          const mr = await sbGet("massicci", "select=*&id=eq." + encodeURIComponent(pid));
+          if (mr.length) {
+            const p = mr[0];
+            const nuovo = Math.min(+p.m3_originale, round5((+p.m3_residuo || 0) + quota));
+            await sbPatch("massicci", "id=eq." + encodeURIComponent(pid), { m3_residuo: nuovo });
+            pezziRipristinati++;
+          }
+        }
+      }
       await sbPatch("movimenti", "id=eq." + encodeURIComponent(args.movId), { annullato: true, note: (m.note || "") + " [ANNULLATO: " + (args.nota || "") + "]" });
-      return { ok: true };
+      return { ok: true, pezziRipristinati: pezziRipristinati };
     }
     if (fn === "modificaMovimento") {
       const d = args;
@@ -1938,7 +1965,7 @@ function openAnnullaMovBulk(){
   const ms=movSelezionati().filter(m=>m.Annullato!=='SI');
   if(!ms.length){toast("I movimenti selezionati sono gia annullati","err");return;}
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla '+ms.length+' movimenti</h2>'
-   +'<div class="alert alert-amber">L\'annullamento inverte lo stock degli articoli. I movimenti restano visibili ma barrati.</div>'
+   +'<div class="alert alert-amber">L\'annullamento inverte lo stock degli articoli e restituisce i m2/m3 ai pezzi scaricati. I movimenti restano visibili ma barrati.</div>'
    +'<div class="form-group"><label>Motivo *</label><textarea id="ba-n" rows="3" placeholder="es. inserimento errato"></textarea></div>'
    +'<div id="ba-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnullaMovBulk()">Annulla i movimenti</button></div>');
 }
@@ -1947,10 +1974,16 @@ function submitAnnullaMovBulk(){
   if(!n){showErr("ba-err","Inserisci il motivo.");return;}
   const ms=movSelezionati().filter(m=>m.Annullato!=='SI');
   toast("Annullamento di "+ms.length+" movimenti...");
-  Promise.all(ms.map(m=>call("annullaMovimento",{movId:m.ID,nota:n}))).then(function(){
-    Promise.all([call("getMovimenti"),call("getArticoli")]).then(([mv,a])=>{
-      STATE.movimenti=mv||[];STATE.articoli=a||[];
-      closeModal();clearSel(true);renderPage(STATE.pagina);toast("Annullati "+ms.length+" movimenti");});
+  // uno alla volta: ogni annullamento rilegge e riscrive residui e stock,
+  // in parallelo si sovrascriverebbero a vicenda
+  let ripr=0;
+  ms.reduce(function(cat,m){return cat.then(function(){
+    return call("annullaMovimento",{movId:m.ID,nota:n}).then(function(r){ripr+=(+((r||{}).pezziRipristinati)||0);});
+  });},Promise.resolve()).then(function(){
+    Promise.all([call("getMovimenti"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([mv,a,p,mm])=>{
+      STATE.movimenti=mv||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=mm||[];
+      closeModal();clearSel(true);renderPage(STATE.pagina);
+      toast("Annullati "+ms.length+" movimenti"+(ripr?(" - ripristinati "+ripr+" pezzi"):""));});
   }).catch(e=>showErr("ba-err",e.message||"Errore"));
 }
 // -- REPORT --
@@ -3720,9 +3753,13 @@ function filtraOpzioni(selId,q){
   q=(q||"").toLowerCase();
   for(let i=0;i<s.options.length;i++){const o=s.options[i];if(o.value==="")continue;o.hidden=o.text.toLowerCase().indexOf(q)<0;}
 }
-function openAnnulla(mid){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla movimento</h2><div class="alert alert-amber">L\'annullamento inverte lo stock.</div><div class="form-group"><label>Motivo *</label><textarea id="an-n" rows="3" placeholder="es. inserimento errato"></textarea></div><div id="an-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnulla(\''+mid+'\')">Conferma annullamento</button></div>');}
+function openAnnulla(mid){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla movimento</h2><div class="alert alert-amber">L\'annullamento inverte lo stock e restituisce i m2/m3 al pezzo scaricato.</div><div class="form-group"><label>Motivo *</label><textarea id="an-n" rows="3" placeholder="es. inserimento errato"></textarea></div><div id="an-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnulla(\''+mid+'\')">Conferma annullamento</button></div>');}
 function submitAnnulla(mid){const n=document.getElementById("an-n").value.trim();if(!n){showErr("an-err","Inserisci il motivo.");return;}
-  call("annullaMovimento",{movId:mid,nota:n}).then(r=>{if(!r.ok){showErr("an-err",r.err||"Errore.");return;}STATE.movimenti=STATE.movimenti.map(m=>m.ID===mid?Object.assign({},m,{Annullato:"SI"}):m);closeModal();toast("Movimento annullato");renderPage(STATE.pagina);});}
+  call("annullaMovimento",{movId:mid,nota:n}).then(r=>{if(!r.ok){showErr("an-err",r.err||"Errore.");return;}
+    Promise.all([call("getMovimenti"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([mv,a,p,m])=>{
+      STATE.movimenti=mv||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];
+      closeModal();toast("Movimento annullato"+(r.pezziRipristinati?(" - ripristinati "+r.pezziRipristinati+" pezzi"):""));renderPage(STATE.pagina);});
+  });}
 </script>
 </body>
 </html>
