@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v56 - Atelier</div>
+  <div id="ver-badge">v59 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1873,8 +1873,143 @@ function renderReport(){
   return '<h1 class="page-title">Report &amp; Analisi</h1>'
     +'<div class="op-sec" style="margin-top:0">Report per commessa</div>'
     +'<div class="qa-grid">'+blocchi+'</div>'
+    +'<div class="op-sec">Dove e stato usato</div>'
+    +'<div class="info-box">Cerca un materiale, un codice pezzo (P1154, RM0003, ART-0042), una altra voce o una commessa: vedi quanto ne e uscito, su quali commesse e quando.</div>'
+    +'<div class="filters"><input id="ut-q" placeholder="Cerca materiale, codice pezzo, altra voce o commessa..." oninput="filtraUtilizzo()"><button class="btn btn-accent" onclick="stampaUtilizzo()">Stampa report utilizzo</button></div>'
+    +'<div id="ut-cont">'+utilizzoCont("")+'</div>'
     +'<div class="op-sec">Materiali sotto soglia</div>'
     +'<div class="card">'+s1+'</div>';
+}
+// ---- UTILIZZO MATERIALI: dove e finito ogni materiale, quanto e quando ----
+function utilizzoDati(filtro){
+  const q=String(filtro||'').trim().toLowerCase();
+  const mv=STATE.movimenti.filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico');
+  const g={};
+  const artDi=function(m){let a=(STATE.articoli||[]).find(x=>x.ID===m.ArticoloID);
+    if(!a)a=(STATE.articoli||[]).find(x=>x.Nome===m.NomeArticolo||x.Nome===m.ArticoloID);return a||{};};
+  mv.forEach(function(m){
+    const nome=m.NomeArticolo||m.ArticoloID||'(senza nome)';
+    const pezzi=String(m.PezzoID||'').split(',').map(s=>s.trim()).filter(Boolean);
+    if(q&&(nome+' '+pezzi.join(' ')+' '+(m.Commessa||'')+' '+(m.ArticoloID||'')+' '+(m.Note||'')+' '+(m.Utente||'')).toLowerCase().indexOf(q)<0)return;
+    const a=artDi(m);
+    const k=nome+'|'+(m.UnitaMisura||'');
+    g[k]=g[k]||{nome:nome,unita:m.UnitaMisura||'',tot:0,nmov:0,pezziTot:[],forn:[],comm:{},
+                codForn:a.CodiceFornitore||'',categoria:a.Categoria||''};
+    const x=g[k];
+    x.tot+=(+m.Quantita||0); x.nmov++;
+    pezzi.forEach(p=>{if(x.pezziTot.indexOf(p)<0)x.pezziTot.push(p);});
+    let forn=m.Fornitore||'';
+    if(!forn&&pezzi.length){const pz=STATE.pannelli.find(p=>p.ID===pezzi[0])||STATE.massicci.find(p=>p.ID===pezzi[0]);if(pz)forn=pz.Fornitore||'';}
+    if(!forn)forn=a.Fornitore||'';
+    if(forn&&x.forn.indexOf(forn)<0)x.forn.push(forn);
+    const c=m.Commessa||'(senza commessa)';
+    const cc=x.comm[c]=x.comm[c]||{q:0,n:0,pezzi:[],dal:'',al:'',det:[]};
+    cc.q+=(+m.Quantita||0); cc.n++;
+    pezzi.forEach(p=>{if(cc.pezzi.indexOf(p)<0)cc.pezzi.push(p);});
+    const d=String(m.Data||'').slice(0,10);
+    if(d){if(!cc.dal||d<cc.dal)cc.dal=d;if(!cc.al||d>cc.al)cc.al=d;}
+    cc.det.push({data:String(m.Data||'').slice(0,16),q:(+m.Quantita||0),unita:m.UnitaMisura||'',
+      pezzo:pezzi.join(', ')||'-',note:m.Note||'',chi:m.Utente||'',forn:forn||''});
+  });
+  (STATE.voci||[]).forEach(function(v){
+    const nome=v.Descrizione||'(senza descrizione)';
+    if(q&&(nome+' '+(v.Categoria||'')+' '+(v.Commessa||'')+' '+(v.Fornitore||'')+' '+(v.NrFattura||'')+' '+(v.Note||'')).toLowerCase().indexOf(q)<0)return;
+    const k='~voce|'+nome.toLowerCase()+'|'+(v.Categoria||'');
+    g[k]=g[k]||{nome:nome,unita:v.Unita||'',tot:0,imp:0,nmov:0,pezziTot:[],forn:[],comm:{},
+                voce:true,categoria:v.Categoria||'Altro',ft:[]};
+    const x=g[k];
+    x.tot+=(+v.Quantita||0); x.imp+=(+v.Importo||0); x.nmov++;
+    if(v.Fornitore&&x.forn.indexOf(v.Fornitore)<0)x.forn.push(v.Fornitore);
+    if(v.NrFattura&&x.ft.indexOf(v.NrFattura)<0)x.ft.push(v.NrFattura);
+    const c=v.Commessa||'(senza commessa)';
+    const cc=x.comm[c]=x.comm[c]||{q:0,imp:0,n:0,pezzi:[],dal:'',al:'',det:[]};
+    cc.q+=(+v.Quantita||0); cc.imp+=(+v.Importo||0); cc.n++;
+    const d=String(v.Data||'').slice(0,10);
+    if(d){if(!cc.dal||d<cc.dal)cc.dal=d;if(!cc.al||d>cc.al)cc.al=d;}
+    cc.det.push({data:d,q:(+v.Quantita||0),unita:v.Unita||'',imp:(+v.Importo||0),
+      forn:v.Fornitore||'',ft:v.NrFattura||'',stato:v.Stato||'',note:v.Note||''});
+  });
+  return g;
+}
+function dataIt(d){if(!d)return '-';const p=String(d).slice(0,10).split('-');return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):d;}
+function nDec(u){return (u==='pz'||!u)?0:3;}
+function periodoDi(x){let dal='',al='';Object.keys(x.comm).forEach(function(c){const cc=x.comm[c];
+  if(cc.dal&&(!dal||cc.dal<dal))dal=cc.dal;if(cc.al&&(!al||cc.al>al))al=cc.al;});return [dal,al];}
+function metaDi(x){
+  const p=periodoDi(x),meta=[x.nmov+(x.voce?' voci':' movimenti'),Object.keys(x.comm).length+' commesse'];
+  if(!x.voce&&x.pezziTot.length)meta.push(x.pezziTot.length+' pezzi');
+  meta.push('dal '+dataIt(p[0])+' al '+dataIt(p[1]));
+  if(x.forn.length)meta.push('fornitori: '+x.forn.join(', '));
+  if(x.codForn)meta.push('cod. forn. '+x.codForn);
+  if(x.voce&&x.ft&&x.ft.length)meta.push('fatture: '+x.ft.join(', '));
+  return meta.join(' &middot; ');
+}
+function utilizzoCont(filtro){
+  const g=utilizzoDati(filtro);
+  const keys=Object.keys(g).sort((a,b)=>((g[a].voce?1:0)-(g[b].voce?1:0))||g[a].nome.localeCompare(g[b].nome));
+  if(!keys.length)return '<div class="card" style="color:var(--gray)">Nessun consumo trovato'+(filtro?' per "'+filtro+'"':'')+'.</div>';
+  return keys.map(function(k){
+    const x=g[k],dec=nDec(x.unita);
+    const testa='<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">'
+      +'<div><div style="font-weight:600;font-size:14px">'+x.nome
+      +(x.voce?(' <span class="badge badge-accent">'+x.categoria+'</span>'):(x.categoria?(' <span class="badge badge-gray">'+x.categoria+'</span>'):''))+'</div>'
+      +'<div style="font-size:11.5px;color:var(--gray);margin-top:3px">'+metaDi(x)+'</div></div>'
+      +'<div style="text-align:right;white-space:nowrap"><div style="font-size:18px;font-weight:700;color:var(--accent)">'
+      +(x.voce?('&euro; '+euro(x.imp)):(x.tot.toFixed(dec)+' '+x.unita))+'</div>'
+      +(x.voce&&x.tot?('<div style="font-size:11.5px;color:var(--gray)">'+x.tot+' '+x.unita+'</div>'):'')+'</div></div>';
+    const righe=Object.keys(x.comm).sort().map(function(c){
+      const cc=x.comm[c];
+      const tot=x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita);
+      const th=x.voce?['Data','Importo','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','Pezzi','Fornitore','Operatore','Note'];
+      const det=cc.det.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+        const dx=x.voce
+          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),(r.q?(r.q+' '+r.unita):''),r.forn,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
+          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,r.pezzo,r.forn,r.chi,r.note];
+        return '<tr>'+dx.map(function(v,i){return '<td style="padding:3px 6px;border-top:1px solid var(--border)'+(i===1?';text-align:right;font-weight:600;white-space:nowrap':'')+'">'+(v||'-')+'</td>';}).join("")+'</tr>';
+      }).join("");
+      return '<div style="padding:10px 0;border-top:1px solid var(--border)">'
+        +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:3px">'
+        +'<span style="font-family:monospace;font-weight:700">'+c+'</span><span style="font-weight:700">'+tot+'</span></div>'
+        +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">'+cc.n+(x.voce?' voci':' movimenti')+' &middot; dal '+dataIt(cc.dal)+' al '+dataIt(cc.al)+((!x.voce&&cc.pezzi.length)?(' &middot; '+cc.pezzi.length+' pezzi'):'')+'</div>'
+        +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr>'
+        +th.map(function(t){return '<th style="text-align:left;padding:3px 6px;color:var(--gray);font-size:10px;text-transform:uppercase;letter-spacing:.4px">'+t+'</th>';}).join("")
+        +'</tr></thead><tbody>'+det+'</tbody></table></div></div>';
+    }).join("");
+    return '<div class="card" style="margin-bottom:10px">'+testa+righe+'</div>';
+  }).join("");
+}
+function filtraUtilizzo(){document.getElementById("ut-cont").innerHTML=utilizzoCont(document.getElementById("ut-q").value);}
+function stampaUtilizzo(){
+  const filtro=(document.getElementById("ut-q")||{}).value||"";
+  const g=utilizzoDati(filtro);
+  const keys=Object.keys(g).sort((a,b)=>((g[a].voce?1:0)-(g[b].voce?1:0))||g[a].nome.localeCompare(g[b].nome));
+  const T='border="1" cellpadding="4" style="border-collapse:collapse;width:100%;font-size:11px"';
+  const body=keys.map(function(k){
+    const x=g[k],dec=nDec(x.unita);
+    let out='<h3 style="font-size:13.5px;margin:16px 0 2px">'+x.nome
+      +(x.voce?(' <span style="font-weight:400;color:#8a6d4e">['+x.categoria+']</span>'):'')
+      +' <span style="font-weight:400;color:#777">&mdash; totale '
+      +(x.voce?('&euro; '+euro(x.imp)+(x.tot?(' / '+x.tot+' '+x.unita):'')):(x.tot.toFixed(dec)+' '+x.unita))+'</span></h3>'
+      +'<div style="font-size:10.5px;color:#777;margin-bottom:5px">'+metaDi(x)+'</div>';
+    out+=Object.keys(x.comm).sort().map(function(c){
+      const cc=x.comm[c];
+      const th=x.voce?['Data','Importo','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','Codici pezzo','Fornitore','Operatore','Note'];
+      const rr=cc.det.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+        const dx=x.voce
+          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ft||'-',r.stato||'-',r.note||'-']
+          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,r.pezzo||'-',r.forn||'-',r.chi||'-',r.note||'-'];
+        return '<tr>'+dx.map(function(v,i){return '<td'+(i===1?' align="right"':'')+'>'+v+'</td>';}).join("")+'</tr>';
+      }).join("");
+      const tot=x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' / '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita);
+      return '<div style="margin:6px 0 10px"><div style="font-size:12px;font-weight:bold;margin-bottom:2px">Commessa '+c
+        +' <span style="font-weight:400;color:#777">&mdash; '+tot+' &middot; '+cc.n+(x.voce?' voci':' movimenti')+'</span></div>'
+        +'<table '+T+'><thead><tr style="background:#f0e9e0">'+th.map(function(t){return '<th align="left">'+t+'</th>';}).join("")+'</tr></thead><tbody>'+rr+'</tbody></table></div>';
+    }).join("");
+    return out;
+  }).join("")||'<p style="color:#888">Nessun consumo trovato.</p>';
+  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
+    +pdfHead('Utilizzo materiali e voci'+(filtro?(' - filtro: '+filtro):''),new Date().toLocaleDateString('it-IT'))
+    +body+'</div>');
 }
 function buildReportCommessa(comm){
   const c=STATE.commesse.find(x=>x.ID===comm)||{ID:comm,Nome:"",Cliente:""};
