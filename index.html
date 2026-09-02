@@ -240,7 +240,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v61 - Atelier</div>
+  <div id="ver-badge">v62 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -360,6 +360,14 @@ function renderBulkBar(){
   const ids=Object.keys(SEL);
   if(!ids.length||!SELTIPO){bar.style.display="none";bar.innerHTML="";return;}
   bar.style.display="flex";
+  if(SELTIPO==='movimento'){
+    bar.innerHTML='<span>'+ids.length+' movimenti</span>'
+      +'<button style="background:var(--accent);color:#fff" onclick="openCommessaMovBulk()">Cambia commessa</button>'
+      +'<button style="background:var(--amber);color:#fff" onclick="openFornitoreMovBulk()">Cambia fornitore</button>'
+      +'<button style="background:#7a2a1e;color:#fff" onclick="openAnnullaMovBulk()">Annulla movimenti</button>'
+      +'<button style="background:#ffffff33;color:#fff" onclick="clearSel()">Chiudi</button>';
+    return;
+  }
   bar.innerHTML='<span>'+ids.length+' selez.</span><button style="background:var(--red);color:#fff" onclick="openScaricoBulk()">Scarica</button><button style="background:#7a2a1e;color:#fff" onclick="confEliminaBulk()">Elimina</button><button style="background:#ffffff33;color:#fff" onclick="clearSel()">Annulla</button>';
 }
 function confEliminaBulk(){
@@ -1851,20 +1859,100 @@ function massicciCont(filtro){
 function filtraMassicci(){document.getElementById("mass-cont").innerHTML=massicciCont(document.getElementById("mass-q").value);if(MASS_VIEW==='fam')collassaFam();}
 
 // -- MOVIMENTI --
+let MOV_VIS=[];
 function renderMovimenti(){
-  return '<h1 class="page-title">Movimenti</h1><div class="filters"><select id="flt-tipo" onchange="filterMov()"><option value="">Tutti i tipi</option><option value="carico">Solo carichi</option><option value="scarico">Solo scarichi</option></select><input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMov()"></div>'
-  +'<div class="table-wrap"><table><thead><tr><th>Data</th><th>Operatore</th><th>Articolo</th><th>Cod. forn.</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
+  return '<h1 class="page-title">Movimenti</h1>'
+  +'<div class="filters"><select id="flt-tipo" onchange="filterMov()"><option value="">Tutti i tipi</option><option value="carico">Solo carichi</option><option value="scarico">Solo scarichi</option></select>'
+  +'<input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMov()">'
+  +'<input id="flt-txt" placeholder="Cerca materiale, pezzo, note..." oninput="filterMov()"></div>'
+  +'<div class="info-box">Spunta le caselle a sinistra per lavorare su piu movimenti insieme: cambiare la commessa o annullarli in blocco.</div>'
+  +'<div class="table-wrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="mov-all" onclick="selAllMov(this)" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></th><th>Data</th><th>Operatore</th><th>Articolo</th><th>Cod. forn.</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
+}
+function selAllMov(chk){
+  if(SELTIPO!=='movimento'){SEL={};SELTIPO='movimento';}
+  if(chk.checked)MOV_VIS.forEach(id=>{SEL[id]=true;});
+  else {MOV_VIS.forEach(id=>{delete SEL[id];});if(!Object.keys(SEL).length)SELTIPO=null;}
+  document.getElementById("tbody-mov").innerHTML=rowsMov(movFiltrati());
+  renderBulkBar();
 }
 function rowsMov(list){
   const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'-';};
-  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="8" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
+  MOV_VIS=list.map(m=>m.ID);
+  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="9" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
 }
-function filterMov(){
-  const t=document.getElementById("flt-tipo").value,c=document.getElementById("flt-comm").value.toLowerCase();
-  const f=STATE.movimenti.slice().reverse().filter(m=>(!t||m.Tipo===t)&&(!c||(m.Commessa||"").toLowerCase().includes(c)));
-  document.getElementById("tbody-mov").innerHTML=rowsMov(f);
+function movFiltrati(){
+  const te=document.getElementById("flt-tipo"),ce=document.getElementById("flt-comm"),xe=document.getElementById("flt-txt");
+  const t=te?te.value:"",c=ce?ce.value.toLowerCase():"",x=xe?xe.value.toLowerCase():"";
+  return STATE.movimenti.slice().reverse().filter(m=>(!t||m.Tipo===t)
+    &&(!c||(m.Commessa||"").toLowerCase().includes(c))
+    &&(!x||((m.NomeArticolo||'')+' '+(m.ArticoloID||'')+' '+(m.PezzoID||'')+' '+(m.Note||'')+' '+(m.Fornitore||'')+' '+(m.Utente||'')).toLowerCase().includes(x)));
 }
+function filterMov(){document.getElementById("tbody-mov").innerHTML=rowsMov(movFiltrati());}
 
+
+// ---- OPERAZIONI IN BLOCCO SUI MOVIMENTI ----
+function movSelezionati(){return Object.keys(SEL).map(id=>STATE.movimenti.find(m=>m.ID===id)).filter(Boolean);}
+function openCommessaMovBulk(){
+  const ms=movSelezionati(); if(!ms.length)return;
+  const conPezzo=ms.filter(m=>String(m.PezzoID||'').trim()).length;
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Cambia commessa a '+ms.length+' movimenti</h2>'
+   +'<div class="info-box">La commessa verra riscritta su tutti i movimenti selezionati.'
+   +(conPezzo?(' Per i '+conPezzo+' movimenti legati a un pezzo viene aggiornato anche il pezzo, cosi i report restano allineati.'):'')+'</div>'
+   +'<div class="form-group"><label>Nuova commessa</label><select id="bm-comm">'+optCommesse()+'</select></div>'
+   +'<div id="bm-err"></div><button class="btn-primary" onclick="submitCommessaMovBulk()">Applica a tutti</button></div>');
+}
+function submitCommessaMovBulk(){
+  const c=document.getElementById("bm-comm").value;
+  const ms=movSelezionati();
+  toast("Aggiornamento di "+ms.length+" movimenti...");
+  Promise.all(ms.map(function(m){
+    const pezzi=String(m.PezzoID||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const p=call("modificaMovimento",{movId:m.ID,Commessa:c});
+    // se il movimento riguarda un solo pezzo, allineo anche il pezzo
+    if(pezzi.length===1){
+      const tipo=STATE.pannelli.some(x=>x.ID===pezzi[0])?'pannello':(STATE.massicci.some(x=>x.ID===pezzi[0])?'massiccio':null);
+      if(tipo)return p.then(()=>call("assegnaPezzoSingolo",{tipo:tipo,id:pezzi[0],commessa:c}));
+    }
+    return p;
+  })).then(function(){
+    Promise.all([call("getMovimenti"),call("getPannelli"),call("getMassicci")]).then(([mv,pn,mm])=>{
+      STATE.movimenti=mv||[];STATE.pannelli=pn||[];STATE.massicci=mm||[];
+      closeModal();clearSel(true);renderPage(STATE.pagina);toast("Commessa aggiornata su "+ms.length+" movimenti");});
+  }).catch(e=>showErr("bm-err",e.message||"Errore"));
+}
+function openFornitoreMovBulk(){
+  const ms=movSelezionati(); if(!ms.length)return;
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Cambia fornitore a '+ms.length+' movimenti</h2>'
+   +'<div class="form-group"><label>Fornitore</label><input id="bf-forn" list="bf-l" autocomplete="off"><datalist id="bf-l">'+(STATE.fornitori||[]).map(f=>'<option value="'+att(f.Nome)+'">').join("")+'</datalist></div>'
+   +'<div id="bf-err"></div><button class="btn-primary" onclick="submitFornitoreMovBulk()">Applica a tutti</button></div>');
+}
+function submitFornitoreMovBulk(){
+  const f=document.getElementById("bf-forn").value.trim();
+  const ms=movSelezionati();
+  toast("Aggiornamento in corso...");
+  Promise.all(ms.map(m=>call("modificaMovimento",{movId:m.ID,Fornitore:f}))).then(function(){
+    call("getMovimenti").then(mv=>{STATE.movimenti=mv||[];closeModal();clearSel(true);renderPage(STATE.pagina);toast("Fornitore aggiornato su "+ms.length+" movimenti");});
+  }).catch(e=>showErr("bf-err",e.message||"Errore"));
+}
+function openAnnullaMovBulk(){
+  const ms=movSelezionati().filter(m=>m.Annullato!=='SI');
+  if(!ms.length){toast("I movimenti selezionati sono gia annullati","err");return;}
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla '+ms.length+' movimenti</h2>'
+   +'<div class="alert alert-amber">L\'annullamento inverte lo stock degli articoli. I movimenti restano visibili ma barrati.</div>'
+   +'<div class="form-group"><label>Motivo *</label><textarea id="ba-n" rows="3" placeholder="es. inserimento errato"></textarea></div>'
+   +'<div id="ba-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnullaMovBulk()">Annulla i movimenti</button></div>');
+}
+function submitAnnullaMovBulk(){
+  const n=document.getElementById("ba-n").value.trim();
+  if(!n){showErr("ba-err","Inserisci il motivo.");return;}
+  const ms=movSelezionati().filter(m=>m.Annullato!=='SI');
+  toast("Annullamento di "+ms.length+" movimenti...");
+  Promise.all(ms.map(m=>call("annullaMovimento",{movId:m.ID,nota:n}))).then(function(){
+    Promise.all([call("getMovimenti"),call("getArticoli")]).then(([mv,a])=>{
+      STATE.movimenti=mv||[];STATE.articoli=a||[];
+      closeModal();clearSel(true);renderPage(STATE.pagina);toast("Annullati "+ms.length+" movimenti");});
+  }).catch(e=>showErr("ba-err",e.message||"Errore"));
+}
 // -- REPORT --
 function movCommessa(comm){ return STATE.movimenti.filter(m=>m.Commessa===comm&&m.Annullato!=="SI"); }
 function renderReport(){
