@@ -261,7 +261,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v66 - Atelier</div>
+  <div id="ver-badge">v67 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -1413,8 +1413,191 @@ function reportBox(){
   const mesi=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
   const mo='<option value="">Tutto l\'anno</option>'+mesi.map((m,i)=>'<option value="'+String(i+1).padStart(2,"0")+'">'+m+'</option>').join("");
   return '<div class="op-sec" style="font-size:15px">Report PDF</div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"><div class="form-group" style="margin:0;max-width:140px"><label>Anno</label><select id="pn-anno">'+yo+'</select></div><div class="form-group" style="margin:0;max-width:170px"><label>Mese</label><select id="pn-mese">'+mo+'</select></div></div>'
-   +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="reportPdf(\'scarico\')">Movimenti e voci per commessa</button><button class="btn btn-ghost" onclick="reportPdf(\'rimanenze\')">Rimanenze magazzino</button><button class="btn btn-ghost" onclick="reportPdf(\'aperti\')">Ordini non ricevuti</button><button class="btn btn-accent" onclick="reportPdf(\'riepilogo\')">Riepilogo</button></div>';
+   +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">Stampa o salva in PDF</div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn btn-ghost" onclick="reportPdf(\'scarico\')">Movimenti e voci per commessa</button><button class="btn btn-ghost" onclick="reportPdf(\'rimanenze\')">Rimanenze magazzino</button><button class="btn btn-ghost" onclick="reportPdf(\'aperti\')">Ordini non ricevuti</button><button class="btn btn-accent" onclick="reportPdf(\'riepilogo\')">Riepilogo</button></div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">Esporta in CSV, per aprirlo in Excel</div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-green" onclick="reportCsv(\'scarico\')">Movimenti e voci per commessa</button><button class="btn btn-green" onclick="reportCsv(\'rimanenze\')">Rimanenze magazzino</button><button class="btn btn-green" onclick="reportCsv(\'aperti\')">Ordini non ricevuti</button><button class="btn btn-green" onclick="reportCsv(\'riepilogo\')">Riepilogo</button></div>';
 }
+
+// ============================================================
+//  ESPORTAZIONE CSV
+//  Stessi dati dei PDF, ma apribili in Excel: separatore punto e
+//  virgola, virgola decimale, BOM per gli accenti.
+// ============================================================
+function csvCella(v){
+  let t=String(v==null?'':v);
+  t=t.replace(/<br\s*\/?>/gi,' ').replace(/<[^>]*>/g,'')
+     .replace(/&euro;/g,'EUR').replace(/&middot;/g,'-').replace(/&mdash;/g,'-')
+     .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&sup2;/g,'2').replace(/&sup3;/g,'3');
+  if(/[";\n\r]/.test(t))t='"'+t.replace(/"/g,'""')+'"';
+  return t;
+}
+function csvNum(v,dec){
+  if(v===null||v===undefined||v==='')return '';
+  const n=Number(v); if(isNaN(n))return '';
+  return n.toFixed(dec==null?3:dec).replace('.',',');
+}
+function csvPct(usato,nome,unita){
+  const p=pctUsoNum(usato,nome,unita);
+  return p==null?'':csvNum(p,1);
+}
+function oggiFile(){const d=new Date(),p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
+function scaricaCsv(nome,righe){
+  if(!righe||righe.length<2){toast("Niente da esportare","err");return;}
+  const txt='\ufeff'+righe.map(r=>r.map(csvCella).join(';')).join('\r\n');
+  scaricaFile(new Blob([txt],{type:'text/csv;charset=utf-8;'}),nome);
+  toast("CSV scaricato: "+nome);
+}
+
+// ---- CSV: movimenti e voci per commessa (dashboard) ----
+function csvReportScarico(anno,mese){
+  const pref=mese?(anno+'-'+mese):anno;
+  const out=[['Commessa','Tipo riga','Data','Materiale o voce','Categoria / cod. fornitore',
+    'Codici pezzo','Quantita','Unita','% del caricato','Importo EUR','Fornitore','N. fattura','Stato','Note','Operatore']];
+  STATE.movimenti.filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&String(m.Data).startsWith(pref))
+    .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
+    .forEach(function(m){
+      let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);
+      if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);
+      out.push([m.Commessa||'(senza commessa)','Materiale',String(m.Data||'').slice(0,16),
+        m.NomeArticolo||'',(art&&art.CodiceFornitore)||'',m.PezzoID||'',
+        csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
+        csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',m.Fornitore||'','','',m.Note||'',m.Utente||'']);
+    });
+  (STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref))
+    .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
+    .forEach(function(v){
+      out.push([v.Commessa||'(senza commessa)','Altra voce',String(v.Data||'').slice(0,10),
+        v.Descrizione||'',v.Categoria||'','',csvNum(v.Quantita,3),v.Unita||'','',
+        csvNum(v.Importo,2),v.Fornitore||'',v.NrFattura||'',v.Stato||'',v.Note||'','']);
+    });
+  scaricaCsv('movimenti-e-voci_'+(mese?(anno+'-'+mese):anno)+'.csv',out);
+}
+
+// ---- CSV: rimanenze ----
+function csvRimanenze(anno){
+  const out=[['Tipo','Nome','Categoria','Caricato','Residuo','Unita','% usato','Destinato a commesse','Soglia','Fornitore']];
+  STATE.articoli.filter(a=>a.Categoria!=='Pannelli'&&a.Categoria!=='Massello'&&a.IsPannello!=='SI')
+    .forEach(a=>out.push(['Articolo',a.Nome,a.Categoria||'','',csvNum(a.Stock,3),a.UnitaMisura||'','',
+      csvNum(impegnatoArt(a),3),csvNum(a.SogliaRiordino,3),a.Fornitore||'']));
+  const pg={};STATE.pannelli.forEach(p=>{pg[p.ArticoloID]=pg[p.ArticoloID]||{res:0,car:0};
+    pg[p.ArticoloID].res+=(+p.M2_residuo||0);pg[p.ArticoloID].car+=(+p.M2_originale||0);});
+  Object.keys(pg).sort().forEach(function(id){const x=pg[id];
+    out.push(['Pannello',id,'',csvNum(x.car,2),csvNum(x.res,2),'m2',
+      x.car?csvNum((x.car-x.res)/x.car*100,1):'',csvNum(destinatoPannelli(id),2),'','']);});
+  const mg={};STATE.massicci.forEach(p=>{mg[p.ArticoloID]=mg[p.ArticoloID]||{res:0,car:0};
+    mg[p.ArticoloID].res+=(+p.M3_residuo||0);mg[p.ArticoloID].car+=(+p.M3_originale||0);});
+  Object.keys(mg).sort().forEach(function(id){const x=mg[id];
+    out.push(['Massiccio',id,'',csvNum(x.car,3),csvNum(x.res,3),'m3',
+      x.car?csvNum((x.car-x.res)/x.car*100,1):'',csvNum(destinatoMassicci(id),3),'','']);});
+  scaricaCsv('rimanenze_'+anno+'.csv',out);
+}
+
+// ---- CSV: ordini non ricevuti ----
+function csvOrdiniAperti(){
+  const out=[['Ordine','Data','Fornitore','Commessa','Stato','Materiale','Dettaglio','Note']];
+  (STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()!=='ricevuto').forEach(function(o){
+    (o.Righe||[]).forEach(r=>out.push([o.ID,String(o.Data||'').slice(0,16),o.Fornitore||'',o.Commessa||'',
+      o.Stato||'',r.descrizione||'',r.dettaglio||'',r.note||'']));
+    if(!(o.Righe||[]).length)out.push([o.ID,String(o.Data||'').slice(0,16),o.Fornitore||'',o.Commessa||'',o.Stato||'','','','']);
+  });
+  scaricaCsv('ordini-non-ricevuti_'+oggiFile()+'.csv',out);
+}
+
+// ---- CSV: riepilogo ----
+function csvRiepilogo(anno,mese){
+  const pref=mese?(anno+'-'+mese):anno;
+  const mv=STATE.movimenti.filter(m=>m.Annullato!=='SI'&&String(m.Data).startsWith(pref));
+  const comm={};mv.filter(m=>m.Tipo==='scarico'&&m.Commessa).forEach(m=>comm[m.Commessa]=true);
+  const voci=(STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref));
+  const som=(t,u)=>mv.filter(m=>m.Tipo===t&&u(m.UnitaMisura)).reduce((s,m)=>s+(+m.Quantita||0),0);
+  const out=[['Voce','Valore'],
+    ['Periodo',(mese?(mese+'/'+anno):anno)],
+    ['Movimenti di carico',mv.filter(m=>m.Tipo==='carico').length],
+    ['Movimenti di scarico',mv.filter(m=>m.Tipo==='scarico').length],
+    ['Pannelli entrati (m2)',csvNum(som('carico',isMq),2)],
+    ['Pannelli usciti (m2)',csvNum(som('scarico',isMq),2)],
+    ['Massicci entrati (m3)',csvNum(som('carico',isMc),3)],
+    ['Massicci usciti (m3)',csvNum(som('scarico',isMc),3)],
+    ['Commesse con consumi',Object.keys(comm).length],
+    ['Altre voci registrate',voci.length],
+    ['Totale altre voci EUR',csvNum(voci.reduce((s,v)=>s+(+v.Importo||0),0),2)],
+    ['Ordini emessi (totali)',(STATE.ordini||[]).length],
+    ['Ordini ricevuti',(STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()==='ricevuto').length],
+    ['Articoli sotto soglia (oggi)',STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino).length]];
+  scaricaCsv('riepilogo_'+(mese?(anno+'-'+mese):anno)+'.csv',out);
+}
+
+// ---- CSV: report di una commessa ----
+function csvReportCommessa(comm){
+  const out=[['Sezione','Data','Materiale o voce','Categoria / cod. fornitore','Codici pezzo',
+    'Quantita','Unita','% del caricato','Importo EUR','Fornitore','N. fattura','Stato','Note','Operatore']];
+  const movs=movCommessa(comm).filter(m=>m.Tipo==='scarico');
+  const cfDi=function(m){let a=(STATE.articoli||[]).find(x=>x.ID===m.ArticoloID);
+    if(!a)a=(STATE.articoli||[]).find(x=>x.Nome===m.NomeArticolo||x.Nome===m.ArticoloID);
+    return (a&&a.CodiceFornitore)||'';};
+  // totali per materiale
+  const tot={};
+  movs.forEach(function(m){const k=m.NomeArticolo+'||'+m.UnitaMisura;
+    tot[k]=tot[k]||{nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cfDi(m),q:0,n:0,pezzi:[]};
+    tot[k].q+=(+m.Quantita||0);tot[k].n++;
+    if(m.PezzoID)String(m.PezzoID).split(',').map(x=>x.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
+  Object.keys(tot).forEach(function(k){const t=tot[k];
+    t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    out.push(['Consumo totale','',t.nome,t.cf,t.pezzi.join(' '),
+      csvNum(t.q,(t.unita==='pz')?0:3),t.unita||'',csvPct(t.q,t.nome,t.unita),'','','','',''+t.n+' movimenti','']);});
+  // altre voci
+  (STATE.voci||[]).filter(v=>v.Commessa===comm)
+    .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
+    .forEach(v=>out.push(['Altra voce',String(v.Data||'').slice(0,10),v.Descrizione||'',v.Categoria||'','',
+      csvNum(v.Quantita,3),v.Unita||'','',csvNum(v.Importo,2),v.Fornitore||'',v.NrFattura||'',v.Stato||'',v.Note||'','']));
+  // dettaglio movimenti
+  movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(m){
+    out.push(['Movimento',String(m.Data||'').slice(0,16),m.NomeArticolo||'',cfDi(m),m.PezzoID||'',
+      csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
+      csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',m.Fornitore||'','','',m.Note||'',m.Utente||'']);});
+  // rettifiche
+  (STATE.rettifiche||[]).filter(r=>r.Commessa===comm)
+    .forEach(r=>out.push(['Rettifica manuale','',r.Voce||'','','','','','','','','','',(r.Valore||'')+' '+(r.Note||''),'']));
+  scaricaCsv('commessa_'+String(comm).replace(/[^A-Za-z0-9._-]/g,'-')+'.csv',out);
+}
+
+// ---- CSV: report di utilizzo ----
+function csvUtilizzo(){
+  const filtro=(document.getElementById("ut-q")||{}).value||"";
+  const g=utilizzoDati(filtro);
+  const keys=Object.keys(g).sort((a,b)=>((g[a].voce?1:0)-(g[b].voce?1:0))||g[a].nome.localeCompare(g[b].nome));
+  const out=[['Tipo','Nome','Categoria','Unita','Totale materiale','% del caricato','Totale EUR',
+    'Commessa','Totale commessa','Importo commessa EUR','Data','Quantita riga','% riga','Importo riga EUR',
+    'Codici pezzo / fattura','Fornitore','Operatore','Note']];
+  keys.forEach(function(k){
+    const x=g[k],dec=nDec(x.unita);
+    Object.keys(x.comm).sort().forEach(function(c){
+      const cc=x.comm[c];
+      cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).forEach(function(r){
+        out.push([x.voce?'Altra voce':'Materiale',x.nome,x.categoria||'',x.unita||'',
+          x.voce?'':csvNum(x.tot,dec), x.voce?'':csvPct(x.tot,x.nome,x.unita), x.voce?csvNum(x.imp,2):'',
+          c, x.voce?'':csvNum(cc.q,dec), x.voce?csvNum(cc.imp,2):'',
+          String(r.data||'').slice(0,16), csvNum(r.q,dec),
+          x.voce?'':csvPct(r.q,x.nome,x.unita), x.voce?csvNum(r.imp,2):'',
+          x.voce?(r.ft||''):(r.pezzo||''), r.forn||'', r.chi||'', r.note||'']);
+      });
+    });
+  });
+  scaricaCsv('utilizzo'+(filtro?('_'+filtro.replace(/[^A-Za-z0-9._-]/g,'-')):'')+'_'+oggiFile()+'.csv',out);
+}
+
+// smistamento dei pulsanti CSV della dashboard
+function reportCsv(t){
+  const a=(document.getElementById("pn-anno")||{}).value||String(new Date().getFullYear());
+  const m=(document.getElementById("pn-mese")||{}).value||"";
+  if(t==='scarico')csvReportScarico(a,m);
+  else if(t==='rimanenze')csvRimanenze(a);
+  else if(t==='aperti')csvOrdiniAperti();
+  else csvRiepilogo(a,m);
+}
+
 function reportPdf(t){const a=(document.getElementById("pn-anno")||{}).value||String(new Date().getFullYear());const m=(document.getElementById("pn-mese")||{}).value||"";
   if(t==='scarico')stampaHTML(buildReportScarico(a,m));
   else if(t==='rimanenze')stampaHTML(buildReportRimanenze(a));
@@ -2295,7 +2478,7 @@ function renderReport(){
     +'<div class="qa-grid">'+blocchi+'</div>'
     +'<div class="op-sec">Dove e stato usato</div>'
     +'<div class="info-box">Cerca un materiale, un codice pezzo (P1154, RM0003, ART-0042), una altra voce o una commessa: vedi quanto ne e uscito, su quali commesse e quando.</div>'
-    +'<div class="filters"><input id="ut-q" placeholder="Cerca materiale, codice pezzo, altra voce o commessa..." oninput="filtraUtilizzo()"><button class="btn btn-accent" onclick="stampaUtilizzo()">Stampa report utilizzo</button></div>'
+    +'<div class="filters"><input id="ut-q" placeholder="Cerca materiale, codice pezzo, altra voce o commessa..." oninput="filtraUtilizzo()"><button class="btn btn-accent" onclick="stampaUtilizzo()">Stampa PDF</button><button class="btn btn-green" onclick="csvUtilizzo()">Esporta CSV</button></div>'
     +'<div id="ut-cont">'+utilizzoCont("")+'</div>'
     +'<div class="op-sec">Materiali sotto soglia</div>'
     +'<div class="card">'+s1+'</div>';
@@ -2525,7 +2708,8 @@ function _openReportCommessa(comm){
   // anche scorrendo un report lungo
   const barra='<div style="position:sticky;top:-24px;z-index:6;background:#fff;margin:-24px -24px 12px;padding:16px 24px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">'
     +'<div style="flex:1;font-family:Georgia,serif;font-size:17px;font-weight:600">Commessa '+comm+'</div>'
-    +'<button class="btn btn-accent" onclick="stampaReportCommessa(\''+esc(comm)+'\')">Stampa / Salva PDF</button>'
+    +'<button class="btn btn-accent" onclick="stampaReportCommessa(\''+esc(comm)+'\')">Stampa / PDF</button>'
+    +'<button class="btn btn-green" onclick="csvReportCommessa(\''+esc(comm)+'\')">CSV</button>'
     +'<button class="btn btn-ghost" onclick="closeModal()">Chiudi</button></div>';
   openModal('<div class="modal" style="width:680px">'+barra
     +buildDestinatiSection(comm)
