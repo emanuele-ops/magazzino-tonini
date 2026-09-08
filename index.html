@@ -108,7 +108,7 @@
   .combo-item:last-child{border-bottom:none}
   .combo-item:hover{background:var(--accent-light)}
 
-  .piece-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:12px}
+  .piece-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--pmin,232px),1fr));gap:var(--pgap,12px)}
   .piece{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px;cursor:pointer;transition:.15s;box-shadow:0 1px 3px rgba(80,60,40,.05);position:relative}
   .piece-row{display:flex;gap:11px;align-items:flex-start}
   .piece-thumb{width:60px;height:60px;flex-shrink:0;object-fit:cover;border-radius:9px;border:1px solid var(--border)}
@@ -261,7 +261,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v64 - Atelier</div>
+  <div id="ver-badge">v66 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -429,6 +429,7 @@ function submitBulk(){
   });
 }
 function renderPage(p){
+  applicaDensita();
   const m=document.getElementById("main-content");
   if(p==="dashboard")m.innerHTML=(STATE.utente.Ruolo==="operator")?renderOperatorHome():renderDashboard();
   else if(p==="articoli")m.innerHTML=renderArticoli();
@@ -1450,7 +1451,7 @@ function buildReportScarico(anno,mese){
     let out='<h3 style="font-size:14px;margin:16px 0 6px">Commessa '+c+'</h3>';
     if(byC[c]){
       let rows='';
-      Object.keys(byC[c]).sort().forEach(ms=>{
+      Object.keys(byC[c]).sort().reverse().forEach(ms=>{
         Object.keys(byC[c][ms]).forEach(k=>{
           const p=k.split('|'); const cell=byC[c][ms][k];
           const pezzi=cell.pezzi.length?cell.pezzi.join(', '):(cell.artCode||'-');
@@ -1462,7 +1463,7 @@ function buildReportScarico(anno,mese){
       out+='<div style="font-size:12px;color:#888;margin-bottom:6px">Nessun materiale scaricato nel periodo.</div>';
     }
     if(byV[c]){
-      const vv=byV[c].slice().sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(a.Data).localeCompare(String(b.Data)));
+      const vv=byV[c].slice().sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(b.Data).localeCompare(String(a.Data)));
       let catPrec=null,tot=0,rr='';
       vv.forEach(function(v){
         tot+=(+v.Importo||0);
@@ -1587,6 +1588,7 @@ function renderDashboard(){
 //  scritto accanto: si legge anche stampata in bianco e nero.
 // ============================================================
 const VIZ={s1:'#2a78d6',s2:'#eb6834',s3:'#1baf7a',s4:'#eda100'};
+let GRAF_MESI=12,GRAF_COMM='';
 function isMq(u){return /^(m2|m\u00b2|mq)$/i.test(String(u||'').trim());}
 function isMc(u){return /^(m3|m\u00b3|mc)$/i.test(String(u||'').trim());}
 function nfmt(v,dec){return Number(v||0).toLocaleString('it-IT',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
@@ -1636,114 +1638,205 @@ function ultimiMesi(n){
   return out;
 }
 function renderGrafici(){
-  const mesi=ultimiMesi(12),keys=mesi.map(m=>m.key),lab=mesi.map(m=>m.lab);
+  const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+  const per=[[3,'Ultimi 3 mesi'],[6,'Ultimi 6 mesi'],[12,'Ultimi 12 mesi'],[24,'Ultimi 24 mesi'],[0,'Tutto lo storico']];
+  return '<div class="filters" style="margin-bottom:14px">'
+    +'<select id="gf-per" onchange="aggiornaGrafici()">'+per.map(p=>'<option value="'+p[0]+'"'+(p[0]===GRAF_MESI?' selected':'')+'>'+p[1]+'</option>').join("")+'</select>'
+    +'<select id="gf-comm" onchange="aggiornaGrafici()"><option value="">Tutte le commesse</option>'
+    +comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===GRAF_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("")+'</select>'
+    +'</div><div id="viz-cont">'+vizContenuto()+'</div>';
+}
+function aggiornaGrafici(){
+  GRAF_MESI=parseInt(document.getElementById("gf-per").value,10)||0;
+  GRAF_COMM=document.getElementById("gf-comm").value;
+  document.getElementById("viz-cont").innerHTML=vizContenuto();
+}
+function giorniDa(d){if(!d)return null;const t=new Date(String(d).slice(0,10));if(isNaN(t))return null;
+  return Math.round((Date.now()-t.getTime())/86400000);}
+function vizSez(t,sub){return '<div style="margin:22px 0 10px"><div style="font-family:Georgia,serif;font-size:16px">'+t+'</div><div style="font-size:11.5px;color:var(--gray)">'+sub+'</div></div>';}
+
+function vizContenuto(){
+  const filtroC=GRAF_COMM;
   const val=m=>m.Annullato!=='SI';
+  // periodo
+  let mesi,keys,lab,dentro;
+  if(GRAF_MESI>0){mesi=ultimiMesi(GRAF_MESI);keys=mesi.map(m=>m.key);lab=mesi.map(m=>m.lab);
+    dentro=d=>keys.indexOf(String(d||'').slice(0,7))>=0;}
+  else{
+    const tutti={};STATE.movimenti.forEach(m=>{const k=String(m.Data||'').slice(0,7);if(k)tutti[k]=1;});
+    (STATE.voci||[]).forEach(v=>{const k=String(v.Data||'').slice(0,7);if(k)tutti[k]=1;});
+    keys=Object.keys(tutti).sort();
+    lab=keys.map(k=>k.slice(5)+'/'+k.slice(2,4));
+    dentro=()=>true;
+  }
   const idx=d=>keys.indexOf(String(d||'').slice(0,7));
   const zeri=()=>keys.map(()=>0);
+  const scar=STATE.movimenti.filter(m=>val(m)&&m.Tipo==='scarico'&&dentro(m.Data)&&(!filtroC||m.Commessa===filtroC));
+  const cari=STATE.movimenti.filter(m=>val(m)&&m.Tipo==='carico'&&dentro(m.Data));
+  const voci=(STATE.voci||[]).filter(v=>dentro(v.Data)&&(!filtroC||v.Commessa===filtroC));
 
-  // 1. carichi e scarichi per mese (numero di movimenti)
-  const car=zeri(),sca=zeri();
-  STATE.movimenti.filter(val).forEach(function(m){const i=idx(m.Data);if(i<0)return;
-    if(m.Tipo==='carico')car[i]++;else sca[i]++;});
-  const g1=vizColonne('Movimenti per mese','Numero di operazioni registrate, ultimi 12 mesi',lab,
-    [{nome:'Carichi',colore:VIZ.s3,dati:car},{nome:'Scarichi',colore:VIZ.s2,dati:sca}],0,'movimenti');
+  // ---------- numeri in testa ----------
+  const somma=(arr,test)=>arr.filter(m=>test(m.UnitaMisura)).reduce((s,m)=>s+(+m.Quantita||0),0);
+  const cMq=somma(cari,isMq),sMq=somma(scar,isMq),cMc=somma(cari,isMc),sMc=somma(scar,isMc);
+  const eur=voci.reduce((s,v)=>s+(+v.Importo||0),0);
+  const kpi=(l,v,sub,col)=>'<div class="card" style="padding:13px 15px"><div class="stat-label">'+l+'</div>'
+    +'<div style="font-size:21px;font-weight:700;line-height:1.1'+(col?(';color:'+col):'')+'">'+v+'</div>'
+    +(sub?'<div class="stat-sub">'+sub+'</div>':'')+'</div>';
+  const saldoMq=cMq-sMq,saldoMc=cMc-sMc;
+  const testa='<div class="grid-4" style="margin-bottom:4px">'
+    +kpi('Pannelli entrati',nfmt(cMq,2)+' m&sup2;',filtroC?'(i carichi non hanno commessa)':'nel periodo')
+    +kpi('Pannelli usciti',nfmt(sMq,2)+' m&sup2;',filtroC?('commessa '+filtroC):'nel periodo')
+    +kpi('Saldo pannelli',(saldoMq>=0?'+':'')+nfmt(saldoMq,2)+' m&sup2;',saldoMq>=0?'magazzino in crescita':'stai consumando scorte',saldoMq>=0?'var(--green)':'var(--red)')
+    +kpi('Altre voci',' &euro; '+euro(eur),voci.length+' voci registrate')
+    +'</div>'
+    +'<div class="grid-4" style="margin-bottom:4px">'
+    +kpi('Massicci entrati',nfmt(cMc,3)+' m&sup3;','nel periodo')
+    +kpi('Massicci usciti',nfmt(sMc,3)+' m&sup3;','nel periodo')
+    +kpi('Saldo massicci',(saldoMc>=0?'+':'')+nfmt(saldoMc,3)+' m&sup3;','',saldoMc>=0?'var(--green)':'var(--red)')
+    +kpi('Scarichi',scar.length,cari.length+' carichi nello stesso periodo')
+    +'</div>';
 
-  // 2. consumo pannelli m2 per mese
-  const mq=zeri(),mc=zeri();
-  STATE.movimenti.filter(m=>val(m)&&m.Tipo==='scarico').forEach(function(m){const i=idx(m.Data);if(i<0)return;
-    if(isMq(m.UnitaMisura))mq[i]+=(+m.Quantita||0);
-    if(isMc(m.UnitaMisura))mc[i]+=(+m.Quantita||0);});
-  const g2=vizColonne('Pannelli consumati per mese','Metri quadri scaricati sulle commesse',lab,
-    [{nome:'m2',colore:VIZ.s1,dati:mq}],2,'m2');
-  const g3=vizColonne('Massicci consumati per mese','Metri cubi scaricati sulle commesse',lab,
-    [{nome:'m3',colore:VIZ.s4,dati:mc}],3,'m3');
+  // ---------- A. andamento ----------
+  const carN=zeri(),scaN=zeri(),mqC=zeri(),mqS=zeri(),mcC=zeri(),mcS=zeri(),eu=zeri();
+  cari.forEach(m=>{const i=idx(m.Data);if(i<0)return;carN[i]++;if(isMq(m.UnitaMisura))mqC[i]+=(+m.Quantita||0);if(isMc(m.UnitaMisura))mcC[i]+=(+m.Quantita||0);});
+  scar.forEach(m=>{const i=idx(m.Data);if(i<0)return;scaN[i]++;if(isMq(m.UnitaMisura))mqS[i]+=(+m.Quantita||0);if(isMc(m.UnitaMisura))mcS[i]+=(+m.Quantita||0);});
+  voci.forEach(v=>{const i=idx(v.Data);if(i>=0)eu[i]+=(+v.Importo||0);});
 
-  // 3. altre voci per mese (euro)
-  const eu=zeri();
-  (STATE.voci||[]).forEach(function(v){const i=idx(v.Data);if(i>=0)eu[i]+=(+v.Importo||0);});
-  const g4=vizColonne('Altre voci per mese','Conto lavorazione, forniture, trasporti, pasti - in euro',lab,
-    [{nome:'euro',colore:VIZ.s2,dati:eu}],0,'euro');
+  const A=vizColonne('Pannelli: entrati e usciti','Metri quadri caricati contro consumati - se l\'arancione supera il verde stai mangiando le scorte',lab,
+      [{nome:'Entrati',colore:VIZ.s3,dati:mqC},{nome:'Usciti',colore:VIZ.s2,dati:mqS}],2,'m2')
+    +vizColonne('Massicci: entrati e usciti','Metri cubi caricati contro consumati',lab,
+      [{nome:'Entrati',colore:VIZ.s3,dati:mcC},{nome:'Usciti',colore:VIZ.s2,dati:mcS}],3,'m3')
+    +vizColonne('Operazioni per mese','Quante registrazioni di magazzino',lab,
+      [{nome:'Carichi',colore:VIZ.s3,dati:carN},{nome:'Scarichi',colore:VIZ.s2,dati:scaN}],0,'movimenti')
+    +vizColonne('Altre voci per mese','Conto lavorazione, forniture, trasporti, pasti - in euro',lab,
+      [{nome:'euro',colore:VIZ.s4,dati:eu}],0,'euro');
 
-  // 4. top materiali per quantita consumata (separati per unita: assi diversi)
+  // ---------- B. dove va il materiale ----------
   const perMat={};
-  STATE.movimenti.filter(m=>val(m)&&m.Tipo==='scarico').forEach(function(m){
+  scar.forEach(function(m){
     const k=(m.NomeArticolo||m.ArticoloID||'?')+'|'+(m.UnitaMisura||'');
-    perMat[k]=perMat[k]||{nome:m.NomeArticolo||m.ArticoloID||'?',unita:m.UnitaMisura||'',q:0,n:0};
-    perMat[k].q+=(+m.Quantita||0);perMat[k].n++;});
-  const perUnita=function(test,dec,tit,sub,col){
+    perMat[k]=perMat[k]||{nome:m.NomeArticolo||m.ArticoloID||'?',unita:m.UnitaMisura||'',q:0,n:0,comm:{}};
+    perMat[k].q+=(+m.Quantita||0);perMat[k].n++;if(m.Commessa)perMat[k].comm[m.Commessa]=1;});
+  const topUnita=function(test,dec,tit,sub,col){
     const r=Object.keys(perMat).filter(k=>test(perMat[k].unita)).map(k=>perMat[k])
       .sort((a,b)=>b.q-a.q).slice(0,10)
-      .map(x=>({lab:x.nome,val:x.q,txt:nfmt(x.q,dec)+' '+x.unita,extra:x.n+' movimenti - '+pctUsoTxt(x.q,x.nome,x.unita)+' del caricato'}));
+      .map(x=>({lab:x.nome,val:x.q,txt:nfmt(x.q,dec)+' '+x.unita,
+        extra:x.n+' movimenti su '+Object.keys(x.comm).length+' commesse - '+pctUsoTxt(x.q,x.nome,x.unita)+' del caricato'}));
     return vizBarre(tit,sub,r,col);
   };
-  const g5=perUnita(u=>isMq(u),2,'Pannelli piu consumati','I 10 materiali con piu metri quadri usati',VIZ.s1);
-  const g6=perUnita(u=>isMc(u),3,'Massicci piu consumati','I 10 legni con piu metri cubi usati',VIZ.s4);
-  const g7=perUnita(u=>u==='pz',0,'Articoli piu consumati','I 10 articoli a pezzi piu scaricati',VIZ.s3);
-
-  // 5. percentuale di utilizzo sul caricato
-  const pctRows=Object.keys(perMat).map(function(k){const x=perMat[k];
-    const p=pctUsoNum(x.q,x.nome,x.unita);return p==null?null:{lab:x.nome,val:p,txt:p.toFixed(1)+'%',
-      extra:nfmt(x.q,x.unita==='pz'?0:3)+' '+x.unita,colore:colorePct(p)};})
-    .filter(Boolean).sort((a,b)=>b.val-a.val).slice(0,12);
-  const g8=vizBarre('Materiali piu sfruttati','Quota del caricato a magazzino gia consumata - rosso oltre il 90%',pctRows);
-
-  // 6. commesse: quanto pesano
   const perComm={};
-  STATE.movimenti.filter(m=>val(m)&&m.Tipo==='scarico'&&m.Commessa).forEach(function(m){
-    perComm[m.Commessa]=perComm[m.Commessa]||{n:0,mq:0,mc:0,pz:0};
-    const c=perComm[m.Commessa];c.n++;
-    if(isMq(m.UnitaMisura))c.mq+=(+m.Quantita||0);
-    else if(isMc(m.UnitaMisura))c.mc+=(+m.Quantita||0);
-    else c.pz+=(+m.Quantita||0);});
-  const rowsComm=Object.keys(perComm).map(c=>({lab:c,val:perComm[c].n,txt:perComm[c].n,
-    extra:nfmt(perComm[c].mq,2)+' m2 - '+nfmt(perComm[c].mc,3)+' m3'}))
+  scar.forEach(function(m){if(!m.Commessa)return;
+    const c=perComm[m.Commessa]=perComm[m.Commessa]||{n:0,mq:0,mc:0,pz:0,mat:{}};
+    c.n++;c.mat[m.NomeArticolo||'?']=1;
+    if(isMq(m.UnitaMisura))c.mq+=(+m.Quantita||0);else if(isMc(m.UnitaMisura))c.mc+=(+m.Quantita||0);else c.pz+=(+m.Quantita||0);});
+  const vociComm={};voci.forEach(v=>{const c=v.Commessa||'(senza commessa)';vociComm[c]=(vociComm[c]||0)+(+v.Importo||0);});
+
+  const B=topUnita(isMq,2,'Pannelli piu consumati','I 10 materiali con piu metri quadri usati nel periodo',VIZ.s1)
+    +topUnita(isMc,3,'Massicci piu consumati','I 10 legni con piu metri cubi usati',VIZ.s4)
+    +topUnita(u=>u==='pz',0,'Articoli piu consumati','I 10 articoli a pezzi piu scaricati',VIZ.s3)
+    +vizBarre('Materiali usati su piu commesse','Questi conviene tenerli sempre a scorta: servono di continuo',
+      Object.keys(perMat).map(k=>({lab:perMat[k].nome,val:Object.keys(perMat[k].comm).length,
+        txt:Object.keys(perMat[k].comm).length+' commesse',extra:nfmt(perMat[k].q,perMat[k].unita==='pz'?0:3)+' '+perMat[k].unita}))
+        .filter(r=>r.val>1).sort((a,b)=>b.val-a.val).slice(0,12),VIZ.s1,'Nessun materiale usato su piu di una commessa nel periodo.')
+    +vizBarre('Commesse per metri quadri di pannello','Dove sono finiti i pannelli',
+      Object.keys(perComm).map(c=>({lab:c,val:perComm[c].mq,txt:nfmt(perComm[c].mq,2)+' m2',
+        extra:perComm[c].n+' scarichi - '+Object.keys(perComm[c].mat).length+' materiali diversi'}))
+        .filter(r=>r.val>0).sort((a,b)=>b.val-a.val).slice(0,12),VIZ.s1)
+    +vizBarre('Commesse per costo delle altre voci','Conto lavorazione, forniture, trasporti: quanto pesa il non-magazzino',
+      Object.keys(vociComm).map(c=>({lab:c,val:vociComm[c],txt:'&euro; '+euro(vociComm[c])}))
+        .sort((a,b)=>b.val-a.val).slice(0,12),VIZ.s4,'Nessuna voce registrata nel periodo.');
+
+  // ---------- C. cosa e fermo: soldi bloccati ----------
+  // ultimo movimento per materiale + residuo disponibile
+  const ultimo={},residuo={},caricoPrimo={};
+  STATE.movimenti.filter(val).forEach(function(m){
+    const n=m.NomeArticolo||m.ArticoloID;if(!n)return;
+    const d=String(m.Data||'').slice(0,10);
+    if(m.Tipo==='scarico'&&(!ultimo[n]||d>ultimo[n]))ultimo[n]=d;
+    if(m.Tipo==='carico'&&(!caricoPrimo[n]||d<caricoPrimo[n]))caricoPrimo[n]=d;});
+  STATE.pannelli.forEach(p=>{if(+p.M2_residuo>0){residuo[p.ArticoloID]=residuo[p.ArticoloID]||{q:0,u:'m2',n:0};
+    residuo[p.ArticoloID].q+=(+p.M2_residuo||0);residuo[p.ArticoloID].n++;}});
+  STATE.massicci.forEach(p=>{if(+p.M3_residuo>0){residuo[p.ArticoloID]=residuo[p.ArticoloID]||{q:0,u:'m3',n:0};
+    residuo[p.ArticoloID].q+=(+p.M3_residuo||0);residuo[p.ArticoloID].n++;}});
+
+  const fermi=Object.keys(residuo).map(function(n){
+    let g=giorniDa(ultimo[n]); if(g!=null&&g<0)g=0;
+    return {lab:n,val:(g==null?9999:g),txt:(g==null?'mai usato':g+' giorni'),
+      extra:nfmt(residuo[n].q,residuo[n].u==='m2'?2:3)+' '+residuo[n].u+' fermi in '+residuo[n].n+' pezzi',
+      colore:(g==null||g>180)?'#a4513f':(g>90?VIZ.s4:VIZ.s3)};
+  }).sort((a,b)=>b.val-a.val).slice(0,14);
+  const maiUsati=Object.keys(residuo).filter(n=>!ultimo[n])
+    .map(n=>({lab:n,val:residuo[n].q,txt:nfmt(residuo[n].q,residuo[n].u==='m2'?2:3)+' '+residuo[n].u,
+      extra:residuo[n].n+' pezzi, caricati il '+(caricoPrimo[n]?dataIt(caricoPrimo[n]):'?')}))
     .sort((a,b)=>b.val-a.val).slice(0,12);
-  const g9=vizBarre('Commesse per numero di scarichi','Quante operazioni di magazzino ha richiesto ogni commessa',rowsComm,VIZ.s1);
-  const rowsCommMq=Object.keys(perComm).map(c=>({lab:c,val:perComm[c].mq,txt:nfmt(perComm[c].mq,2)+' m2'}))
-    .filter(r=>r.val>0).sort((a,b)=>b.val-a.val).slice(0,12);
-  const g10=vizBarre('Commesse per metri quadri di pannello','Dove sono finiti i pannelli',rowsCommMq,VIZ.s1);
 
-  // 7. altre voci: categoria e commessa
-  const perCat={},perCommV={};
-  (STATE.voci||[]).forEach(function(v){
-    const k=v.Categoria||'Altro';perCat[k]=perCat[k]||{imp:0,n:0};perCat[k].imp+=(+v.Importo||0);perCat[k].n++;
-    const c=v.Commessa||'(senza commessa)';perCommV[c]=perCommV[c]||{imp:0,n:0};perCommV[c].imp+=(+v.Importo||0);perCommV[c].n++;});
-  const g11=vizBarre('Altre voci per categoria','Costi non di magazzino, in euro',
-    Object.keys(perCat).map(k=>({lab:k,val:perCat[k].imp,txt:'&euro; '+euro(perCat[k].imp),extra:perCat[k].n+' voci'}))
-      .sort((a,b)=>b.val-a.val),VIZ.s2,'Nessuna voce registrata.');
-  const g12=vizBarre('Altre voci per commessa','Quanto pesa il non-magazzino su ogni commessa',
-    Object.keys(perCommV).map(k=>({lab:k,val:perCommV[k].imp,txt:'&euro; '+euro(perCommV[k].imp),extra:perCommV[k].n+' voci'}))
-      .sort((a,b)=>b.val-a.val).slice(0,12),VIZ.s2,'Nessuna voce registrata.');
+  // residuo per fascia, in m2 e non in pezzi: quanto e davvero riusabile
+  const fasce=[{lab:'Interi (oltre 90%)',min:90,max:1000,col:VIZ.s3},
+               {lab:'Buoni (60-90%)',min:60,max:90,col:VIZ.s3},
+               {lab:'Da valutare (30-60%)',min:30,max:60,col:VIZ.s4},
+               {lab:'Ritagli (5-30%)',min:5,max:30,col:VIZ.s2},
+               {lab:'Briciole (sotto 5%)',min:0.001,max:5,col:'#a4513f'}];
+  const perFascia=fasce.map(function(f){
+    const ps=STATE.pannelli.filter(p=>{const x=+p.Residuale_pct||0;return x>f.min&&x<=f.max;});
+    const q=ps.reduce((s,p)=>s+(+p.M2_residuo||0),0);
+    return {lab:f.lab,val:q,txt:nfmt(q,2)+' m2',extra:ps.length+' pezzi',colore:f.col};
+  }).filter(r=>r.val>0);
+  const totRes=STATE.pannelli.reduce((s,p)=>s+(+p.M2_residuo||0),0);
 
-  // 8. stato dei pannelli a magazzino
-  const fasce=[{lab:'Intero (100%)',min:99.5,max:1000},{lab:'Da 60 a 99%',min:60,max:99.5},
-               {lab:'Da 30 a 60%',min:30,max:60},{lab:'Da 1 a 30%',min:0.01,max:30},{lab:'Esaurito (0%)',min:-1,max:0.01}];
-  const colf=[VIZ.s3,VIZ.s3,VIZ.s4,VIZ.s2,'#a4513f'];
-  const g13=vizBarre('Stato dei pannelli','Quanti pezzi in ogni fascia di residuo',
-    fasce.map(function(f,i){const n=STATE.pannelli.filter(p=>{const x=+p.Residuale_pct||0;return x>f.min&&x<=f.max;}).length;
-      return {lab:f.lab,val:n,txt:n+' pezzi',colore:colf[i]};}).filter(r=>r.val>0),VIZ.s1);
+  const rifP=STATE.pannelli.filter(p=>/^R[0-9]/.test(p.ID));
+  const rifM=STATE.massicci.filter(p=>/^RM[0-9]/.test(p.ID));
+  const rifDisp=rifP.filter(p=>+p.M2_residuo>0),rifMDisp=rifM.filter(p=>+p.M3_residuo>0);
 
-  // 9. fornitori
+  const C=vizBarre('Materiale fermo da piu tempo','Giorni dall\'ultimo consumo - rosso oltre sei mesi. Sono soldi bloccati in officina',fermi,VIZ.s2,'Nessun materiale a residuo.')
+    +vizBarre('Caricati e mai usati','Materiale entrato che non e mai stato scaricato su nessuna commessa',maiUsati,'#a4513f','Tutto il materiale a magazzino e stato usato almeno una volta.')
+    +vizBarre('Quanto residuo e davvero riusabile','I '+nfmt(totRes,2)+' m2 residui divisi per stato del pezzo',perFascia,VIZ.s1)
+    +vizBarre('Recupero dai rifili','Pezzi di refilo censiti e quanto ne resta',
+      [{lab:'Rifili pannello disponibili',val:rifDisp.reduce((s,p)=>s+(+p.M2_residuo||0),0),
+        txt:nfmt(rifDisp.reduce((s,p)=>s+(+p.M2_residuo||0),0),2)+' m2',extra:rifDisp.length+' pezzi su '+rifP.length+' censiti',colore:VIZ.s3},
+       {lab:'Rifili massello disponibili',val:rifMDisp.reduce((s,p)=>s+(+p.M3_residuo||0),0)*100,
+        txt:nfmt(rifMDisp.reduce((s,p)=>s+(+p.M3_residuo||0),0),3)+' m3',extra:rifMDisp.length+' pezzi su '+rifM.length+' censiti',colore:VIZ.s4}]
+      .filter(r=>r.val>0),VIZ.s3,'Nessun rifilo censito.');
+
+  // ---------- D. fornitori, rotazione, persone ----------
   const perForn={};
-  STATE.pannelli.forEach(p=>{const f=p.Fornitore||'(non indicato)';perForn[f]=perForn[f]||{n:0,mq:0};perForn[f].n++;perForn[f].mq+=(+p.M2_originale||0);});
-  STATE.massicci.forEach(p=>{const f=p.Fornitore||'(non indicato)';perForn[f]=perForn[f]||{n:0,mq:0};perForn[f].n++;});
-  const g14=vizBarre('Fornitori per pezzi caricati','Da chi arriva il materiale che entra in magazzino',
-    Object.keys(perForn).map(k=>({lab:k,val:perForn[k].n,txt:perForn[k].n+' pezzi',extra:nfmt(perForn[k].mq,2)+' m2'}))
-      .sort((a,b)=>b.val-a.val).slice(0,12),VIZ.s3);
-
-  // 10. chi lavora
+  STATE.pannelli.forEach(p=>{const f=p.Fornitore||'(non indicato)';perForn[f]=perForn[f]||{n:0,mq:0,res:0};
+    perForn[f].n++;perForn[f].mq+=(+p.M2_originale||0);perForn[f].res+=(+p.M2_residuo||0);});
+  const fornRows=Object.keys(perForn).map(k=>({lab:k,val:perForn[k].mq,txt:nfmt(perForn[k].mq,2)+' m2',
+    extra:perForn[k].n+' pannelli - ancora a magazzino '+nfmt(perForn[k].res,2)+' m2'}))
+    .sort((a,b)=>b.val-a.val).slice(0,12);
+  // rotazione: giorni medi tra carico del pezzo e suo primo scarico
+  const rot={};
+  STATE.movimenti.filter(m=>val(m)&&m.Tipo==='scarico'&&m.PezzoID).forEach(function(m){
+    const pid=String(m.PezzoID).split(',')[0].trim();
+    const pz=STATE.pannelli.find(p=>p.ID===pid)||STATE.massicci.find(p=>p.ID===pid);
+    if(!pz||!pz.DataCarico)return;
+    const g=Math.round((new Date(String(m.Data).slice(0,10))-new Date(String(pz.DataCarico).slice(0,10)))/86400000);
+    if(isNaN(g)||g<0)return;
+    const n=m.NomeArticolo||m.ArticoloID||'?';
+    rot[n]=rot[n]||{tot:0,n:0};rot[n].tot+=g;rot[n].n++;});
+  const rotRows=Object.keys(rot).map(n=>({lab:n,val:Math.round(rot[n].tot/rot[n].n),
+    txt:Math.round(rot[n].tot/rot[n].n)+' giorni',extra:'media su '+rot[n].n+' pezzi'}))
+    .sort((a,b)=>b.val-a.val).slice(0,12);
   const perOp={};
-  STATE.movimenti.filter(val).forEach(m=>{const u=m.Utente||'(sconosciuto)';perOp[u]=perOp[u]||{n:0,c:0,s:0};
-    perOp[u].n++;if(m.Tipo==='carico')perOp[u].c++;else perOp[u].s++;});
-  const g15=vizBarre('Movimenti per operatore','Chi registra le operazioni',
-    Object.keys(perOp).map(k=>({lab:k,val:perOp[k].n,txt:perOp[k].n,extra:perOp[k].c+' carichi - '+perOp[k].s+' scarichi'}))
-      .sort((a,b)=>b.val-a.val),VIZ.s1);
+  STATE.movimenti.filter(m=>val(m)&&dentro(m.Data)).forEach(m=>{const u=m.Utente||'(sconosciuto)';
+    perOp[u]=perOp[u]||{n:0,c:0,s:0};perOp[u].n++;if(m.Tipo==='carico')perOp[u].c++;else perOp[u].s++;});
 
-  return '<div class="viz">'
-    +'<div class="viz-grid">'+g1+g4+g2+g3+'</div>'
-    +'<div class="viz-grid" style="margin-top:14px">'+g5+g6+g7+g8+g9+g10+g11+g12+g13+g14+g15+'</div>'
+  const D=vizBarre('Fornitori per metri quadri forniti','Da chi arriva il materiale, e quanto ne resta a magazzino',fornRows,VIZ.s3)
+    +vizBarre('Quanto sta fermo prima di essere usato','Giorni medi tra il carico di un pezzo e il suo primo scarico',rotRows,VIZ.s2,'Non ci sono ancora abbastanza dati.')
+    +vizBarre('Chi registra le operazioni','Movimenti per operatore nel periodo',
+      Object.keys(perOp).map(k=>({lab:k,val:perOp[k].n,txt:perOp[k].n,extra:perOp[k].c+' carichi - '+perOp[k].s+' scarichi'}))
+        .sort((a,b)=>b.val-a.val),VIZ.s1);
+
+  const avviso=filtroC?'<div class="info-box" style="margin-bottom:12px">Stai guardando la commessa <strong>'+filtroC+'</strong>. I carichi non hanno commessa, quindi i grafici su entrate, giacenze e fornitori restano su tutto il magazzino.</div>':'';
+
+  return '<div class="viz">'+avviso+testa
+    +vizSez('Andamento','Come si muove il magazzino nel periodo scelto')+'<div class="viz-grid">'+A+'</div>'
+    +vizSez('Dove va il materiale','Cosa si consuma e su quali commesse')+'<div class="viz-grid">'+B+'</div>'
+    +vizSez('Cosa e fermo','Materiale a magazzino che non si muove: e capitale bloccato')+'<div class="viz-grid">'+C+'</div>'
+    +vizSez('Fornitori, tempi e persone','')+'<div class="viz-grid">'+D+'</div>'
     +'</div>';
 }
+
 // ---- RIPRISTINO DA BACKUP ----
 function apriRipristino(){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Ripristina da backup</h2>'
@@ -1986,11 +2079,24 @@ function submitModificaArticolo(id){
 // -- ARTICOLI (vista a schede come pannelli/massicci, raggruppata per categoria) --
 function renderArticoli(){
   const cats=Array.from(new Set(CATS.concat(STATE.articoli.map(a=>a.Categoria)).filter(c=>c&&c!=='Pannelli'&&c!=='Massello')));
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Articoli</h1><div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:6px"><button class="btn '+(ART_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'fam\')">Famiglie</button><button class="btn '+(ART_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'griglia\')">Griglia</button></div><button class="btn btn-accent" onclick="openNuovoArticolo()">+ Nuovo articolo</button></div></div>'
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Articoli</h1><div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:6px"><button class="btn '+(ART_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'fam\')">Famiglie</button><button class="btn '+(ART_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'<button class="btn btn-accent" onclick="openNuovoArticolo()">+ Nuovo articolo</button></div></div>'
   +'<div class="filters"><input id="flt-art" placeholder="Cerca nome, codice, fornitore..." oninput="filterArticoli()"><select id="flt-cat" onchange="filterArticoli()"><option value="">Tutte le categorie</option>'+cats.map(c=>'<option>'+c+'</option>').join("")+'</select></div>'
   +'<div id="art-cont">'+articoliCont("","")+'</div>';
 }
 let VISTA_DEF=(function(){try{return localStorage.getItem("at_vista")||"griglia";}catch(e){return "griglia";}})();
+// densita delle griglie: quanto sono strette le schede. Salvata per utente.
+const DENSITA={fitta:['150px','8px','Fitta'],media:['232px','12px','Media'],larga:['320px','16px','Larga']};
+let DENS=(function(){try{return localStorage.getItem("at_densita")||"media";}catch(e){return "media";}})();
+function applicaDensita(){
+  const d=DENSITA[DENS]||DENSITA.media;
+  try{document.body.style.setProperty('--pmin',d[0]);document.body.style.setProperty('--pgap',d[1]);}catch(e){}
+}
+function setDensita(v){DENS=v;try{localStorage.setItem("at_densita",v);}catch(e){}applicaDensita();}
+function ctrlDensita(){
+  return '<select onchange="setDensita(this.value)" title="Quanto stringere le schede" style="padding:6px 9px;border:1px solid var(--border);border-radius:9px;font-size:12px;background:#fff;cursor:pointer">'
+    +Object.keys(DENSITA).map(k=>'<option value="'+k+'"'+(k===DENS?' selected':'')+'>'+DENSITA[k][2]+'</option>').join("")
+    +'</select>';
+}
 function setVistaDefault(v){VISTA_DEF=v;ART_VIEW=PANN_VIEW=MASS_VIEW=v;try{localStorage.setItem("at_vista",v);}catch(e){}renderPage(STATE.pagina);toast("Vista "+(v==='griglia'?'Griglia':'Famiglie')+" impostata come predefinita");}
 let ART_VIEW=VISTA_DEF;
 function setArtView(v){setVistaDefault(v);}
@@ -2020,7 +2126,7 @@ function filterArticoli(){
 let PANN_VIEW=VISTA_DEF;
 function setPannView(v){setVistaDefault(v);}
 function renderPannelli(){
-  const tb='<div style="display:flex;gap:6px"><button class="btn '+(PANN_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'fam\')">Famiglie</button><button class="btn '+(PANN_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'griglia\')">Griglia</button></div>';
+  const tb='<div style="display:flex;gap:6px"><button class="btn '+(PANN_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'fam\')">Famiglie</button><button class="btn '+(PANN_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'';
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Pannelli</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefilo()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoPannelli()">+ Carico pannelli</button></div></div>'
     +'<div class="filters"><input id="pann-q" placeholder="Cerca pannello per codice o tipo..." oninput="filtraPannelli()"></div>'
     +'<div id="pann-cont">'+pannelliCont("")+'</div>';
@@ -2051,7 +2157,7 @@ function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct
   return '<div class="piece" onclick="openDettaglio(\'massiccio\',\''+esc(p.ID)+'\')"><input type="checkbox" class="sel-chk" '+(SEL[p.ID]&&SELTIPO==='massiccio'?'checked':'')+' onclick="toggleSel(event,\'massiccio\',\''+esc(p.ID)+'\')"><div class="piece-row">'+(iu?'<img class="piece-thumb" src="'+iu+'" referrerpolicy="no-referrer">':'')+'<div class="piece-body"><h4>'+p.ID+'</h4><small>'+(MASS_VIEW==='griglia'?(nomeTipo(p.ArticoloID)+' - '):'')+dim+'</small><div class="bar-wrap" style="margin-bottom:7px"><div class="bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div><div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:600;color:'+c+'">'+res.toFixed(3)+' m3</span><span style="color:var(--gray)">di '+orig.toFixed(3)+'</span></div>'+(p.Fornitore?'<div style="margin-top:5px;font-size:10.5px;color:var(--gray)">Forn: '+p.Fornitore+'</div>':'')+'</div></div><button class="btn btn-red" style="margin-top:9px;width:100%" onclick="event.stopPropagation();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico</button></div>';
 }
 function renderMassicci(){
-  const tb='<div style="display:flex;gap:6px"><button class="btn '+(MASS_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'fam\')">Famiglie</button><button class="btn '+(MASS_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'griglia\')">Griglia</button></div>';
+  const tb='<div style="display:flex;gap:6px"><button class="btn '+(MASS_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'fam\')">Famiglie</button><button class="btn '+(MASS_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'';
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Legni massicci</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefiloMassiccio()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoMassiccio()">+ Carico massiccio</button></div></div>'
     +'<div class="filters"><input id="mass-q" placeholder="Cerca massiccio per codice o tipo..." oninput="filtraMassicci()"></div>'
     +'<div id="mass-cont">'+massicciCont("")+'</div>';
@@ -2301,7 +2407,7 @@ function utilizzoCont(filtro){
       const tot=(x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita))
         +' <span style="font-weight:600;color:'+(x.voce?'var(--gray)':colorePct(pctUsoNum(cc.q,x.nome,x.unita)))+'">'+pctC+'</span>';
       const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','%','Pezzi','Fornitore','Operatore','Note'];
-      const det=cc.det.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+      const det=cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
         const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
         const dx=x.voce
           ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),pr,(r.q?(r.q+' '+r.unita):''),r.forn,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
@@ -2335,7 +2441,7 @@ function stampaUtilizzo(){
     out+=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
       const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','%','Codici pezzo','Fornitore','Operatore','Note'];
-      const rr=cc.det.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+      const rr=cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
         const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
         const dx=x.voce
           ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),pr,(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ft||'-',r.stato||'-',r.note||'-']
@@ -2368,11 +2474,11 @@ function buildReportCommessa(comm){
     return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+pctUsoTxt(t.q,t.nome,t.unita)+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
       +(nPezzi?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
   }).join("")||'<tr><td colspan="6" style="color:#888">Nessun consumo registrato</td></tr>';
-  const righeMov=movs.map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctUsoTxt(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
+  const righeMov=movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctUsoTxt(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
   // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
   const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
-    .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(a.Data).localeCompare(String(b.Data)));
-  let vociBlock='',vociRiep='';
+    .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(b.Data).localeCompare(String(a.Data)));
+  let vociBlock='',vociRiep='',vociRiepNonUsato='';
   if(voci.length){
     let catPrec=null,totV=0,rr='';
     voci.forEach(function(v){
@@ -2385,12 +2491,12 @@ function buildReportCommessa(comm){
     // riepilogo per categoria, da mettere in alto sotto i materiali consumati
     const perCat={};
     voci.forEach(function(v){const k=v.Categoria||'Altro';if(!perCat[k])perCat[k]={n:0,imp:0};perCat[k].n++;perCat[k].imp+=(+v.Importo||0);});
-    vociRiep='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci (riepilogo)</h3>'
+    vociRiep='';vociRiepNonUsato='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci (riepilogo)</h3>'
       +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Categoria</th><th align="center">N. voci</th><th align="right">Importo</th></tr></thead><tbody>'
       +Object.keys(perCat).sort().map(k=>'<tr><td>'+k+'</td><td align="center">'+perCat[k].n+'</td><td align="right">&euro; '+euro(perCat[k].imp)+'</td></tr>').join("")
       +'<tr style="background:#efefef"><td style="font-weight:bold">Totale altre voci</td><td align="center" style="font-weight:bold">'+voci.length+'</td><td align="right" style="font-weight:bold">&euro; '+euro(totV)+'</td></tr>'
       +'</tbody></table>';
-    vociBlock='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci — dettaglio</h3>'
+    vociBlock='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci di commessa</h3>'
       +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Voce</th><th align="left">Fornitore</th><th align="center">Q.ta</th><th align="right">Importo</th></tr></thead><tbody>'+rr+'</tbody></table>';
   }
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
@@ -2401,10 +2507,9 @@ function buildReportCommessa(comm){
    +'<table style="width:100%;font-size:13px;margin-bottom:16px"><tr><td style="color:#777;width:130px">Commessa</td><td style="font-weight:700">'+c.ID+'</td></tr>'+(c.Nome&&c.Nome!==c.ID?'<tr><td style="color:#777">Descrizione</td><td>'+c.Nome+'</td></tr>':'')+(c.Cliente?'<tr><td style="color:#777">Cliente</td><td>'+c.Cliente+'</td></tr>':'')+'</table>'
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">% del caricato</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
-   +vociRiep
+   +vociBlock
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="center">% del caricato</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
-   +vociBlock
    +rettBlock
    +'</div>';
 }
@@ -2428,6 +2533,12 @@ function _openReportCommessa(comm){
     +editor+'</div>');
 }
 // Riepilogo materiali DESTINATI a questa commessa ma NON ancora scaricati, con azioni
+// quanto e gia stato scaricato di QUESTO pezzo su QUESTA commessa
+function usatoSuCommessa(pezzoId,comm){
+  return STATE.movimenti.filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&m.Commessa===comm
+    &&String(m.PezzoID||'').split(',').map(x=>x.trim()).indexOf(pezzoId)>=0)
+    .reduce((s,m)=>s+(+m.Quantita||0),0);
+}
 function destinatiNonScaricati(comm){
   const out={articoli:[],pannelli:[],massicci:[]};
   // Articoli: dalle riserve
@@ -2437,42 +2548,83 @@ function destinatiNonScaricati(comm){
   });
   // Pannelli assegnati a questa commessa con residuo
   STATE.pannelli.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(comm)>=0 && (+p.M2_residuo>0)).forEach(p=>{
-    out.pannelli.push({id:p.ID,nome:nomeTipo(p.ArticoloID),q:+p.M2_residuo||0});
+    out.pannelli.push({id:p.ID,nome:nomeTipo(p.ArticoloID),q:+p.M2_residuo||0,
+      orig:+p.M2_originale||0,usato:usatoSuCommessa(p.ID,comm),unita:'m2',dec:2});
   });
   // Massicci assegnati con residuo
   STATE.massicci.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(comm)>=0 && (+p.M3_residuo>0)).forEach(p=>{
-    out.massicci.push({id:p.ID,nome:nomeTipo(p.ArticoloID),q:+p.M3_residuo||0});
+    out.massicci.push({id:p.ID,nome:nomeTipo(p.ArticoloID),q:+p.M3_residuo||0,
+      orig:+p.M3_originale||0,usato:usatoSuCommessa(p.ID,comm),unita:'m3',dec:3});
   });
   return out;
 }
 function buildDestinatiSection(comm){
   const d=destinatiNonScaricati(comm);
-  const tot=d.articoli.length+d.pannelli.length+d.massicci.length;
-  if(!tot)return '<div class="card" style="margin-top:14px"><div class="card-title">Destinati a questa commessa (non ancora scaricati)</div><div style="color:var(--gray);font-size:13px">Niente in attesa: tutto il materiale destinato è già stato scaricato.</div></div>';
-  const riga=(tipo,it,qtxt)=>'<label style="display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--border);cursor:pointer"><input type="checkbox" class="ds-chk" data-tipo="'+tipo+'" value="'+esc(it.id)+'" style="width:17px;height:17px;accent-color:var(--accent)"><span style="flex:1;font-size:13px">'+(it.id&&/^[PMR]\d|^R\d/.test(it.id)?('<strong>'+it.id+'</strong> - '):'')+it.nome+'</span><span style="font-size:12px;color:var(--gray)">'+qtxt+'</span></label>';
-  let body='';
-  d.articoli.forEach(it=>body+=riga('articolo',it,it.q+' '+it.unita));
-  d.pannelli.forEach(it=>body+=riga('pannello',it,it.q.toFixed(2)+' m2'));
-  d.massicci.forEach(it=>body+=riga('massiccio',it,it.q.toFixed(3)+' m3'));
-  return '<div class="card" style="margin-top:14px"><div class="card-title">Destinati a questa commessa (non ancora scaricati) - '+tot+'</div>'
-   +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Seleziona i pezzi da gestire, poi scegli l\'azione. Senza selezione, le azioni valgono per TUTTI.</div>'
-   +body
-   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
-   +'<button class="btn btn-red" onclick="scaricaDestinati(\''+esc(comm)+'\',false)">Scarica selezionati/tutti</button>'
-   +'<button class="btn btn-ghost" onclick="scaricaDestinati(\''+esc(comm)+'\',true)">Togli assegnazione (senza scaricare)</button>'
-   +'</div></div>';
+  const tutti=d.articoli.concat(d.pannelli,d.massicci);
+  if(!tutti.length)return '<div class="card" style="margin-top:14px"><div class="card-title">Materiale riservato a questa commessa</div><div style="color:var(--gray);font-size:13px">Niente in attesa: tutto il materiale destinato e gia stato scaricato.</div></div>';
+
+  // separo i pezzi mai toccati da quelli gia usati in parte su questa commessa
+  const mai=[],parz=[];
+  d.articoli.forEach(it=>mai.push(Object.assign({tipo:'articolo'},it)));
+  d.pannelli.forEach(it=>((it.usato>0)?parz:mai).push(Object.assign({tipo:'pannello'},it)));
+  d.massicci.forEach(it=>((it.usato>0)?parz:mai).push(Object.assign({tipo:'massiccio'},it)));
+
+  const riga=function(cls,it,destro,sotto){
+    return '<label style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px solid var(--border);cursor:pointer">'
+      +'<input type="checkbox" class="'+cls+'" data-tipo="'+it.tipo+'" value="'+esc(it.id)+'" style="width:17px;height:17px;margin-top:2px;accent-color:var(--accent)">'
+      +'<span style="flex:1;font-size:13px">'+(/^[PMR]/.test(it.id)?('<strong>'+it.id+'</strong> - '):'')+it.nome
+      +(sotto?('<div style="font-size:11.5px;color:var(--gray);margin-top:2px">'+sotto+'</div>'):'')+'</span>'
+      +'<span style="font-size:12px;color:var(--gray);white-space:nowrap">'+destro+'</span></label>';
+  };
+
+  let h='';
+
+  if(mai.length){
+    h+='<div class="card" style="margin-top:14px"><div class="card-title">Riservati e non ancora usati &mdash; '+mai.length+'</div>'
+      +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Materiale messo da parte per questa commessa che non e ancora stato toccato. Qui ha senso chiedersi se scaricarlo tutto.</div>';
+    mai.forEach(function(it){
+      const q=it.tipo==='articolo'?(it.q+' '+(it.unita||'')):(nfmt(it.q,it.dec)+' '+it.unita);
+      h+=riga('ds-chk-m',it,q,'');
+    });
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+      +'<button class="btn btn-red" onclick="scaricaDestinati(\''+esc(comm)+'\',false,\'m\')">Scarica sulla commessa</button>'
+      +'<button class="btn btn-ghost" onclick="scaricaDestinati(\''+esc(comm)+'\',true,\'m\')">Rimetti a magazzino</button>'
+      +'</div><div style="font-size:11px;color:var(--gray);margin-top:6px">Senza spunte le azioni valgono per tutti quelli di questo gruppo.</div></div>';
+  }
+
+  if(parz.length){
+    h+='<div class="card" style="margin-top:14px"><div class="card-title">Gia usati in parte su questa commessa &mdash; '+parz.length+'</div>'
+      +'<div class="info-box" style="margin-bottom:8px">Questi pezzi li hai <strong>gia tagliati</strong> per la commessa. Il residuo non e materiale in attesa: e avanzo utilizzabile. Non serve deciderne la sorte adesso &mdash; lascialo cosi se pensi di continuare a usarlo qui, oppure rimettilo a magazzino se hai finito.</div>';
+    parz.forEach(function(it){
+      const pct=it.orig?Math.round(it.usato/it.orig*100):0;
+      const resta=it.orig?Math.round(it.q/it.orig*100):0;
+      h+=riga('ds-chk-p',it,nfmt(it.q,it.dec)+' '+it.unita+' liberi',
+        'usato su questa commessa <strong>'+nfmt(it.usato,it.dec)+' '+it.unita+'</strong> ('+pct+'%) &middot; resta il '+resta+'% del pezzo');
+    });
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+      +'<button class="btn btn-ghost" onclick="scaricaDestinati(\''+esc(comm)+'\',true,\'p\')">Ho finito: rimetti il residuo a magazzino</button>'
+      +'<button class="btn btn-red" onclick="scaricaDestinati(\''+esc(comm)+'\',false,\'p\')">Addebita anche il residuo a questa commessa</button>'
+      +'</div><div style="font-size:11px;color:var(--gray);margin-top:6px">Se non fai niente il pezzo resta riservato qui e lo ritrovi al prossimo taglio.</div></div>';
+  }
+
+  return h;
 }
 // Raccoglie le selezioni; se nessuna, prende tutto
-function _raccogliDestinati(comm){
-  const chk=Array.prototype.slice.call(document.querySelectorAll(".ds-chk:checked"));
+function _raccogliDestinati(comm,gruppo){
+  const cls='.ds-chk-'+(gruppo||'m');
+  const chk=Array.prototype.slice.call(document.querySelectorAll(cls+':checked'));
   let sel=chk.map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value}));
-  if(!sel.length){const d=destinatiNonScaricati(comm);sel=d.articoli.map(x=>({tipo:'articolo',id:x.id})).concat(d.pannelli.map(x=>({tipo:'pannello',id:x.id}))).concat(d.massicci.map(x=>({tipo:'massiccio',id:x.id})));}
+  if(!sel.length){
+    // nessuna spunta: prendo tutte le righe di quel gruppo
+    sel=Array.prototype.slice.call(document.querySelectorAll(cls))
+      .map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value}));
+  }
   return sel;
 }
-function scaricaDestinati(comm,soloTogli){
-  const sel=_raccogliDestinati(comm);
+function scaricaDestinati(comm,soloTogli,gruppo){
+  const sel=_raccogliDestinati(comm,gruppo);
   if(!sel.length){toast("Niente da gestire","err");return;}
-  const azione=soloTogli?"Rimozione assegnazione":"Scarico";
+  const azione=soloTogli?"Rimessa a magazzino":"Scarico";
   toast(azione+" in corso...");
   const ops=sel.map(it=>{
     if(soloTogli){
@@ -3143,7 +3295,9 @@ function openSceltaAzione(){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova operazione</h2>'
     +blocco("Articolo", bc("Carica","closeModal();openMovimento('','carico')"), bs("Scarica","closeModal();openMovimento('','scarico')"))
     +blocco("Pannelli", bc("Carica","closeModal();openCaricoPannelli()"), bs("Scarica","closeModal();openScegliPezzo('pannello')"))
+    +'<div style="margin:-8px 0 16px"><button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();openCaricoRefilo()">Nuovo pezzo di refilo (pannello)</button></div>'
     +blocco("Massiccio", bc("Carica","closeModal();openCaricoMassiccio()"), bs("Scarica","closeModal();openScegliPezzo('massiccio')"))
+    +'<div style="margin:-8px 0 16px"><button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();openCaricoRefiloMassiccio()">Nuovo pezzo di refilo (massello)</button></div>'
     +'<div style="margin-bottom:4px"><div style="font-weight:600;font-size:13px;margin-bottom:8px">Altre voci di commessa</div>'
     +'<button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();navTo(\'voci\');setTimeout(function(){openNuovaVoce();},120)">Nuova altra voce</button></div>'
     +'</div>');
@@ -3397,7 +3551,7 @@ function refreshDopoMov(){
 }
 function promptRiserva(artId,commessa,q,unita){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Riserva residua</h2>'
-   +'<div class="info-box">Per la commessa <strong>'+commessa+'</strong> restano <strong>'+q+' '+(unita||'')+'</strong> ancora riservati a magazzino. Cosa vuoi fare?</div>'
+   +'<div class="info-box">Hai scaricato quello che serviva. Per la commessa <strong>'+commessa+'</strong> restano <strong>'+q+' '+(unita||'')+'</strong> ancora <em>riservati</em>, cioe messi da parte e non disponibili ad altre commesse.<br><br>Se pensi di usarne ancora su questa commessa, mantieni la riserva. Se hai finito, liberala.</div>'
    +'<button class="btn-primary" style="margin-top:0;background:#efebe3;color:var(--ink)" onclick="closeModal()">Mantieni la riserva</button>'
    +'<button class="btn-primary" onclick="liberaRiservaUI(\''+esc(artId)+'\',\''+esc(commessa)+'\')">Libera a magazzino (disponibile ad altre commesse)</button></div>');
 }
