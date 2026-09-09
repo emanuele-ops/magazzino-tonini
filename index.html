@@ -262,7 +262,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v68 - Atelier</div>
+  <div id="ver-badge">v69 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -646,7 +646,7 @@ async function call(fn, args) {
     }
     if (fn === "eliminaPersona") {
       const usate = await sbGet("ore", "select=id&persona_id=eq." + encodeURIComponent(args.id) + "&limit=1");
-      if (usate.length) return { ok: false, err: "Questa persona ha gia delle ore registrate: non si può eliminare senza perdere lo storico. Toglile la spunta 'in forza' invece." };
+      if (usate.length) return { ok: false, err: "Questa persona ha già delle ore registrate: non si può eliminare senza perdere lo storico. Toglile la spunta 'in forza' invece." };
       await sbDelete("personale", "id=eq." + encodeURIComponent(args.id));
       return { ok: true };
     }
@@ -1066,6 +1066,70 @@ async function call(fn, args) {
         await sbPost("commesse", { id, nome: d.Nome, cliente: d.Cliente || "", data_apertura: new Date().toISOString().slice(0,10), stato: d.Stato || "aperta", note: d.Note || "" });
         return { ok: true, id };
       }
+    }
+    // ---- CAMBIO DEL CODICE DI UNA COMMESSA (aggiorna tutto lo storico) ----
+    if (fn === "cambiaCodiceCommessa") {
+      const v = String(args.vecchio || "").trim();
+      const n = String(args.nuovo || "").trim();
+      if (!v || !n) return { ok: false, err: "Manca il codice." };
+      if (v === n) return { ok: false, err: "Il codice nuovo è uguale a quello vecchio." };
+      const vecchia = await sbGet("commesse", "select=*&id=eq." + encodeURIComponent(v));
+      if (!vecchia.length) return { ok: false, err: "Non trovo la commessa " + v + "." };
+      const esiste = await sbGet("commesse", "select=*&id=eq." + encodeURIComponent(n));
+      if (esiste.length && !args.unisci)
+        return { ok: false, err: "Esiste già una commessa con il codice " + n + ". Se vuoi unire le due, spunta la casella." };
+      // 1) creo la commessa con il codice nuovo (se non c'e' gia')
+      if (!esiste.length) {
+        const c = vecchia[0];
+        await sbPost("commesse", { id: n,
+          nome: (args.nome !== undefined && args.nome !== null) ? args.nome : (c.nome || n),
+          cliente: c.cliente || "", data_apertura: c.data_apertura || null,
+          stato: c.stato || "aperta", note: c.note || "" });
+      }
+      // 2) sposto tutti i riferimenti dal codice vecchio a quello nuovo
+      const risultato = {};
+      const tabelle = [["movimenti","movimenti"],["voci_commessa","altre voci"],["ore","ore"],
+                       ["fabbisogni","righe di Crea ordine"],["ordini","ordini"],
+                       ["riserve","riserve"],["rettifiche","rettifiche"],["offerte","offerte"]];
+      for (const t of tabelle) {
+        try { const r = await sbPatch(t[0], "commessa=eq." + encodeURIComponent(v), { commessa: n });
+              if ((r || []).length) risultato[t[1]] = r.length; }
+        catch (e) { risultato[t[1]] = "errore"; }
+      }
+      // 3) pannelli e massicci: il campo puo' contenere piu' commesse separate da virgola
+      for (const t of [["pannelli","pannelli"],["massicci","massicci"]]) {
+        let k = 0;
+        try {
+          const rows = await sbGet(t[0], "select=id,commesse");
+          for (const row of rows) {
+            const lista = String(row.commesse || "").split(",").map(x => x.trim()).filter(Boolean);
+            if (lista.indexOf(v) < 0) continue;
+            const nuova = [];
+            lista.forEach(function (x) { const y = (x === v) ? n : x; if (nuova.indexOf(y) < 0) nuova.push(y); });
+            await sbPatch(t[0], "id=eq." + encodeURIComponent(row.id), { commesse: nuova.join(",") });
+            k++;
+          }
+        } catch (e) { risultato[t[1]] = "errore"; continue; }
+        if (k) risultato[t[1]] = k;
+      }
+      // 4) tolgo la commessa vecchia
+      await sbDelete("commesse", "id=eq." + encodeURIComponent(v));
+      return { ok: true, risultato: risultato, unito: !!esiste.length };
+    }
+    // ---- CREAZIONE DI PIU' COMMESSE IN UNA VOLTA ----
+    if (fn === "creaCommesseBulk") {
+      const gia = (await sbGet("commesse", "select=id")).map(r => String(r.id));
+      const oggi = new Date().toISOString().slice(0, 10);
+      const nuove = [], saltate = [];
+      (args.righe || []).forEach(function (r) {
+        const id = String(r.ID || "").trim();
+        if (!id) return;
+        if (gia.indexOf(id) >= 0 || nuove.filter(x => x.id === id).length) { saltate.push(id); return; }
+        nuove.push({ id: id, nome: String(r.Nome || "").trim() || id, cliente: String(r.Cliente || "").trim(),
+          data_apertura: oggi, stato: "aperta", note: "" });
+      });
+      if (nuove.length) await sbPost("commesse", nuove);
+      return { ok: true, create: nuove.length, saltate: saltate };
     }
     if (fn === "eliminaCommessa") {
       await sbDelete("commesse", "id=eq." + encodeURIComponent(args.id));
@@ -3723,6 +3787,125 @@ function statCommessa(cId){
   const mov=STATE.movimenti.filter(m=>m.Commessa===cId&&m.Annullato!=="SI").length;
   return {ris:ris,pan:pan,mas:mas,mov:mov};
 }
+
+// ---- dove compare un codice commessa, per l'anteprima del cambio ----
+function usiCommessa(c){
+  const lista=s=>String(s||'').split(',').map(x=>x.trim());
+  return [
+    ['movimenti',(STATE.movimenti||[]).filter(m=>m.Commessa===c).length],
+    ['pannelli assegnati',(STATE.pannelli||[]).filter(p=>lista(p.Commesse).indexOf(c)>=0).length],
+    ['massicci assegnati',(STATE.massicci||[]).filter(p=>lista(p.Commesse).indexOf(c)>=0).length],
+    ['altre voci',(STATE.voci||[]).filter(v=>v.Commessa===c).length],
+    ['registrazioni di ore',(STATE.ore||[]).filter(o=>o.Commessa===c).length],
+    ['righe di Crea ordine',(STATE.fabbisogni||[]).filter(f=>f.Commessa===c).length],
+    ['ordini',(STATE.ordini||[]).filter(o=>o.Commessa===c).length],
+    ['articoli riservati',(STATE.riserve||[]).filter(r=>r.Commessa===c).length]
+  ].filter(x=>x[1]>0);
+}
+function openCambiaCodice(id){
+  const c=(STATE.commesse||[]).filter(x=>x.ID===id)[0]; if(!c)return;
+  const usi=usiCommessa(id);
+  const elenco=usi.length
+    ? ('<ul style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7">'
+       +usi.map(u=>'<li><strong>'+u[1]+'</strong> '+u[0]+'</li>').join('')+'</ul>')
+    : '<div style="font-size:13px;color:var(--gray);margin-top:4px">Nessuno: questa commessa non ha ancora niente collegato.</div>';
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Cambia il codice</h2>'
+   +'<div class="info-box">Il codice <strong>'+att(id)+'</strong> è la chiave con cui tutto il resto è agganciato a questa commessa. '
+   +'Cambiandolo qui, l\'app sposta <strong>tutto lo storico</strong> sul codice nuovo, in un colpo solo. '
+   +'Non farlo dal database a mano: resterebbe tutto agganciato al vecchio codice.</div>'
+   +'<div class="card" style="margin:0 0 12px;padding:12px"><div style="font-size:12px;color:var(--gray);text-transform:uppercase;letter-spacing:.4px">Cosa verrà spostato</div>'+elenco+'</div>'
+   +'<div class="form-group"><label>Codice nuovo *</label><input id="cc-new" value="'+att(id)+'" oninput="ccCheck()" placeholder="es. C2026.014"></div>'
+   +'<div class="form-group"><label>Nome / descrizione</label><input id="cc-nome" value="'+att(c.Nome&&c.Nome!==c.ID?c.Nome:'')+'" placeholder="es. Palazzo Venere"></div>'
+   +'<div id="cc-avviso"></div>'
+   +'<div id="cc-err"></div>'
+   +'<button class="btn-primary" onclick="submitCambiaCodice(\''+esc(id)+'\')">Cambia il codice e sposta tutto</button>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:8px">Prima di farlo su parecchie commesse, scarica un <strong>Backup</strong> col dischetto in basso a destra.</div>'
+   +'</div>');
+  CC_ORIG=id;
+  ccCheck();
+}
+function ccCheck(){
+  const el=document.getElementById('cc-new'); if(!el)return;
+  const n=el.value.trim();
+  const box=document.getElementById('cc-avviso'); if(!box)return;
+  const esiste=(STATE.commesse||[]).filter(x=>x.ID===n)[0];
+  if(esiste&&n!==CC_ORIG){
+    box.innerHTML='<div class="alert alert-amber" style="margin-bottom:10px">Il codice <strong>'+att(n)+'</strong> esiste già ('
+      +att(esiste.Nome||'')+'). Se vai avanti, le due commesse diventano una sola: tutto lo storico finisce sotto '+att(n)+'.'
+      +'<label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="cc-unisci" style="width:17px;height:17px;accent-color:var(--accent)"> Ho capito, unisci le due commesse</label></div>';
+  } else box.innerHTML='';
+}
+let CC_ORIG='';
+function submitCambiaCodice(id){
+  const n=document.getElementById('cc-new').value.trim();
+  const nome=document.getElementById('cc-nome').value.trim();
+  if(!n){showErr('cc-err','Scrivi il codice nuovo.');return;}
+  if(n===id&&nome===((STATE.commesse||[]).filter(x=>x.ID===id)[0]||{}).Nome){showErr('cc-err','Non hai cambiato niente.');return;}
+  const chk=document.getElementById('cc-unisci');
+  const esiste=(STATE.commesse||[]).filter(x=>x.ID===n)[0];
+  if(esiste&&n!==id&&(!chk||!chk.checked)){showErr('cc-err','Spunta la casella per confermare l\'unione.');return;}
+  if(n===id){ // cambia solo il nome
+    call('salvaCommessa',{ID:id,Nome:nome||id,Cliente:(esiste||{}).Cliente||'',Stato:(esiste||{}).Stato||'aperta',Note:(esiste||{}).Note||''})
+      .then(function(r){ if(!r.ok){showErr('cc-err',r.err||'Errore');return;}
+        call('getCommesse').then(function(c){STATE.commesse=c||[];closeModal();toast('Commessa aggiornata');renderPage(STATE.pagina);});});
+    return;
+  }
+  showErr('cc-err','Sto spostando lo storico, non chiudere la pagina...');
+  call('cambiaCodiceCommessa',{vecchio:id,nuovo:n,nome:nome||n,unisci:!!(chk&&chk.checked)}).then(function(r){
+    if(!r||!r.ok){showErr('cc-err',(r&&r.err)||'Errore');return;}
+    const dett=Object.keys(r.risultato||{}).map(k=>r.risultato[k]+' '+k).join(', ');
+    closeModal();
+    toast(r.unito?('Commesse unite sotto '+n):('Codice cambiato in '+n)+(dett?(' - spostati: '+dett):''));
+    refreshApp();
+  }).catch(e=>showErr('cc-err',String((e&&e.message)||e)));
+}
+
+// ---- creazione di piu' commesse insieme ----
+function openCommesseBulk(){
+  openModal('<div class="modal" style="width:600px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Aggiungi più commesse</h2>'
+   +'<div class="info-box">Una commessa per riga: prima il <strong>codice</strong>, poi il <strong>nome</strong>, separati da un <strong>tab</strong>, da un punto e virgola o da due o più spazi.<br>'
+   +'Puoi incollare direttamente due colonne prese da Excel. Le commesse che esistono già vengono saltate.</div>'
+   +'<div class="form-group"><label>Elenco</label>'
+   +'<textarea id="cb-txt" rows="10" style="width:100%;padding:9px;font-family:monospace;font-size:12.5px" '
+   +'placeholder="C2026.014&#9;Palazzo Venere&#10;C2026.015&#9;Casa Rossi" oninput="cbPreview()"></textarea></div>'
+   +'<div id="cb-prev"></div><div id="cb-err"></div>'
+   +'<button class="btn-primary" onclick="submitCommesseBulk()">Crea le commesse</button></div>');
+}
+function cbParse(){
+  const t=(document.getElementById('cb-txt')||{}).value||'';
+  return t.split(/\r?\n/).map(function(r){
+    const l=r.trim(); if(!l)return null;
+    const p=l.split(/\t|;|\s{2,}/).map(x=>x.trim()).filter(function(x,i){return i===0||x!=='';});
+    return {ID:p[0]||'',Nome:(p.slice(1).join(' ')||'').trim()};
+  }).filter(Boolean).filter(x=>x.ID);
+}
+function cbPreview(){
+  const box=document.getElementById('cb-prev'); if(!box)return;
+  const righe=cbParse();
+  if(!righe.length){box.innerHTML='';return;}
+  const gia={};(STATE.commesse||[]).forEach(c=>gia[c.ID]=1);
+  const nuove=righe.filter(r=>!gia[r.ID]), doppie=righe.filter(r=>gia[r.ID]);
+  box.innerHTML='<div class="card" style="margin:0 0 10px;padding:12px">'
+   +'<div style="font-size:12px;color:var(--gray);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Anteprima</div>'
+   +'<div style="font-size:13px;line-height:1.8"><strong>'+nuove.length+'</strong> da creare'
+   +(doppie.length?(' &middot; <strong>'+doppie.length+'</strong> già esistenti, saltate ('+doppie.map(d=>d.ID).join(', ')+')'):'')+'</div>'
+   +(nuove.length?('<div style="margin-top:8px;font-size:12.5px;font-family:monospace;line-height:1.7;max-height:170px;overflow:auto">'
+     +nuove.map(n=>att(n.ID)+' &nbsp;&rarr;&nbsp; '+att(n.Nome||'(senza nome)')).join('<br>')+'</div>'):'')
+   +'</div>';
+}
+function submitCommesseBulk(){
+  const righe=cbParse();
+  if(!righe.length){showErr('cb-err','Non hai incollato niente.');return;}
+  call('creaCommesseBulk',{righe:righe}).then(function(r){
+    if(!r||!r.ok){showErr('cb-err',(r&&r.err)||'Errore');return;}
+    call('getCommesse').then(function(c){STATE.commesse=c||[];closeModal();
+      toast(r.create+' commesse create'+(r.saltate.length?(', '+r.saltate.length+' già esistenti saltate'):''));
+      renderPage(STATE.pagina);});
+  }).catch(e=>showErr('cb-err',String((e&&e.message)||e)));
+}
+
 function renderCommesse(){
   const list=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
   const rows=list.map(c=>{
@@ -3744,13 +3927,15 @@ function renderCommesse(){
       +'<button class="btn btn-ghost" onclick="navTo(\'ordini\');setTimeout(function(){if(typeof ordSelComm===\'function\')ordSelComm(\''+esc(c.ID)+'\');},100)">Materiali</button>'
       +'<button class="btn btn-red" onclick="confEliminaCommessa(\''+esc(c.ID)+'\')">Elimina</button></div></div></div>';
   }).join("")||'<div class="card" style="color:var(--gray)">Nessuna commessa. Creane una col pulsante qui sopra.</div>';
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Commesse</h1><button class="btn btn-accent" onclick="openNuovaCommessa()">+ Nuova commessa</button></div>'+rows;
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Commesse</h1><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="openCommesseBulk()">Aggiungi un elenco</button><button class="btn btn-accent" onclick="openNuovaCommessa()">+ Nuova commessa</button></div></div>'+rows;
 }
 function openModificaCommessa(id){
   const c=STATE.commesse.find(x=>x.ID===id); if(!c)return;
   const stato=String(c.Stato||'aperta').toLowerCase();
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Modifica commessa</h2>'
-   +'<div class="info-box">Codice: <strong>'+c.ID+'</strong> (il codice non si puo cambiare)</div>'
+   +'<div class="info-box" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<span>Codice: <strong>'+c.ID+'</strong></span>'
+   +'<button class="btn btn-accent" onclick="closeModal();openCambiaCodice(\''+esc(c.ID)+'\')">Cambia il codice</button></div>'
    +'<div class="form-group"><label>Nome / descrizione</label><input id="mc-nome" value="'+(c.Nome||'').replace(/"/g,"&quot;")+'"></div>'
    +'<div class="form-group"><label>Cliente</label><input id="mc-cli" value="'+(c.Cliente||'').replace(/"/g,"&quot;")+'"></div>'
    +'<div class="form-group"><label>Stato</label><select id="mc-stato"><option value="aperta"'+(stato==='aperta'?' selected':'')+'>Aperta</option><option value="chiusa"'+(stato==='chiusa'?' selected':'')+'>Chiusa</option></select></div>'
