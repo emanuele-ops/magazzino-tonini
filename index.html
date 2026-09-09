@@ -271,7 +271,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v71 - Atelier</div>
+  <div id="ver-badge">v72 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -4772,8 +4772,12 @@ function copiaTestoVecchio(t){
 // Gira su Supabase (funzione "capisci-dettatura"), che tiene la chiave al sicuro.
 // Se la funzione non c'e' o non risponde, l'app usa il riconoscimento locale:
 // meno bravo, ma non lascia mai a piedi chi sta dettando.
-const VOC_AI_URL = SB_URL + "/functions/v1/capisci-dettatura";
-let VOC_AI_ATTIVA = true, VOC_AI_MOTIVO = '';
+// Due posti dove puo' stare la funzione che parla con l'IA:
+// 1) su Netlify, dentro il sito stesso (nessuna chiave da gestire)
+// 2) su Supabase (serve una chiave tua)
+// L'app le prova in quest'ordine e si ricorda quale ha funzionato.
+const VOC_AI_URLS = ["/.netlify/functions/capisci-dettatura", SB_URL + "/functions/v1/capisci-dettatura"];
+let VOC_AI_URL = "", VOC_AI_ATTIVA = true, VOC_AI_MOTIVO = '';
 function vocCatalogo(){
   let mats=[];
   try{ mats=nomiMateriali('pannello').map(n=>({nome:n,tipo:'pannello'}))
@@ -4810,18 +4814,37 @@ function vocDaIA(riga){
   }
   return r;
 }
-function vocIAChiedi(testo){
-  return fetch(VOC_AI_URL,{method:'POST',
+function vocIAProva(url,corpo){
+  return fetch(url,{method:'POST',
     headers:{'Content-Type':'application/json',apikey:SB_KEY,Authorization:'Bearer '+SB_KEY},
-    body:JSON.stringify({testo:testo,catalogo:vocCatalogo()})})
+    body:corpo})
   .then(function(r){
-    if(!r.ok)throw new Error(r.status===404?'La funzione non e\' ancora installata su Supabase':('Il server ha risposto '+r.status));
+    if(r.status===404)throw {nonCe:true};
+    if(!r.ok)return r.json().catch(function(){return {};}).then(function(d){
+      throw new Error((d&&d.errore)||('Il server ha risposto '+r.status));
+    });
     return r.json();
   })
   .then(function(d){
     if(d&&d.errore)throw new Error(d.errore);
     if(!d||!Array.isArray(d.righe))throw new Error('Risposta non leggibile');
-    return d.righe.map(vocDaIA);
+    return d;
+  });
+}
+function vocIAChiedi(testo){
+  const corpo=JSON.stringify({testo:testo,catalogo:vocCatalogo()});
+  const lista=VOC_AI_URL?[VOC_AI_URL]:VOC_AI_URLS;
+  let ultimo=null;
+  return lista.reduce(function(cat,url){
+    return cat.then(function(fatto){
+      if(fatto)return fatto;
+      return vocIAProva(url,corpo).then(function(d){VOC_AI_URL=url;return d;})
+        .catch(function(e){ if(!e||!e.nonCe)ultimo=e; return null; });
+    });
+  },Promise.resolve(null)).then(function(d){
+    if(d)return d.righe.map(vocDaIA);
+    if(ultimo)throw ultimo;
+    throw new Error('La funzione non risulta installata, ne su Netlify ne su Supabase');
   });
 }
 
@@ -5192,7 +5215,7 @@ function vocAnalizzaIA(){
     VOC_RIGHE=righe; VOC_FONTE='ia'; vocDisegnaAnteprima();
   }).catch(function(e){
     VOC_ATTESA=false; VOC_AI_MOTIVO=String((e&&e.message)||e);
-    if(/non e' ancora installata/.test(VOC_AI_MOTIVO))VOC_AI_ATTIVA=false;
+    if(/non risulta installata/.test(VOC_AI_MOTIVO))VOC_AI_ATTIVA=false;
     vocAnteprima();
   });
 }
