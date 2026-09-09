@@ -228,6 +228,7 @@
       <a data-page="pannelli"><span class="nav-dot"></span>Pannelli</a>
       <a data-page="massicci"><span class="nav-dot"></span>Massicci</a>
       <a data-page="voci"><span class="nav-dot"></span>Altre voci</a>
+      <a data-page="ore"><span class="nav-dot"></span>Ore e trasferte</a>
       <a data-page="movimenti"><span class="nav-dot"></span>Movimenti</a>
       <a data-page="report"><span class="nav-dot"></span>Report</a>
       <a data-page="ordini"><span class="nav-dot"></span>Crea ordine</a>
@@ -261,7 +262,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v67 - Atelier</div>
+  <div id="ver-badge">v68 - Atelier</div>
 </div>
 
 <div id="bulk-bar"></div>
@@ -280,7 +281,7 @@ window.onerror = function(msg, src, line, col){
 </script>
 
 <script>
-let STATE = { articoli:[], pannelli:[], massicci:[], movimenti:[], commesse:[], fornitori:[], fabbisogni:[], modelli:[], immagini:[], ordini:[], riserve:[], voci:[], utente:{}, pagina:"dashboard" };
+let STATE = { articoli:[], pannelli:[], massicci:[], movimenti:[], commesse:[], fornitori:[], fabbisogni:[], modelli:[], immagini:[], ordini:[], riserve:[], voci:[], personale:[], ore:[], utente:{}, pagina:"dashboard" };
 const CAT_VOCI = ["Conto lavorazione","Forniture di terzi","Componenti","Trasporti","Manutenzioni","Pasti e trasferte","Noleggi","Servizi e consulenze","Altro"];
 let CURRENT_DETAIL=null;
 let QR_TARGET = null, APP_URL = "";
@@ -304,7 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function loadAll() {
   try{var sl=document.getElementById("side-logo");if(sl)sl.src=LOGO_IMG;}catch(e){}
   const sc = fn => call(fn).catch(e => ({ __err: String((e && e.message) || e) }));
-  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve"),sc("getVoci")])
+  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve"),sc("getVoci"),sc("getPersonale"),sc("getOre")])
   .then(res => {
     const errs = [];
     const ok = (v,name,def) => { if (v && v.__err) { errs.push(name); return def; } return (v==null?def:v); };
@@ -321,6 +322,8 @@ function loadAll() {
     STATE.utente    = ok(res[10],"Utente",{});
     STATE.riserve   = ok(res[11],"Riserve",[]);
     STATE.voci      = ok(res[12],"Altre voci",[]);
+    STATE.personale = ok(res[13],"Personale",[]);
+    STATE.ore       = ok(res[14],"Ore",[]);
     const u = STATE.utente || {};
     // Login Supabase
     if (u.autorizzato === "__login__") {
@@ -368,7 +371,7 @@ function collassaFam(){document.querySelectorAll("#main-content .piece-grid").fo
 // Menu completo per mobile: rende raggiungibili tutte le sezioni
 function openMobileMenu(){
   const op = STATE.utente.Ruolo==="operator";
-  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["voci","Altre voci"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
+  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["voci","Altre voci"],["ore","Ore e trasferte"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
   const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr","voci"]:[];
   const items=pages.filter(p=>hide.indexOf(p[0])<0).map(p=>{const att=STATE.pagina===p[0];return '<button class="det-btn" style="margin-top:0;text-align:left;background:'+(att?'var(--accent-light)':'#faf8f4')+';color:'+(att?'var(--accent)':'var(--ink)')+'" onclick="closeModal();navTo(\''+p[0]+'\')">'+p[1]+'</button>';}).join("");
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Menu</h2><div style="display:flex;flex-direction:column;gap:8px">'+items+'</div></div>');
@@ -443,6 +446,7 @@ function renderPage(p){
   else if(p==="fornitori")m.innerHTML=renderFornitori();
   else if(p==="commesse")m.innerHTML=renderCommesse();
   else if(p==="voci")m.innerHTML=renderVoci();
+  else if(p==="ore")m.innerHTML=renderOre();
   else if(p==="offerte")m.innerHTML=renderOfferte();
   else if(p==="modelli")m.innerHTML=renderModelli();
   else if(p==="qr")m.innerHTML=renderQR();
@@ -616,6 +620,77 @@ async function call(fn, args) {
       const upd = { stato: args.stato };
       if (args.ordineId !== undefined) upd.ordine_id = args.ordineId || "";
       await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(args.id), upd);
+      return { ok: true };
+    }
+    // ============ ORE, PERSONALE E TRASFERTE ============
+    if (fn === "getPersonale") {
+      const rows = await sbGet("personale", "select=*&order=nome.asc");
+      return rows.map(r => ({ ID: r.id, Nome: r.nome, Mansione: r.mansione || "", Email: r.email || "",
+        CostoOrario: +r.costo_orario || 0, EuroKm: +r.euro_km || 0, OreGiorno: +r.ore_giorno || 8,
+        Attivo: r.attivo !== false, Note: r.note || "" }));
+    }
+    if (fn === "salvaPersona") {
+      const d = args;
+      const row = { nome: String(d.Nome || "").trim(), mansione: d.Mansione || "",
+        email: String(d.Email || "").trim().toLowerCase(),
+        costo_orario: parseFloat(d.CostoOrario) || 0, euro_km: parseFloat(d.EuroKm) || 0,
+        ore_giorno: parseFloat(d.OreGiorno) || 8, attivo: d.Attivo !== false, note: d.Note || "" };
+      if (d.ID) {
+        await sbPatch("personale", "id=eq." + encodeURIComponent(d.ID), row);
+        // se cambia il nome, allineo anche le registrazioni gia fatte
+        await sbPatch("ore", "persona_id=eq." + encodeURIComponent(d.ID), { persona: row.nome }).catch(()=>{});
+        return { ok: true, id: d.ID };
+      }
+      const r = await sbPost("personale", row);
+      return { ok: true, id: (r && r[0] && r[0].id) || "" };
+    }
+    if (fn === "eliminaPersona") {
+      const usate = await sbGet("ore", "select=id&persona_id=eq." + encodeURIComponent(args.id) + "&limit=1");
+      if (usate.length) return { ok: false, err: "Questa persona ha gia delle ore registrate: non si può eliminare senza perdere lo storico. Toglile la spunta 'in forza' invece." };
+      await sbDelete("personale", "id=eq." + encodeURIComponent(args.id));
+      return { ok: true };
+    }
+    if (fn === "getOre") {
+      const rows = await sbGet("ore", "select=*&order=data.desc");
+      return rows.map(r => ({ ID: r.id, Data: r.data, PersonaID: r.persona_id, Persona: r.persona || "",
+        Commessa: r.commessa || "", Tipo: r.tipo || "lavoro", Ore: +r.ore || 0, Km: +r.km || 0,
+        Destinazione: r.destinazione || "", Descrizione: r.descrizione || "",
+        CostoOrario: +r.costo_orario || 0, EuroKm: +r.euro_km || 0,
+        Costo: +r.costo || 0, Rimborso: +r.rimborso || 0,
+        InseritoDa: r.inserito_da || "", Note: r.note || "" }));
+    }
+    if (fn === "salvaOra" || fn === "salvaOreBulk") {
+      const pers = await sbGet("personale", "select=*");
+      const chi = (UTENTE_CORRENTE && (UTENTE_CORRENTE.Nome || UTENTE_CORRENTE.Email)) || "";
+      const r5 = n => Math.round((+n || 0) * 100) / 100;
+      const mk = function(d){
+        const p = pers.filter(x => x.id === d.PersonaID)[0] || {};
+        const co = (d.CostoOrario !== undefined && d.CostoOrario !== null && d.CostoOrario !== "") ? parseFloat(d.CostoOrario) : (+p.costo_orario || 0);
+        const ek = (d.EuroKm !== undefined && d.EuroKm !== null && d.EuroKm !== "") ? parseFloat(d.EuroKm) : (+p.euro_km || 0);
+        const h = parseFloat(d.Ore) || 0, km = parseFloat(d.Km) || 0;
+        return { data: d.Data, persona_id: d.PersonaID, persona: p.nome || d.Persona || "",
+          commessa: d.Commessa || "", tipo: d.Tipo || "lavoro", ore: h, km: km,
+          destinazione: d.Destinazione || "", descrizione: d.Descrizione || "",
+          costo_orario: co, euro_km: ek, costo: r5(h * co), rimborso: r5(km * ek),
+          inserito_da: d.InseritoDa || chi, note: d.Note || "" };
+      };
+      if (fn === "salvaOreBulk") {
+        const righe = (args.righe || []).map(mk).filter(r => r.ore > 0 || r.km > 0);
+        if (!righe.length) return { ok: false, err: "Non hai compilato nessuna casella." };
+        await sbPost("ore", righe);
+        return { ok: true, n: righe.length };
+      }
+      const row = mk(args);
+      if (args.ID) { await sbPatch("ore", "id=eq." + encodeURIComponent(args.ID), row); return { ok: true, id: args.ID }; }
+      const r = await sbPost("ore", row);
+      return { ok: true, id: (r && r[0] && r[0].id) || "" };
+    }
+    if (fn === "eliminaOra") {
+      await sbDelete("ore", "id=eq." + encodeURIComponent(args.id));
+      return { ok: true };
+    }
+    if (fn === "cambiaCommessaOre") {
+      await sbPatch("ore", "id=eq." + encodeURIComponent(args.id), { commessa: args.commessa || "" });
       return { ok: true };
     }
     if (fn === "getOfferte") {
@@ -1343,10 +1418,10 @@ function refreshApp(){
   const btn=document.getElementById("btn-refresh"); if(btn)btn.classList.add("spin-on");
   const cur=STATE.pagina||"dashboard";
   const sc=fn=>call(fn).catch(()=>[]);
-  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getRiserve"),sc("getVoci")])
-  .then(([a,p,m,mv,c,f,fb,md,im,or,ri,vc])=>{
+  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getRiserve"),sc("getVoci"),sc("getPersonale"),sc("getOre")])
+  .then(([a,p,m,mv,c,f,fb,md,im,or,ri,vc,pe,oe])=>{
     STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];
-    STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.voci=vc||[];
+    STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.voci=vc||[];STATE.personale=pe||[];STATE.ore=oe||[];
     renderPage(cur);toast("Dati aggiornati");
   })
   .catch(()=>toast("Errore durante l'aggiornamento da Supabase","err"))
@@ -1472,6 +1547,15 @@ function csvReportScarico(anno,mese){
         v.Descrizione||'',v.Categoria||'','',csvNum(v.Quantita,3),v.Unita||'','',
         csvNum(v.Importo,2),v.Fornitore||'',v.NrFattura||'',v.Stato||'',v.Note||'','']);
     });
+  (STATE.ore||[]).filter(r=>String(r.Data||'').startsWith(pref))
+    .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
+    .forEach(function(r){
+      out.push([r.Commessa||'(senza commessa)','Manodopera',dataIt(r.Data),
+        r.Persona||'',tipoOraLabel(r.Tipo),'',csvNum(r.Ore,2),'ore','',
+        csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','',
+        (r.Descrizione||'')+(r.Destinazione?(' - '+r.Destinazione):'')+((+r.Km)?(' - '+nOre(r.Km)+' km'):'')+(r.Note?(' - '+r.Note):''),
+        r.InseritoDa||'']);
+    });
   scaricaCsv('movimenti-e-voci_'+(mese?(anno+'-'+mese):anno)+'.csv',out);
 }
 
@@ -1526,6 +1610,14 @@ function csvRiepilogo(anno,mese){
     ['Ordini emessi (totali)',(STATE.ordini||[]).length],
     ['Ordini ricevuti',(STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()==='ricevuto').length],
     ['Articoli sotto soglia (oggi)',STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino).length]];
+  const oreP=oreTot((STATE.ore||[]).filter(r=>String(r.Data||'').startsWith(pref)));
+  out.push(['Ore registrate',csvNum(oreP.ore,2)]);
+  out.push(['Ore su commessa',csvNum(oreP.produttive,2)]);
+  out.push(['Ore non su commessa',csvNum(oreP.interno+oreP.assenza,2)]);
+  out.push(['Chilometri di trasferta',csvNum(oreP.km,1)]);
+  out.push(['Costo manodopera EUR',csvNum(oreP.costo,2)]);
+  out.push(['Rimborsi chilometrici EUR',csvNum(oreP.rimborso,2)]);
+  out.push(['Totale manodopera EUR',csvNum(oreP.tot,2)]);
   scaricaCsv('riepilogo_'+(mese?(anno+'-'+mese):anno)+'.csv',out);
 }
 
@@ -1557,6 +1649,12 @@ function csvReportCommessa(comm){
     out.push(['Movimento',String(m.Data||'').slice(0,16),m.NomeArticolo||'',cfDi(m),m.PezzoID||'',
       csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
       csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',m.Fornitore||'','','',m.Note||'',m.Utente||'']);});
+  // manodopera e trasferte
+  oreDiCommessa(comm).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(r){
+    out.push(['Manodopera',dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),'',
+      csvNum(r.Ore,2),'ore','',csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','',
+      (r.Descrizione||'')+(r.Destinazione?(' - '+r.Destinazione):'')+((+r.Km)?(' - '+nOre(r.Km)+' km'):'')+(r.Note?(' - '+r.Note):''),
+      r.InseritoDa||'']);});
   // rettifiche
   (STATE.rettifiche||[]).filter(r=>r.Commessa===comm)
     .forEach(r=>out.push(['Rettifica manuale','',r.Voce||'','','','','','','','','','',(r.Valore||'')+' '+(r.Note||''),'']));
@@ -1627,9 +1725,15 @@ function buildReportScarico(anno,mese){
     const c=v.Commessa||'(senza commessa)';
     (byV[c]=byV[c]||[]).push(v);
   });
-  // una sezione per commessa: materiali + altre voci, entrambe in dettaglio
-  const comm={};Object.keys(byC).forEach(c=>comm[c]=1);Object.keys(byV).forEach(c=>comm[c]=1);
-  let totGen=0;
+  // Ore dello stesso periodo, raggruppate per commessa
+  const byO={};
+  (STATE.ore||[]).filter(r=>String(r.Data||'').startsWith(pref)).forEach(function(r){
+    const c=r.Commessa||'(senza commessa)';
+    (byO[c]=byO[c]||[]).push(r);
+  });
+  // una sezione per commessa: materiali + altre voci + manodopera, in dettaglio
+  const comm={};Object.keys(byC).forEach(c=>comm[c]=1);Object.keys(byV).forEach(c=>comm[c]=1);Object.keys(byO).forEach(c=>comm[c]=1);
+  let totGen=0,totOreGen=0,totCostoGen=0;
   const body=Object.keys(comm).sort().map(function(c){
     let out='<h3 style="font-size:14px;margin:16px 0 6px">Commessa '+c+'</h3>';
     if(byC[c]){
@@ -1659,9 +1763,34 @@ function buildReportScarico(anno,mese){
       out+='<div style="font-size:12.5px;font-weight:bold;margin:10px 0 4px">Altre voci</div>'
         +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Voce</th><th align="left">Fornitore</th><th align="center">Q.ta</th><th align="center">N. ft.</th><th align="right">Importo</th></tr></thead><tbody>'+rr+'</tbody></table>';
     }
+    if(byO[c]){
+      const oo=byO[c].slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data)));
+      const to=oreTot(oo);
+      const rr2=oo.map(function(r){
+        return '<tr><td>'+dataIt(r.Data)+'</td><td>'+(r.Persona||'')+'</td><td>'+tipoOraLabel(r.Tipo)+'</td>'
+         +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')+'</td>'
+         +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+((+r.Km)?nOre(r.Km):'-')+'</td>'
+         +'<td align="right">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td></tr>';}).join('');
+      out+='<div style="font-size:12.5px;font-weight:bold;margin:10px 0 4px">Manodopera e trasferte</div>'
+       +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead>'
+       +'<tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Persona</th><th align="left">Tipo</th>'
+       +'<th align="left">Descrizione</th><th align="right">Ore</th><th align="right">Km</th><th align="right">Costo</th></tr></thead><tbody>'
+       +rr2
+       +'<tr style="background:#efefef;font-weight:bold"><td colspan="4" align="right">Totale manodopera commessa</td>'
+       +'<td align="right">'+nOre(to.ore)+'</td><td align="right">'+(to.km?nOre(to.km):'-')+'</td>'
+       +'<td align="right">&euro; '+euro(to.tot)+'</td></tr></tbody></table>';
+      totOreGen+=to.ore; totCostoGen+=to.tot;
+    }
     return out;
   }).join("")||'<p style="color:#888">Nessun movimento nel periodo.</p>';
-  const chiusura=totGen?('<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-top:18px"><tr style="background:#efefef"><td align="right" style="font-weight:bold">Totale altre voci di tutte le commesse</td><td align="right" style="font-weight:bold;width:160px">&euro; '+euro(totGen)+'</td></tr></table>'):'';
+  let chiusura='';
+  if(totGen||totOreGen){
+    chiusura='<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-top:18px"><tbody>';
+    if(totGen)chiusura+='<tr><td align="right">Totale altre voci di tutte le commesse</td><td align="right" style="font-weight:bold;width:170px">&euro; '+euro(totGen)+'</td></tr>';
+    if(totOreGen)chiusura+='<tr><td align="right">Totale manodopera e trasferte ('+nOre(totOreGen)+' h)</td><td align="right" style="font-weight:bold">&euro; '+euro(totCostoGen)+'</td></tr>';
+    chiusura+='<tr style="background:#efefef"><td align="right" style="font-weight:bold">Totale del periodo</td><td align="right" style="font-weight:bold">&euro; '+euro(totGen+totCostoGen)+'</td></tr>';
+    chiusura+='</tbody></table>';
+  }
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Movimenti e voci '+(mese?(mese+'/'+anno):anno)+' per commessa',new Date().toLocaleDateString('it-IT'))+body+chiusura+'</div>';
 }
 function buildReportRimanenze(anno){
@@ -1695,9 +1824,14 @@ function buildReportRiepilogo(anno,mese){
   const ord=(STATE.ordini||[]),ric=ord.filter(o=>String(o.Stato).toLowerCase()==='ricevuto').length;
   const sotto=STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino).length;
   const comm={};mv.filter(m=>m.Tipo==='scarico'&&m.Commessa).forEach(m=>comm[m.Commessa]=true);
+  const oreP=oreTot((STATE.ore||[]).filter(r=>String(r.Data||'').startsWith(pref)));
   const row=(k,v)=>'<tr><td style="color:#777">'+k+'</td><td align="right" style="font-weight:700">'+v+'</td></tr>';
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Riepilogo '+(mese?(mese+'/'+anno):anno),new Date().toLocaleDateString('it-IT'))
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px">'+row('Movimenti di carico',car)+row('Movimenti di scarico',sc)+row('Commesse con consumi',Object.keys(comm).length)+row('Ordini emessi (totali)',ord.length)+row('Ordini ricevuti',ric)+row('Articoli sotto soglia (attuale)',sotto)+'</table><p style="font-size:11px;color:#999;margin-top:10px">Le rimanenze indicano lo stato attuale del magazzino.</p></div>';
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px">'+row('Movimenti di carico',car)+row('Movimenti di scarico',sc)+row('Commesse con consumi',Object.keys(comm).length)+row('Ordini emessi (totali)',ord.length)+row('Ordini ricevuti',ric)+row('Articoli sotto soglia (attuale)',sotto)
+   +row('Ore registrate',nOre(oreP.ore)+' h')
+   +row('Di cui su commessa',nOre(oreP.produttive)+' h')
+   +row('Chilometri di trasferta',nOre(oreP.km)+' km')
+   +row('Costo manodopera e rimborsi','&euro; '+euro(oreP.tot))+'</table><p style="font-size:11px;color:#999;margin-top:10px">Le rimanenze indicano lo stato attuale del magazzino.</p></div>';
 }
 function renderDashboard(){
   const m2=STATE.pannelli.reduce((s,p)=>s+(+p.M2_residuo||0),0);
@@ -1716,6 +1850,7 @@ function renderDashboard(){
   const rifiliP=STATE.pannelli.filter(p=>/^R[0-9]/.test(p.ID)&&+p.M2_residuo>0);
   const rifiliM=STATE.massicci.filter(p=>/^RM[0-9]/.test(p.ID)&&+p.M3_residuo>0);
   const vociMese=(STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(mesePref));
+  const oreMese=oreTot((STATE.ore||[]).filter(r=>String(r.Data||'').startsWith(mesePref)));
   const vociTot=vociMese.reduce((s,v)=>s+(+v.Importo||0),0);
   const destP=STATE.pannelli.filter(p=>String(p.Commesse||'').trim()&&+p.M2_residuo>0).length;
   const destM=STATE.massicci.filter(p=>String(p.Commesse||'').trim()&&+p.M3_residuo>0).length;
@@ -1739,6 +1874,12 @@ function renderDashboard(){
     +stat("Massicci",m3.toFixed(3)+" m&sup3;",destM+" pezzi destinati a commesse","","navTo('massicci')")
     +stat("Rifili disponibili",(rifiliP.length+rifiliM.length),rifiliP.length+" pannelli &middot; "+rifiliM.length+" massicci")
     +stat("Altre voci di "+nomeMese,"&euro; "+euro(vociTot),vociMese.length+" voci registrate","","navTo('voci')")
+    +'</div>';
+  h+='<div class="grid-4" style="margin-bottom:20px">'
+    +stat("Ore di "+nomeMese,nOre(oreMese.ore)+" h",nOre(oreMese.produttive)+" h su commessa","","navTo('ore')")
+    +stat("Manodopera di "+nomeMese,"&euro; "+euro(oreMese.tot),"costo ore + rimborsi km","","navTo('ore')")
+    +stat("Trasferte di "+nomeMese,nOre(oreMese.km)+" km",nOre(oreMese.viaggio)+" h di viaggio","","navTo('ore')")
+    +stat("Persone in forza",(STATE.personale||[]).filter(p=>p.Attivo).length,"","","navTo('ore')")
     +'</div>';
 
   h+='<details class="acc"><summary>Materiali da riordinare'+(sotto.length?'<span class="sum-badge">'+sotto.length+'</span>':'')+'</summary>'+renderReorderBody()+'</details>';
@@ -2087,6 +2228,9 @@ async function eseguiRipristino(){
     await up("modelli",(data.modelli||[]).map(m=>({chiave:m.Chiave,titolo:m.Titolo,oggetto:m.Oggetto,corpo:m.Corpo,note:m.Note})),"modelli");
     // ALTRE VOCI DI COMMESSA
     await up("voci_commessa",(data.voci||[]).map(v=>({id:v.ID,commessa:v.Commessa,data:v.Data||null,categoria:v.Categoria,descrizione:v.Descrizione,fornitore:v.Fornitore||'',quantita:v.Quantita,unita:v.Unita||'',importo:v.Importo,nr_fattura:v.NrFattura||'',stato:v.Stato||'solo_costo',in_ordine:!!v.InOrdine,ordine_id:v.OrdineID||'',note:v.Note||''})),"altre voci");
+    // PERSONALE E ORE
+    await up("personale",(data.personale||[]).map(p=>({id:p.ID,nome:p.Nome,mansione:p.Mansione||'',email:p.Email||'',costo_orario:p.CostoOrario||0,euro_km:p.EuroKm||0,ore_giorno:p.OreGiorno||8,attivo:p.Attivo!==false,note:p.Note||''})),"personale");
+    await up("ore",(data.ore||[]).map(o=>({id:o.ID,data:o.Data||null,persona_id:o.PersonaID,persona:o.Persona||'',commessa:o.Commessa||'',tipo:o.Tipo||'lavoro',ore:o.Ore||0,km:o.Km||0,destinazione:o.Destinazione||'',descrizione:o.Descrizione||'',costo_orario:o.CostoOrario||0,euro_km:o.EuroKm||0,costo:o.Costo||0,rimborso:o.Rimborso||0,inserito_da:o.InseritoDa||'',note:o.Note||''})),"ore");
     setP("Ripristino completato!");
     toast("Ripristino completato. Ricarico i dati...");
     setTimeout(()=>location.reload(),1400);
@@ -2097,13 +2241,13 @@ function scaricaBackup(){
   Promise.all([
     call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),
     call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
-    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci")
-  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci])=>{
+    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci"),call("getPersonale"),call("getOre")
+  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore])=>{
     const d=new Date();
     const pad=n=>String(n).padStart(2,"0");
     const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
     // 1) JSON completo (per il ripristino nell'app)
-    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci};
+    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore};
     scaricaFile(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),"backup-magazzino_"+stamp+".json");
     // 2) Excel con un foglio per ogni tabella
     try{
@@ -2682,6 +2826,50 @@ function buildReportCommessa(comm){
     vociBlock='<h3 style="font-size:15px;margin:18px 0 8px">Altre voci di commessa</h3>'
       +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Voce</th><th align="left">Fornitore</th><th align="center">Q.ta</th><th align="right">Importo</th></tr></thead><tbody>'+rr+'</tbody></table>';
   }
+  // ---- Manodopera e trasferte ----
+  const oreC=oreDiCommessa(comm).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data)));
+  const tOre=oreTot(oreC);
+  let oreBlock='';
+  if(oreC.length){
+    const perP={};
+    oreC.forEach(function(r){const n=r.Persona||'(senza nome)';(perP[n]=perP[n]||[]).push(r);});
+    const rp=Object.keys(perP).sort().map(function(n){const x=oreTot(perP[n]);
+      return '<tr><td>'+n+'</td><td align="right">'+nOre(x.ore)+'</td><td align="right">'+(x.km?nOre(x.km):'-')
+       +'</td><td align="right">&euro; '+euro(x.costo)+'</td><td align="right">&euro; '+euro(x.rimborso)
+       +'</td><td align="right">&euro; '+euro(x.tot)+'</td></tr>';}).join('');
+    const rd=oreC.map(function(r){
+      return '<tr><td>'+dataIt(r.Data)+'</td><td>'+(r.Persona||'')+'</td><td>'+tipoOraLabel(r.Tipo)+'</td>'
+       +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')
+       +(r.Note?(' <span style="color:#777">'+r.Note+'</span>'):'')+'</td>'
+       +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+((+r.Km)?nOre(r.Km):'-')+'</td>'
+       +'<td align="right">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td></tr>';}).join('');
+    oreBlock='<h3 style="font-size:15px;margin:18px 0 8px">Manodopera e trasferte</h3>'
+     +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12.5px;margin-bottom:10px"><thead>'
+     +'<tr style="background:#f0e9e0"><th align="left">Persona</th><th align="right">Ore</th><th align="right">Km</th>'
+     +'<th align="right">Costo ore</th><th align="right">Rimborsi km</th><th align="right">Totale</th></tr></thead><tbody>'+rp
+     +'<tr style="background:#efefef;font-weight:bold"><td>Totale</td><td align="right">'+nOre(tOre.ore)+'</td>'
+     +'<td align="right">'+(tOre.km?nOre(tOre.km):'-')+'</td><td align="right">&euro; '+euro(tOre.costo)+'</td>'
+     +'<td align="right">&euro; '+euro(tOre.rimborso)+'</td><td align="right">&euro; '+euro(tOre.tot)+'</td></tr>'
+     +'</tbody></table>'
+     +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:11.5px"><thead>'
+     +'<tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Persona</th><th align="left">Tipo</th>'
+     +'<th align="left">Descrizione</th><th align="right">Ore</th><th align="right">Km</th><th align="right">Costo</th></tr></thead><tbody>'
+     +rd+'</tbody></table>';
+  }
+  // ---- Quadro economico: quello che sappiamo valorizzare in euro ----
+  const totVociTutte=(STATE.voci||[]).filter(v=>v.Commessa===comm).reduce((s,v)=>s+(+v.Importo||0),0);
+  let quadro='';
+  if(totVociTutte||tOre.tot){
+    const rQ=(k,v,g)=>'<tr'+(g?' style="background:#efefef;font-weight:bold"':'')+'><td>'+k+'</td><td align="right">&euro; '+euro(v)+'</td></tr>';
+    quadro='<h3 style="font-size:15px;margin:18px 0 8px">Quadro economico</h3>'
+     +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:6px"><tbody>'
+     +rQ('Altre voci di commessa',totVociTutte)
+     +rQ('Manodopera ('+nOre(tOre.ore)+' h)',tOre.costo)
+     +rQ('Rimborsi chilometrici ('+nOre(tOre.km)+' km)',tOre.rimborso)
+     +rQ('Totale costi valorizzati',totVociTutte+tOre.tot,true)
+     +'</tbody></table>'
+     +'<div style="font-size:11px;color:#999;margin-bottom:6px">I materiali di magazzino sono elencati in quantità e non sono valorizzati in euro.</div>';
+  }
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
   const rettBlock=rett.length?('<h3 style="font-size:15px;margin:18px 0 8px">Rettifiche manuali</h3><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Voce</th><th align="left">Valore</th><th align="left">Note</th></tr></thead><tbody>'+rett.map(r=>'<tr><td>'+r.Voce+'</td><td>'+r.Valore+'</td><td>'+r.Note+'</td></tr>').join("")+'</tbody></table>'):'';
   const oggi=new Date().toLocaleDateString('it-IT');
@@ -2691,6 +2879,8 @@ function buildReportCommessa(comm){
    +'<h3 style="font-size:15px;margin-bottom:8px">Materiali consumati</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:18px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="right">Totale</th><th align="center">% del caricato</th><th align="center">N. pezzi</th><th align="right">N. mov.</th></tr></thead><tbody>'+righeTot+'</tbody></table>'
    +vociBlock
+   +oreBlock
+   +quadro
    +'<h3 style="font-size:15px;margin-bottom:8px">Dettaglio movimenti</h3>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codice</th><th align="right">Quantita</th><th align="center">% del caricato</th><th align="left">Note</th><th align="left">Operatore</th></tr></thead><tbody>'+righeMov+'</tbody></table>'
    +rettBlock
@@ -2702,7 +2892,26 @@ function openReportCommessa(comm){
 function _openReportCommessa(comm){
   const rett=(STATE.rettifiche||[]).filter(r=>r.Commessa===comm);
   const rrows=rett.map(r=>'<div class="alert-row" style="border-top:1px solid var(--border)"><span>'+r.Voce+': <strong>'+r.Valore+'</strong>'+(r.Note?(' <span style="color:var(--gray)">('+r.Note+')</span>'):'')+'</span><span style="color:var(--red);cursor:pointer" onclick="delRettifica(\''+esc(r.ID)+'\',\''+esc(comm)+'\')">&times;</span></div>').join("")||'<div style="color:var(--gray);font-size:12px">Nessuna rettifica manuale.</div>';
-  const editor='<div class="card" style="margin-top:14px"><div class="card-title">Rettifiche manuali (correzioni al report)</div>'+rrows
+  // scheda manodopera a schermo
+  const oreCS=oreDiCommessa(comm);
+  const tOS=oreTot(oreCS);
+  let schedaOre='';
+  if(oreCS.length){
+    const perP={};oreCS.forEach(function(r){const n=r.Persona||'(senza nome)';(perP[n]=perP[n]||[]).push(r);});
+    schedaOre='<div class="card" style="margin-top:14px"><div class="card-title">Manodopera e trasferte</div>'
+     +Object.keys(perP).sort().map(function(n){const x=oreTot(perP[n]);
+       return '<div class="det-row"><span>'+n+' <span style="color:var(--gray);font-size:11.5px">'
+        +(x.km?(nOre(x.km)+' km'):'')+'</span></span><span>'+nOre(x.ore)+' h &middot; &euro; '+euro(x.tot)+'</span></div>';}).join('')
+     +'<div class="det-row" style="border-bottom:none"><span style="font-weight:700">Totale</span>'
+     +'<span style="font-weight:700">'+nOre(tOS.ore)+' h &middot; &euro; '+euro(tOS.tot)+'</span></div>'
+     +'<button class="btn btn-ghost" style="margin-top:10px" onclick="ORE_COMM=\''+esc(comm)+'\';ORE_DA=\'\';ORE_A=\'\';ORE_TAB=\'commessa\';closeModal();navTo(\'ore\')">Apri il mastrino di questa commessa</button>'
+     +'</div>';
+  } else {
+    schedaOre='<div class="card" style="margin-top:14px"><div class="card-title">Manodopera e trasferte</div>'
+     +'<div style="color:var(--gray);font-size:13px">Nessuna ora registrata su questa commessa.</div>'
+     +'<button class="btn btn-accent" style="margin-top:10px" onclick="ORE_COMM=\''+esc(comm)+'\';closeModal();openNuovaOra()">Registra ore su questa commessa</button></div>';
+  }
+  const editor=schedaOre+'<div class="card" style="margin-top:14px"><div class="card-title">Rettifiche manuali (correzioni al report)</div>'+rrows
     +'<div class="form-row" style="margin-top:8px"><div class="form-group" style="margin:0"><label>Voce</label><input id="rt-v" placeholder="es. Cerniere consegnate"></div><div class="form-group" style="margin:0"><label>Valore</label><input id="rt-val" placeholder="es. 50 pz"></div></div><div class="form-group"><label>Note</label><input id="rt-n"></div><button class="btn btn-accent" onclick="addRettifica(\''+esc(comm)+'\')">+ Aggiungi rettifica</button></div>';
   // barra fissa in alto: il pulsante di stampa resta sempre a portata,
   // anche scorrendo un report lungo
@@ -3484,6 +3693,11 @@ function openSceltaAzione(){
     +'<div style="margin:-8px 0 16px"><button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();openCaricoRefiloMassiccio()">Nuovo pezzo di refilo (massello)</button></div>'
     +'<div style="margin-bottom:4px"><div style="font-weight:600;font-size:13px;margin-bottom:8px">Altre voci di commessa</div>'
     +'<button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();navTo(\'voci\');setTimeout(function(){openNuovaVoce();},120)">Nuova altra voce</button></div>'
+    +'<div style="margin-top:16px"><div style="font-weight:600;font-size:13px;margin-bottom:8px">Ore e trasferte</div>'
+    +'<div style="display:flex;gap:9px;flex-wrap:wrap">'
+    +'<button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();openNuovaOra()">Registra ore</button>'
+    +(oreAdmin()?'<button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();openFoglioSettimana()">Foglio settimanale</button>':'')
+    +'</div></div>'
     +'</div>');
 }
 function openScegliPezzo(tipo){
@@ -3576,6 +3790,596 @@ function categorieVoci(){
   const s={};CAT_VOCI.forEach(c=>s[c]=1);(STATE.voci||[]).forEach(v=>{if(v.Categoria)s[v.Categoria]=1;});
   return Object.keys(s).sort();
 }
+
+// ============================================================
+//  ORE, MANODOPERA E TRASFERTE
+//  tipo: chiave, etichetta, colore, vuole la commessa?, e' un viaggio?
+// ============================================================
+const TIPI_ORE=[
+  ['lavoro','Lavoro in commessa','var(--green)',true,false],
+  ['viaggio','Viaggio / trasferta','var(--accent)',true,true],
+  ['interno','Lavoro interno (magazzino, officina)','var(--amber)',false,false],
+  ['ferie','Ferie','var(--gray)',false,false],
+  ['permesso','Permesso','var(--gray)',false,false],
+  ['assenza','Assenza','var(--gray)',false,false]
+];
+function tipoOra(t){return TIPI_ORE.filter(x=>x[0]===t)[0]||[t,t,'var(--gray)',false,false];}
+function tipoOraLabel(t){return tipoOra(t)[1];}
+function tipoOraCommessa(t){return tipoOra(t)[3];}
+function tipoOraViaggio(t){return tipoOra(t)[4];}
+function oreProduttive(t){return t==='lavoro'||t==='viaggio';}
+function oreAdmin(){return (STATE.utente||{}).Ruolo!=='operator';}
+function personaMia(){
+  const em=String((STATE.utente||{}).Email||'').trim().toLowerCase();
+  if(!em)return null;
+  return (STATE.personale||[]).filter(p=>String(p.Email||'').trim().toLowerCase()===em)[0]||null;
+}
+function nOre(v){return Number(v||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function oggiISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function primoDelMese(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';}
+function lunediDi(iso){const d=iso?new Date(iso+'T12:00:00'):new Date();const g=(d.getDay()+6)%7;d.setDate(d.getDate()-g);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function piuGiorni(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function dataIt(iso){const t=String(iso||'').slice(0,10);return t.length===10?(t.slice(8,10)+'/'+t.slice(5,7)+'/'+t.slice(0,4)):t;}
+const GIORNI_S=['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
+
+let ORE_TAB='registra', ORE_PERS='', ORE_COMM='', ORE_DA='', ORE_A='';
+
+function oreFiltrate(o){
+  o=o||{};
+  const da=o.da||'',a=o.a||'';
+  return (STATE.ore||[]).filter(function(r){
+    const d=String(r.Data||'').slice(0,10);
+    if(da&&d<da)return false;
+    if(a&&d>a)return false;
+    if(o.persona&&r.PersonaID!==o.persona)return false;
+    if(o.commessa&&r.Commessa!==o.commessa)return false;
+    if(o.tipo&&r.Tipo!==o.tipo)return false;
+    return true;
+  }).sort((x,y)=>String(y.Data).localeCompare(String(x.Data)));
+}
+function oreTot(list){
+  const t={n:list.length,ore:0,lavoro:0,viaggio:0,interno:0,assenza:0,km:0,costo:0,rimborso:0};
+  const gg={};
+  (list||[]).forEach(function(r){
+    const h=+r.Ore||0;t.ore+=h;
+    if(r.Tipo==='lavoro')t.lavoro+=h;
+    else if(r.Tipo==='viaggio')t.viaggio+=h;
+    else if(r.Tipo==='interno')t.interno+=h;
+    else t.assenza+=h;
+    t.km+=(+r.Km||0);t.costo+=(+r.Costo||0);t.rimborso+=(+r.Rimborso||0);
+    gg[String(r.Data||'').slice(0,10)]=1;
+  });
+  t.nGiorni=Object.keys(gg).length;
+  t.produttive=t.lavoro+t.viaggio;
+  t.tot=t.costo+t.rimborso;
+  return t;
+}
+// usate anche dai report
+function oreDiCommessa(comm){return (STATE.ore||[]).filter(r=>r.Commessa===comm);}
+function oreDiCommessaPeriodo(comm,pref){return (STATE.ore||[]).filter(r=>r.Commessa===comm&&(!pref||String(r.Data||'').indexOf(pref)===0));}
+function costoOreCommessa(comm){return oreTot(oreDiCommessa(comm)).tot;}
+
+// ---------- pagina ----------
+function oreTab(t){ORE_TAB=t;renderPage('ore');}
+function renderOre(){
+  const admin=oreAdmin();
+  if(!ORE_DA){ORE_DA=primoDelMese();ORE_A=oggiISO();}
+  if(!admin){const m=personaMia();ORE_PERS=m?m.ID:'__nessuno__';}
+  if(!(STATE.personale||[]).length){
+    return '<h1 class="page-title">Ore e trasferte</h1>'
+     +'<div class="card"><div class="card-title">Prima di tutto: chi lavora</div>'
+     +'<div class="info-box">Qui dentro si registrano le ore di ogni persona, i viaggi e le trasferte, e tutto finisce nei report delle commesse insieme ai materiali.<br><br>Per cominciare serve l\'elenco delle persone, con il loro costo orario: è quello che trasforma le ore in euro sulla commessa.</div>'
+     +(admin?'<button class="btn btn-accent" onclick="openNuovaPersona()">+ Aggiungi la prima persona</button>'
+            :'<div style="color:var(--gray);font-size:13px">Chiedi all\'ufficio di inserirti in elenco: senza non puoi registrare le ore.</div>')
+     +'</div>';
+  }
+  if(!admin&&ORE_TAB!=='registra'&&ORE_TAB!=='persona')ORE_TAB='registra';
+  const tabs=[['registra','Registra ore'],['persona',admin?'Mastrino persona':'Le mie ore']];
+  if(admin){tabs.push(['commessa','Mastrino commessa']);tabs.push(['personale','Persone']);}
+  const bar=tabs.map(t=>'<button class="btn '+(ORE_TAB===t[0]?'btn-accent':'btn-ghost')+'" onclick="oreTab(\''+t[0]+'\')">'+t[1]+'</button>').join('');
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">'
+   +'<h1 class="page-title" style="margin:0">Ore e trasferte</h1>'
+   +'<button class="btn btn-accent" onclick="openNuovaOra()">+ Registra ore</button></div>'
+   +'<div class="filters" style="gap:8px">'+bar+'</div>'
+   +'<div id="ore-cont">'+oreContenuto()+'</div>';
+}
+function oreContenuto(){
+  if(ORE_TAB==='persona')return oreTabPersona();
+  if(ORE_TAB==='commessa')return oreTabCommessa();
+  if(ORE_TAB==='personale')return oreTabPersonale();
+  return oreTabRegistra();
+}
+function oreRefresh(){const c=document.getElementById('ore-cont');if(c)c.innerHTML=oreContenuto();else renderPage('ore');}
+
+// ---------- riga singola ----------
+function rigaOra(r,mostraPersona){
+  const t=tipoOra(r.Tipo),admin=oreAdmin();
+  const extra=[dataIt(r.Data)];
+  if(r.Destinazione)extra.push(r.Destinazione);
+  if(+r.Km)extra.push(nOre(r.Km)+' km');
+  if(r.Descrizione)extra.push(r.Descrizione);
+  return '<div style="padding:10px 0;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">'
+   +'<div style="flex:1;min-width:210px">'
+   +'<div style="font-weight:600">'+(mostraPersona?(r.Persona+' &middot; '):'')
+     +'<span style="color:'+t[2]+'">'+t[1]+'</span>'+(r.Commessa?(' &middot; '+r.Commessa):'')+'</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+extra.join(' &middot; ')+'</div>'
+   +(r.Note?'<div style="font-size:12px;color:var(--gray);font-style:italic;margin-top:2px">'+r.Note+'</div>':'')
+   +'</div><div style="text-align:right;white-space:nowrap">'
+   +'<div style="font-weight:700">'+nOre(r.Ore)+' h</div>'
+   +(admin&&((+r.Costo||0)+(+r.Rimborso||0))?('<div style="font-size:12px;color:var(--gray)">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</div>'):'')
+   +'<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
+   +'<button class="btn btn-accent" onclick="openNuovaOra(\''+esc(r.ID)+'\')">Modifica</button>'
+   +'<button class="btn btn-red" onclick="confEliminaOra(\''+esc(r.ID)+'\')">Elimina</button></div>'
+   +'</div></div>';
+}
+
+// ---------- TAB 1: registra ----------
+function oreTabRegistra(){
+  const admin=oreAdmin(),mia=personaMia();
+  let h='<div class="card" style="margin-top:14px"><div class="card-title">Come si registra</div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
+   +'<button class="btn btn-accent" onclick="openNuovaOra()">+ Ore singole</button>'
+   +(admin?'<button class="btn btn-ghost" onclick="openFoglioSettimana()">Foglio settimanale</button>':'')
+   +'</div><div style="font-size:12px;color:var(--gray);line-height:1.6">'
+   +'<strong>Ore singole</strong>: una registrazione per volta, quella di tutti i giorni.'
+   +(admin?'<br><strong>Foglio settimanale</strong>: la settimana intera di una persona in una schermata sola, come il cartellino.':'')
+   +'</div></div>';
+  if(!admin&&!mia){
+    return h+'<div class="card" style="margin-top:14px"><div class="alert alert-amber">Il tuo indirizzo email non è collegato a nessuna persona in elenco: chiedi all\'ufficio di collegarlo, altrimenti le tue ore non si sommano nei mastrini.</div></div>';
+  }
+  const list=oreFiltrate(admin?{}:{persona:mia.ID}).slice(0,60);
+  if(!list.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Ancora nessuna ora registrata.</div>';
+  // raggruppo per giorno
+  const g={};list.forEach(r=>{const d=String(r.Data||'').slice(0,10);(g[d]=g[d]||[]).push(r);});
+  const blocchi=Object.keys(g).sort().reverse().map(function(d){
+    const t=oreTot(g[d]);
+    return '<div class="card" style="margin-bottom:12px"><div class="card-title">'+dataIt(d)
+     +' &nbsp;<span style="font-weight:400;color:var(--gray)">'+nOre(t.ore)+' h'
+     +(t.km?(' &middot; '+nOre(t.km)+' km'):'')
+     +(oreAdmin()&&t.tot?(' &middot; &euro; '+euro(t.tot)):'')+'</span></div>'
+     +g[d].map(r=>rigaOra(r,admin)).join('')+'</div>';
+  }).join('');
+  return h+'<div style="margin-top:14px"><div class="card-title" style="margin-bottom:8px">Ultime registrazioni</div>'+blocchi+'</div>';
+}
+
+// ---------- TAB 2: mastrino persona ----------
+function oreSetPeriodo(quale){
+  const d=new Date();
+  if(quale==='mese'){ORE_DA=primoDelMese();ORE_A=oggiISO();}
+  else if(quale==='scorso'){const y=d.getFullYear(),m=d.getMonth();const p=new Date(y,m-1,1),u=new Date(y,m,0);
+    ORE_DA=p.getFullYear()+'-'+String(p.getMonth()+1).padStart(2,'0')+'-01';
+    ORE_A=u.getFullYear()+'-'+String(u.getMonth()+1).padStart(2,'0')+'-'+String(u.getDate()).padStart(2,'0');}
+  else if(quale==='anno'){ORE_DA=d.getFullYear()+'-01-01';ORE_A=oggiISO();}
+  else if(quale==='tutto'){ORE_DA='';ORE_A='';}
+  oreRefresh();
+}
+function oreBarraPeriodo(){
+  return '<div class="filters" style="gap:8px;flex-wrap:wrap">'
+   +'<div style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--gray)">dal <input type="date" id="op-da" value="'+att(ORE_DA)+'" onchange="ORE_DA=this.value;oreRefresh()" style="width:150px"></div>'
+   +'<div style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--gray)">al <input type="date" id="op-a" value="'+att(ORE_A)+'" onchange="ORE_A=this.value;oreRefresh()" style="width:150px"></div>'
+   +'<button class="btn btn-ghost" onclick="oreSetPeriodo(\'mese\')">Questo mese</button>'
+   +'<button class="btn btn-ghost" onclick="oreSetPeriodo(\'scorso\')">Mese scorso</button>'
+   +'<button class="btn btn-ghost" onclick="oreSetPeriodo(\'anno\')">Quest\'anno</button>'
+   +'<button class="btn btn-ghost" onclick="oreSetPeriodo(\'tutto\')">Tutto</button>'
+   +'</div>';
+}
+function kpiOre(t,admin){
+  const box=(et,val,sub)=>'<div style="flex:1;min-width:130px;background:#faf8f4;border:1px solid var(--border);border-radius:9px;padding:11px 13px">'
+    +'<div style="font-size:11px;color:var(--gray);text-transform:uppercase;letter-spacing:.4px">'+et+'</div>'
+    +'<div style="font-size:19px;font-weight:700;margin-top:3px">'+val+'</div>'
+    +(sub?'<div style="font-size:11.5px;color:var(--gray);margin-top:2px">'+sub+'</div>':'')+'</div>';
+  let h='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
+  h+=box('Ore totali',nOre(t.ore)+' h',t.nGiorni+' giorni con registrazioni');
+  h+=box('Su commessa',nOre(t.produttive)+' h',nOre(t.lavoro)+' h lavoro &middot; '+nOre(t.viaggio)+' h viaggio');
+  h+=box('Non su commessa',nOre(t.interno+t.assenza)+' h',nOre(t.interno)+' h interne &middot; '+nOre(t.assenza)+' h assenze');
+  h+=box('Chilometri',nOre(t.km)+' km',t.rimborso?('&euro; '+euro(t.rimborso)+' di rimborso'):'nessun rimborso');
+  if(admin){
+    h+=box('Costo manodopera','&euro; '+euro(t.costo),'ore per costo orario');
+    h+=box('Totale con rimborsi','&euro; '+euro(t.tot),'manodopera + chilometri');
+  }
+  return h+'</div>';
+}
+function tabellaPerChiave(list,chiaveFn,etichetta,admin,totProd){
+  const g={};
+  list.forEach(function(r){const k=chiaveFn(r)||'(non indicata)';(g[k]=g[k]||[]).push(r);});
+  const keys=Object.keys(g).sort();
+  if(!keys.length)return '';
+  let h='<div class="card" style="margin-bottom:14px"><div class="card-title">'+etichetta+'</div>'
+   +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+   +'<thead><tr style="text-align:left;color:var(--gray);font-size:11.5px;text-transform:uppercase">'
+   +'<th style="padding:6px 4px">'+etichetta.split(' ')[0]+'</th><th style="text-align:right">Ore</th><th style="text-align:right">%</th>'
+   +'<th style="text-align:right">Km</th>'+(admin?'<th style="text-align:right">Costo</th>':'')+'</tr></thead><tbody>';
+  keys.forEach(function(k){
+    const t=oreTot(g[k]);
+    const pct=totProd>0?Math.round(t.ore/totProd*1000)/10:0;
+    h+='<tr style="border-top:1px solid var(--border)"><td style="padding:7px 4px">'+k+'</td>'
+     +'<td style="text-align:right;font-weight:600">'+nOre(t.ore)+'</td>'
+     +'<td style="text-align:right;color:var(--gray)">'+(totProd>0?(nOre(pct)+'%'):'-')+'</td>'
+     +'<td style="text-align:right;color:var(--gray)">'+(t.km?nOre(t.km):'-')+'</td>'
+     +(admin?('<td style="text-align:right">&euro; '+euro(t.tot)+'</td>'):'')+'</tr>';
+  });
+  const tt=oreTot(list);
+  h+='<tr style="border-top:2px solid var(--border);font-weight:700"><td style="padding:7px 4px">Totale</td>'
+   +'<td style="text-align:right">'+nOre(tt.ore)+'</td><td></td>'
+   +'<td style="text-align:right">'+(tt.km?nOre(tt.km):'-')+'</td>'
+   +(admin?('<td style="text-align:right">&euro; '+euro(tt.tot)+'</td>'):'')+'</tr>';
+  return h+'</tbody></table></div></div>';
+}
+function oreTabPersona(){
+  const admin=oreAdmin();
+  const persone=(STATE.personale||[]);
+  if(admin&&!ORE_PERS)ORE_PERS=(persone.filter(p=>p.Attivo)[0]||persone[0]||{}).ID||'';
+  const p=persone.filter(x=>x.ID===ORE_PERS)[0];
+  let h='';
+  if(admin){
+    h+='<div class="filters" style="margin-top:14px"><select onchange="ORE_PERS=this.value;oreRefresh()">'
+     +persone.map(x=>'<option value="'+att(x.ID)+'"'+(x.ID===ORE_PERS?' selected':'')+'>'+x.Nome+(x.Attivo?'':' (non in forza)')+'</option>').join('')
+     +'</select></div>';
+  }
+  h+=oreBarraPeriodo();
+  if(!p)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Scegli una persona.</div>';
+  const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A});
+  const t=oreTot(list);
+  h+='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
+   +'<div><div style="font-family:Georgia,serif;font-size:18px;font-weight:600">'+p.Nome+'</div>'
+   +'<div style="font-size:12px;color:var(--gray)">'+(p.Mansione||'')
+     +(admin&&p.CostoOrario?(' &middot; &euro; '+euro(p.CostoOrario)+'/ora'):'')
+     +(admin&&p.EuroKm?(' &middot; &euro; '+euro(p.EuroKm)+'/km'):'')+'</div></div>'
+   +'<div style="display:flex;gap:8px"><button class="btn btn-accent" onclick="stampaMastrinoPersona()">Stampa PDF</button>'
+   +'<button class="btn btn-green" onclick="csvMastrinoPersona()">Esporta CSV</button></div></div>'
+   +kpiOre(t,admin)+'</div>';
+  if(!list.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Nessuna ora in questo periodo.</div>';
+  h+=tabellaPerChiave(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',admin,t.produttive);
+  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore);
+  h+='<div class="card"><div class="card-title">Dettaglio giorno per giorno</div>'+list.map(r=>rigaOra(r,false)).join('')+'</div>';
+  return h;
+}
+
+// ---------- TAB 3: mastrino commessa ----------
+function oreTabCommessa(){
+  const admin=oreAdmin();
+  const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+  let h='<div class="filters" style="margin-top:14px"><select onchange="ORE_COMM=this.value;oreRefresh()">'
+   +'<option value="">Tutte le commesse</option>'
+   +comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===ORE_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('')
+   +'</select></div>'+oreBarraPeriodo();
+  const list=oreFiltrate({commessa:ORE_COMM,da:ORE_DA,a:ORE_A}).filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
+  const t=oreTot(list);
+  h+='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
+   +'<div style="font-family:Georgia,serif;font-size:18px;font-weight:600">'+(ORE_COMM?('Commessa '+ORE_COMM):'Tutte le commesse')+'</div>'
+   +'<div style="display:flex;gap:8px"><button class="btn btn-accent" onclick="stampaMastrinoCommessa()">Stampa PDF</button>'
+   +'<button class="btn btn-green" onclick="csvMastrinoCommessa()">Esporta CSV</button></div></div>'
+   +kpiOre(t,admin)+'</div>';
+  if(!list.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Nessuna ora registrata su commessa in questo periodo.</div>';
+  if(!ORE_COMM)h+=tabellaPerChiave(list,r=>r.Commessa,'Commesse',admin,t.ore);
+  h+=tabellaPerChiave(list,r=>r.Persona,'Persone',admin,t.ore);
+  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore);
+  h+='<div class="card"><div class="card-title">Dettaglio</div>'+list.map(r=>rigaOra(r,true)).join('')+'</div>';
+  return h;
+}
+
+// ---------- TAB 4: persone ----------
+function oreTabPersonale(){
+  const list=(STATE.personale||[]);
+  let h='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<div><div class="card-title" style="margin:0">Chi lavora</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:3px">Il costo orario e il rimborso chilometrico vengono <strong>congelati</strong> su ogni registrazione: se li cambi, lo storico già registrato non si tocca.</div></div>'
+   +'<button class="btn btn-accent" onclick="openNuovaPersona()">+ Nuova persona</button></div></div>';
+  if(!list.length)return h;
+  h+='<div class="piece-grid" style="margin-top:14px">'+list.map(function(p){
+    const t=oreTot(oreFiltrate({persona:p.ID}));
+    return '<div class="piece"><div class="piece-body">'
+     +'<h4>'+p.Nome+(p.Attivo?'':' <span class="badge badge-gray">non in forza</span>')+'</h4>'
+     +'<small>'+(p.Mansione||'&mdash;')+(p.Email?(' &middot; '+p.Email):'')+'</small>'
+     +'<div style="margin-top:9px;font-size:12.5px;line-height:1.7">'
+     +'<div>Costo orario: <strong>&euro; '+euro(p.CostoOrario)+'</strong></div>'
+     +'<div>Rimborso km: <strong>&euro; '+euro(p.EuroKm)+'</strong></div>'
+     +'<div style="color:var(--gray)">Registrate finora: '+nOre(t.ore)+' h &middot; '+nOre(t.km)+' km</div>'
+     +'</div>'
+     +(p.Note?('<div style="font-size:12px;color:var(--gray);font-style:italic;margin-top:5px">'+p.Note+'</div>'):'')
+     +'<div style="display:flex;gap:7px;margin-top:10px">'
+     +'<button class="btn btn-accent" style="flex:1" onclick="openNuovaPersona(\''+esc(p.ID)+'\')">Modifica</button>'
+     +'<button class="btn btn-red" onclick="confEliminaPersona(\''+esc(p.ID)+'\')">Elimina</button></div>'
+     +'</div></div>';
+  }).join('')+'</div>';
+  return h;
+}
+
+// ---------- modale: una registrazione ----------
+function openNuovaOra(id){
+  if(!(STATE.personale||[]).length){toast('Prima devi inserire le persone','err');navTo('ore');return;}
+  const r=id?(STATE.ore||[]).filter(x=>x.ID===id)[0]:null;
+  const admin=oreAdmin(),mia=personaMia();
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo||(r&&r.PersonaID===p.ID));
+  if(!admin&&!mia){toast('Il tuo utente non è collegato a nessuna persona in elenco','err');return;}
+  const d=r||{Data:oggiISO(),PersonaID:(admin?((persone[0]||{}).ID||''):mia.ID),Tipo:'lavoro',Commessa:(ORE_COMM||''),Ore:'',Km:'',Destinazione:'',Descrizione:'',Note:''};
+  const optP=persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===d.PersonaID?' selected':'')+'>'+p.Nome+(p.Mansione?(' - '+p.Mansione):'')+'</option>').join('');
+  const optT=TIPI_ORE.map(t=>'<option value="'+t[0]+'"'+(t[0]===d.Tipo?' selected':'')+'>'+t[1]+'</option>').join('');
+  const optC=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
+    .map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===d.Commessa?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('');
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>'+(r?'Modifica registrazione':'Registra ore')+'</h2>'
+   +'<div class="form-row"><div class="form-group"><label>Data *</label><input type="date" id="no-data" value="'+att(String(d.Data||'').slice(0,10))+'"></div>'
+   +'<div class="form-group"><label>Persona *</label><select id="no-pers"'+(admin?'':' disabled')+'>'+optP+'</select></div></div>'
+   +'<div class="form-group"><label>Che ore sono *</label><select id="no-tipo" onchange="oreFormTipo()">'+optT+'</select></div>'
+   +'<div id="no-box-comm" class="form-group"><label>Commessa *</label><select id="no-comm"><option value="">- Scegli -</option>'+optC+'</select></div>'
+   +'<div class="form-row"><div class="form-group"><label>Ore *</label><input type="number" step="0.25" min="0" id="no-ore" value="'+att(d.Ore)+'" placeholder="es. 7,5"></div>'
+   +'<div class="form-group" id="no-box-km"><label>Chilometri</label><input type="number" step="any" min="0" id="no-km" value="'+att(d.Km)+'"></div></div>'
+   +'<div class="form-group" id="no-box-dest"><label>Destinazione</label><input id="no-dest" value="'+att(d.Destinazione)+'" placeholder="es. cantiere Venezia"></div>'
+   +'<div class="form-group"><label>Cosa hai fatto</label><input id="no-desc" value="'+att(d.Descrizione)+'" placeholder="es. montaggio ante cucina"></div>'
+   +'<div class="form-group"><label>Note</label><input id="no-note" value="'+att(d.Note)+'"></div>'
+   +'<div id="no-err"></div>'
+   +'<button class="btn-primary" onclick="submitOra(\''+esc(id||'')+'\')">'+(r?'Salva modifiche':'Registra')+'</button></div>');
+  oreFormTipo();
+}
+function oreFormTipo(){
+  const t=gv('no-tipo');
+  const bc=document.getElementById('no-box-comm'); if(bc)bc.style.display=tipoOraCommessa(t)?'':'none';
+  const bk=document.getElementById('no-box-km'); if(bk)bk.style.display=tipoOraViaggio(t)?'':'none';
+  const bd=document.getElementById('no-box-dest'); if(bd)bd.style.display=tipoOraViaggio(t)?'':'none';
+}
+function submitOra(id){
+  const tipo=gv('no-tipo');
+  const d={ID:id||'',Data:gv('no-data'),PersonaID:gv('no-pers'),Tipo:tipo,
+    Commessa:tipoOraCommessa(tipo)?gv('no-comm'):'',
+    Ore:gv('no-ore'),Km:tipoOraViaggio(tipo)?gv('no-km'):0,
+    Destinazione:tipoOraViaggio(tipo)?gv('no-dest').trim():'',
+    Descrizione:gv('no-desc').trim(),Note:gv('no-note').trim()};
+  if(!d.Data){showErr('no-err','Metti la data.');return;}
+  if(!d.PersonaID){showErr('no-err','Scegli la persona.');return;}
+  if(tipoOraCommessa(tipo)&&!d.Commessa){showErr('no-err','Per "'+tipoOraLabel(tipo)+'" serve la commessa: è quella che riceve il costo.');return;}
+  const h=parseFloat(d.Ore)||0,km=parseFloat(d.Km)||0;
+  if(h<=0&&km<=0){showErr('no-err','Metti almeno le ore.');return;}
+  if(h>24){showErr('no-err','Più di 24 ore in un giorno: controlla il numero.');return;}
+  if(id){const v=(STATE.ore||[]).filter(x=>x.ID===id)[0];
+    if(v&&v.PersonaID===d.PersonaID){d.CostoOrario=v.CostoOrario;d.EuroKm=v.EuroKm;}}
+  call('salvaOra',d).then(function(r){
+    if(!r||!r.ok){showErr('no-err',(r&&r.err)||'Errore');return;}
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(id?'Registrazione aggiornata':'Ore registrate');renderPage(STATE.pagina);});
+  }).catch(e=>showErr('no-err',String((e&&e.message)||e)));
+}
+function confEliminaOra(id){
+  const r=(STATE.ore||[]).filter(x=>x.ID===id)[0]||{};
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina registrazione</h2>'
+   +'<div class="alert alert-red">Elimino <strong>'+nOre(r.Ore)+' h</strong> di '+(r.Persona||'')+' del '+dataIt(r.Data)+(r.Commessa?(' sulla commessa '+r.Commessa):'')+'? Non e\' reversibile.</div>'
+   +'<div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOra(\''+esc(id)+'\')">Elimina</button></div>');
+}
+function submitEliminaOra(id){
+  call('eliminaOra',{id:id}).then(function(r){
+    if(!r||!r.ok){showErr('eo-err','Errore');return;}
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast('Registrazione eliminata');renderPage(STATE.pagina);});
+  }).catch(e=>showErr('eo-err',String((e&&e.message)||e)));
+}
+
+// ---------- modale: foglio settimanale ----------
+let FS_N=0;
+function openFoglioSettimana(persId,lun){
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo);
+  if(!persone.length){toast('Prima devi inserire le persone','err');return;}
+  const pid=persId||(persone[0]||{}).ID;
+  const l=lun||lunediDi('');
+  FS_N=0;
+  const optP=persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===pid?' selected':'')+'>'+p.Nome+'</option>').join('');
+  const th=GIORNI_S.map((g,i)=>'<th style="padding:4px;font-size:11px;color:var(--gray);text-align:center;min-width:62px">'+g+'<div style="font-weight:400">'+dataIt(piuGiorni(l,i)).slice(0,5)+'</div></th>').join('');
+  openModal('<div class="modal" style="width:min(940px,96vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Foglio settimanale</h2>'
+   +'<div class="info-box" style="margin-bottom:10px">Una riga per ogni commessa (o tipo di ora) e le ore giorno per giorno. Le caselle vuote non vengono salvate.</div>'
+   +'<div class="form-row"><div class="form-group"><label>Persona *</label><select id="fs-pers" onchange="fsRicarica()">'+optP+'</select></div>'
+   +'<div class="form-group"><label>Settimana dal (lunedi) *</label><input type="date" id="fs-lun" value="'+att(l)+'" onchange="fsRicarica()"></div></div>'
+   +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+   +'<thead><tr><th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:150px">Commessa</th>'
+   +'<th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:120px">Tipo</th>'+th
+   +'<th style="width:34px"></th></tr></thead><tbody id="fs-body"></tbody></table></div>'
+   +'<button class="btn btn-ghost" style="margin-top:10px" onclick="fsAddRiga()">+ Aggiungi riga</button>'
+   +'<div id="fs-err" style="margin-top:8px"></div>'
+   +'<button class="btn-primary" onclick="fsSalva()">Salva la settimana</button></div>');
+  fsAddRiga();
+}
+function fsRicarica(){openFoglioSettimana(gv('fs-pers'),gv('fs-lun'));}
+function fsAddRiga(){
+  const n=++FS_N;
+  const optC='<option value="">- commessa -</option>'+(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
+    .map(c=>'<option value="'+att(c.ID)+'">'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('');
+  const optT=TIPI_ORE.map(t=>'<option value="'+t[0]+'">'+t[1]+'</option>').join('');
+  let celle='';
+  for(let i=0;i<7;i++){
+    celle+='<td style="padding:2px;text-align:center">'
+     +'<input class="fs-h" type="number" step="0.25" min="0" style="width:56px;padding:5px;text-align:center" placeholder="h">'
+     +'<input class="fs-km" type="number" step="any" min="0" style="width:56px;padding:5px;text-align:center;margin-top:3px;display:none" placeholder="km">'
+     +'</td>';
+  }
+  const tr='<tr class="fs-riga" id="fs-r'+n+'" style="border-top:1px solid var(--border)">'
+   +'<td style="padding:3px"><select class="fs-comm" style="width:100%;padding:5px">'+optC+'</select>'
+   +'<input class="fs-desc" style="width:100%;padding:5px;margin-top:3px;font-size:11.5px" placeholder="cosa hai fatto"></td>'
+   +'<td style="padding:3px"><select class="fs-tipo" style="width:100%;padding:5px" onchange="fsTipo(this)">'+optT+'</select>'
+   +'<input class="fs-dest" style="width:100%;padding:5px;margin-top:3px;font-size:11.5px;display:none" placeholder="destinazione"></td>'
+   +celle
+   +'<td style="text-align:center"><span style="color:var(--red);cursor:pointer;font-size:18px" onclick="fsDelRiga('+n+')">&times;</span></td></tr>';
+  document.getElementById('fs-body').insertAdjacentHTML('beforeend',tr);
+}
+function fsDelRiga(n){const tr=document.getElementById('fs-r'+n);if(tr)tr.parentNode.removeChild(tr);}
+function fsTipo(sel){
+  const tr=sel.closest('tr');
+  const v=tipoOraViaggio(sel.value);
+  Array.prototype.forEach.call(tr.querySelectorAll('.fs-km'),el=>{el.style.display=v?'':'none';});
+  const d=tr.querySelector('.fs-dest'); if(d)d.style.display=v?'':'none';
+  const c=tr.querySelector('.fs-comm'); if(c)c.style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
+}
+function fsSalva(){
+  const pers=gv('fs-pers'),lun=gv('fs-lun');
+  if(!pers){showErr('fs-err','Scegli la persona.');return;}
+  if(!lun){showErr('fs-err','Scegli la settimana.');return;}
+  const righe=[];let manca=false;
+  Array.prototype.forEach.call(document.querySelectorAll('#fs-body tr.fs-riga'),function(tr){
+    const tipo=tr.querySelector('.fs-tipo').value;
+    const comm=tr.querySelector('.fs-comm').value;
+    const desc=tr.querySelector('.fs-desc').value.trim();
+    const destEl=tr.querySelector('.fs-dest');
+    const dest=destEl?destEl.value.trim():'';
+    const hs=tr.querySelectorAll('.fs-h'),ks=tr.querySelectorAll('.fs-km');
+    for(let i=0;i<7;i++){
+      const h=parseFloat(hs[i].value)||0;
+      const km=tipoOraViaggio(tipo)?(parseFloat(ks[i].value)||0):0;
+      if(h<=0&&km<=0)continue;
+      if(tipoOraCommessa(tipo)&&!comm){manca=true;continue;}
+      righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:tipo,
+        Commessa:tipoOraCommessa(tipo)?comm:'',Ore:h,Km:km,Destinazione:dest,Descrizione:desc});
+    }
+  });
+  if(manca){showErr('fs-err','C\'è una riga con le ore compilate ma senza commessa.');return;}
+  if(!righe.length){showErr('fs-err','Non hai compilato nessuna casella.');return;}
+  call('salvaOreBulk',{righe:righe}).then(function(r){
+    if(!r||!r.ok){showErr('fs-err',(r&&r.err)||'Errore');return;}
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(r.n+' registrazioni salvate');renderPage(STATE.pagina);});
+  }).catch(e=>showErr('fs-err',String((e&&e.message)||e)));
+}
+
+// ---------- modale: persona ----------
+function openNuovaPersona(id){
+  const p=id?(STATE.personale||[]).filter(x=>x.ID===id)[0]:null;
+  const d=p||{Nome:'',Mansione:'',Email:'',CostoOrario:'',EuroKm:'0.35',OreGiorno:8,Attivo:true,Note:''};
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>'+(p?'Modifica persona':'Nuova persona')+'</h2>'
+   +'<div class="form-row"><div class="form-group"><label>Nome e cognome *</label><input id="np-nome" value="'+att(d.Nome)+'"></div>'
+   +'<div class="form-group"><label>Mansione</label><input id="np-mans" value="'+att(d.Mansione)+'" placeholder="es. falegname"></div></div>'
+   +'<div class="form-group"><label>Email dell\'utente dell\'app</label><input id="np-mail" value="'+att(d.Email)+'" placeholder="nome@ateliertonini.it">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Serve solo se questa persona entra nell\'app con un suo accesso: così quando registra le ore trova già se stessa.</div></div>'
+   +'<div class="form-row-3"><div class="form-group"><label>Costo orario &euro; *</label><input type="number" step="any" min="0" id="np-costo" value="'+att(d.CostoOrario)+'"></div>'
+   +'<div class="form-group"><label>Rimborso &euro;/km</label><input type="number" step="any" min="0" id="np-km" value="'+att(d.EuroKm)+'"></div>'
+   +'<div class="form-group"><label>Ore al giorno</label><input type="number" step="any" min="0" id="np-og" value="'+att(d.OreGiorno)+'"></div></div>'
+   +'<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="np-att" '+(d.Attivo!==false?'checked':'')+' style="width:17px;height:17px;accent-color:var(--accent)"> In forza (compare quando si registrano le ore)</label></div>'
+   +'<div class="form-group"><label>Note</label><input id="np-note" value="'+att(d.Note)+'"></div>'
+   +'<div id="np-err"></div><button class="btn-primary" onclick="submitPersona(\''+esc(id||'')+'\')">'+(p?'Salva modifiche':'Aggiungi')+'</button></div>');
+}
+function submitPersona(id){
+  const d={ID:id||'',Nome:gv('np-nome').trim(),Mansione:gv('np-mans').trim(),Email:gv('np-mail').trim(),
+    CostoOrario:gv('np-costo'),EuroKm:gv('np-km'),OreGiorno:gv('np-og'),
+    Attivo:document.getElementById('np-att').checked,Note:gv('np-note').trim()};
+  if(!d.Nome){showErr('np-err','Scrivi il nome.');return;}
+  call('salvaPersona',d).then(function(r){
+    if(!r||!r.ok){showErr('np-err',(r&&r.err)||'Errore');return;}
+    call('getPersonale').then(function(p){STATE.personale=p||[];
+      call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(id?'Persona aggiornata':'Persona aggiunta');renderPage(STATE.pagina);});});
+  }).catch(e=>showErr('np-err',String((e&&e.message)||e)));
+}
+function confEliminaPersona(id){
+  const p=(STATE.personale||[]).filter(x=>x.ID===id)[0]||{};
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina persona</h2>'
+   +'<div class="alert alert-red">Elimino <strong>'+(p.Nome||id)+'</strong>? Si può fare solo se non ha ore registrate.</div>'
+   +'<div id="ep-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaPersona(\''+esc(id)+'\')">Elimina</button></div>');
+}
+function submitEliminaPersona(id){
+  call('eliminaPersona',{id:id}).then(function(r){
+    if(!r||!r.ok){showErr('ep-err',(r&&r.err)||'Errore');return;}
+    call('getPersonale').then(function(p){STATE.personale=p||[];closeModal();toast('Persona eliminata');renderPage(STATE.pagina);});
+  }).catch(e=>showErr('ep-err',String((e&&e.message)||e)));
+}
+
+// ---------- stampa e CSV dei mastrini ----------
+function periodoTxt(){
+  if(!ORE_DA&&!ORE_A)return 'tutto lo storico';
+  return 'dal '+(ORE_DA?dataIt(ORE_DA):'inizio')+' al '+(ORE_A?dataIt(ORE_A):'oggi');
+}
+function tabellaStampaOre(list,chiaveFn,titolo,totRif){
+  const g={};list.forEach(r=>{const k=chiaveFn(r)||'(non indicata)';(g[k]=g[k]||[]).push(r);});
+  const keys=Object.keys(g).sort();
+  if(!keys.length)return '';
+  const tt=oreTot(list);
+  return '<h3 style="font-size:15px;margin:18px 0 8px">'+titolo+'</h3>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12.5px"><thead>'
+   +'<tr style="background:#f0e9e0"><th align="left">'+titolo+'</th><th align="right">Ore</th><th align="center">%</th><th align="right">Km</th><th align="right">Costo</th></tr></thead><tbody>'
+   +keys.map(function(k){const t=oreTot(g[k]);
+     return '<tr><td>'+k+'</td><td align="right">'+nOre(t.ore)+'</td><td align="center">'+(totRif>0?(nOre(Math.round(t.ore/totRif*1000)/10)+'%'):'-')+'</td><td align="right">'+(t.km?nOre(t.km):'-')+'</td><td align="right">&euro; '+euro(t.tot)+'</td></tr>';}).join('')
+   +'<tr style="background:#efefef;font-weight:bold"><td>Totale</td><td align="right">'+nOre(tt.ore)+'</td><td></td><td align="right">'+(tt.km?nOre(tt.km):'-')+'</td><td align="right">&euro; '+euro(tt.tot)+'</td></tr>'
+   +'</tbody></table>';
+}
+function dettaglioStampaOre(list,conPersona){
+  return '<h3 style="font-size:15px;margin:18px 0 8px">Dettaglio</h3>'
+   +'<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:11.5px"><thead><tr style="background:#f0e9e0">'
+   +'<th align="left">Data</th>'+(conPersona?'<th align="left">Persona</th>':'')
+   +'<th align="left">Tipo</th><th align="left">Commessa</th><th align="left">Descrizione</th>'
+   +'<th align="right">Ore</th><th align="right">Km</th><th align="right">Costo</th></tr></thead><tbody>'
+   +list.map(r=>'<tr><td>'+dataIt(r.Data)+'</td>'+(conPersona?('<td>'+(r.Persona||'')+'</td>'):'')
+     +'<td>'+tipoOraLabel(r.Tipo)+'</td><td>'+(r.Commessa||'-')+'</td>'
+     +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')+(r.Note?(' <span style="color:#777">'+r.Note+'</span>'):'')+'</td>'
+     +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+(+r.Km?nOre(r.Km):'-')+'</td>'
+     +'<td align="right">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td></tr>').join('')
+   +'</tbody></table>';
+}
+function intestazioneOre(titolo,sotto){
+  return '<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:16px">'
+   +'<div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div>'
+   +'<div style="font-size:13px;color:#777">'+titolo+'</div></div>'
+   +'<div style="text-align:right;font-size:12px;color:#777">'+sotto+'<br>Generato il '+new Date().toLocaleDateString('it-IT')+'</div></div>';
+}
+function stampaMastrinoPersona(){
+  const p=(STATE.personale||[]).filter(x=>x.ID===ORE_PERS)[0]||{};
+  const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A});
+  if(!list.length){toast('Niente da stampare','err');return;}
+  const t=oreTot(list);
+  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
+   +intestazioneOre('Mastrino ore &mdash; '+(p.Nome||''),periodoTxt())
+   +'<table style="width:100%;font-size:13px;margin-bottom:14px">'
+   +'<tr><td style="color:#777;width:190px">Ore totali</td><td style="font-weight:700">'+nOre(t.ore)+' h in '+t.nGiorni+' giorni</td></tr>'
+   +'<tr><td style="color:#777">Di cui su commessa</td><td>'+nOre(t.produttive)+' h ('+nOre(t.lavoro)+' lavoro, '+nOre(t.viaggio)+' viaggio)</td></tr>'
+   +'<tr><td style="color:#777">Non su commessa</td><td>'+nOre(t.interno)+' h interne, '+nOre(t.assenza)+' h assenze</td></tr>'
+   +'<tr><td style="color:#777">Chilometri</td><td>'+nOre(t.km)+' km &mdash; rimborso &euro; '+euro(t.rimborso)+'</td></tr>'
+   +'<tr><td style="color:#777">Costo manodopera</td><td style="font-weight:700">&euro; '+euro(t.costo)+'</td></tr>'
+   +'<tr><td style="color:#777">Totale con rimborsi</td><td style="font-weight:700">&euro; '+euro(t.tot)+'</td></tr></table>'
+   +tabellaStampaOre(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',t.produttive)
+   +tabellaStampaOre(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',t.ore)
+   +dettaglioStampaOre(list,false)+'</div>');
+}
+function stampaMastrinoCommessa(){
+  const list=oreFiltrate({commessa:ORE_COMM,da:ORE_DA,a:ORE_A}).filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
+  if(!list.length){toast('Niente da stampare','err');return;}
+  const t=oreTot(list);
+  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
+   +intestazioneOre('Mastrino manodopera &mdash; '+(ORE_COMM||'tutte le commesse'),periodoTxt())
+   +'<table style="width:100%;font-size:13px;margin-bottom:14px">'
+   +'<tr><td style="color:#777;width:190px">Ore totali</td><td style="font-weight:700">'+nOre(t.ore)+' h</td></tr>'
+   +'<tr><td style="color:#777">Di cui viaggio</td><td>'+nOre(t.viaggio)+' h &middot; '+nOre(t.km)+' km</td></tr>'
+   +'<tr><td style="color:#777">Costo manodopera</td><td style="font-weight:700">&euro; '+euro(t.costo)+'</td></tr>'
+   +'<tr><td style="color:#777">Rimborsi km</td><td>&euro; '+euro(t.rimborso)+'</td></tr>'
+   +'<tr><td style="color:#777">Totale</td><td style="font-weight:700">&euro; '+euro(t.tot)+'</td></tr></table>'
+   +(ORE_COMM?'':tabellaStampaOre(list,r=>r.Commessa,'Commesse',t.ore))
+   +tabellaStampaOre(list,r=>r.Persona,'Persone',t.ore)
+   +dettaglioStampaOre(list,true)+'</div>');
+}
+function righeCsvOre(list,conPersona){
+  const out=[];
+  list.forEach(function(r){
+    const riga=[dataIt(r.Data)];
+    if(conPersona)riga.push(r.Persona||'');
+    riga.push(tipoOraLabel(r.Tipo),r.Commessa||'',r.Descrizione||'',r.Destinazione||'',
+      csvNum(r.Ore,2),csvNum(r.Km,1),csvNum(r.CostoOrario,2),csvNum(r.Costo,2),csvNum(r.Rimborso,2),
+      csvNum((+r.Costo||0)+(+r.Rimborso||0),2),r.Note||'',r.InseritoDa||'');
+    out.push(riga);
+  });
+  return out;
+}
+function csvMastrinoPersona(){
+  const p=(STATE.personale||[]).filter(x=>x.ID===ORE_PERS)[0]||{};
+  const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A});
+  const righe=[['Data','Tipo','Commessa','Descrizione','Destinazione','Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
+  righeCsvOre(list,false).forEach(r=>righe.push(r));
+  const t=oreTot(list);
+  righe.push([]);
+  righe.push(['TOTALE','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
+  scaricaCsv('ore-'+String(p.Nome||'persona').toLowerCase().replace(/[^a-z0-9]+/g,'-')+'_'+oggiFile()+'.csv',righe);
+}
+function csvMastrinoCommessa(){
+  const list=oreFiltrate({commessa:ORE_COMM,da:ORE_DA,a:ORE_A}).filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
+  const righe=[['Data','Persona','Tipo','Commessa','Descrizione','Destinazione','Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
+  righeCsvOre(list,true).forEach(r=>righe.push(r));
+  const t=oreTot(list);
+  righe.push([]);
+  righe.push(['TOTALE','','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
+  scaricaCsv('manodopera-'+(ORE_COMM?String(ORE_COMM).replace(/[^A-Za-z0-9.]+/g,'-'):'tutte')+'_'+oggiFile()+'.csv',righe);
+}
+
 function renderVoci(){
   const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
   const optC='<option value="">Tutte le commesse</option>'+comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===VOCI_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
