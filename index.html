@@ -172,6 +172,33 @@
 
   .mobile-nav{display:none}
   .fab{display:none}
+  #ai-fab{position:fixed;bottom:18px;left:18px;z-index:951;height:46px;padding:0 16px;border-radius:23px;
+    background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit;
+    box-shadow:0 3px 12px rgba(0,0,0,.22);display:flex;align-items:center;gap:8px}
+  #ai-fab:hover{filter:brightness(1.08)}
+  #ai-pan{position:fixed;bottom:74px;left:18px;z-index:960;width:min(420px,calc(100vw - 36px));
+    max-height:min(640px,calc(100vh - 120px));background:var(--white);border:1px solid var(--border);
+    border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.22);display:none;flex-direction:column;overflow:hidden}
+  #ai-pan.on{display:flex}
+  #ai-head{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;
+    justify-content:space-between;gap:8px;background:#faf8f4}
+  #ai-msg{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:11px;min-height:170px}
+  .ai-b{max-width:88%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+  .ai-io{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+  .ai-lui{align-self:flex-start;background:#f3efe8;color:var(--ink);border-bottom-left-radius:4px}
+  .ai-err{align-self:flex-start;background:var(--red-light);color:var(--red);border-bottom-left-radius:4px}
+  #ai-piede{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:7px;align-items:flex-end;background:#faf8f4}
+  #ai-in{flex:1;padding:9px 11px;font-size:14px;font-family:inherit;border:1px solid var(--border);
+    border-radius:12px;resize:none;max-height:110px;background:#fff;color:var(--ink)}
+  .ai-tondo{width:38px;height:38px;border-radius:50%;border:none;cursor:pointer;font-size:17px;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .ai-sugg{display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 12px}
+  .ai-sugg button{background:#f3efe8;color:var(--accent);border:1px solid var(--border);border-radius:14px;
+    padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+  @media(max-width:900px){
+    #ai-fab{bottom:74px;left:12px;height:42px;padding:0 13px;font-size:13px}
+    #ai-pan{bottom:126px;left:12px;width:calc(100vw - 24px);max-height:calc(100vh - 190px)}
+  }
   #ver-badge{position:fixed;top:8px;right:54px;z-index:950;font-size:10px;color:var(--gray);background:var(--white);border:1px solid var(--border);padding:3px 9px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   #btn-refresh{position:fixed;top:6px;right:10px;z-index:952;width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:18px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center}
   #btn-backup{position:fixed;bottom:18px;right:18px;z-index:951;height:42px;padding:0 14px;border-radius:22px;background:#fff;color:var(--accent);border:1.5px solid var(--accent);cursor:pointer;font-size:14px;line-height:1;box-shadow:0 3px 12px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600}
@@ -271,9 +298,27 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v72 - Atelier</div>
+  <div id="ver-badge">v74 - Atelier</div>
 </div>
 
+<button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
+<div id="ai-pan">
+  <div id="ai-head">
+    <div><div style="font-family:Georgia,serif;font-size:15.5px;font-weight:600">Assistente magazzino</div>
+    <div style="font-size:11px;color:var(--gray)">chiedi e basta, non modifica niente</div></div>
+    <div style="display:flex;gap:6px">
+      <button class="ai-tondo" style="background:#efe9e0;color:var(--gray);font-size:14px" onclick="aiPulisci()" title="Ricomincia">&#8634;</button>
+      <button class="ai-tondo" style="background:#efe9e0;color:var(--gray)" onclick="aiChiudi()" title="Chiudi">&times;</button>
+    </div>
+  </div>
+  <div id="ai-msg"></div>
+  <div class="ai-sugg" id="ai-sugg"></div>
+  <div id="ai-piede">
+    <button id="ai-mic" class="ai-tondo" style="background:var(--accent-light);color:var(--accent)" onclick="aiMic()" title="Detta la domanda">&#127908;</button>
+    <textarea id="ai-in" rows="1" placeholder="Quanti pannelli MDF ho a magazzino?" onkeydown="aiTasto(event)" oninput="aiCresci(this)"></textarea>
+    <button class="ai-tondo" style="background:var(--accent);color:#fff" onclick="aiInvia()" title="Chiedi">&#10148;</button>
+  </div>
+</div>
 <div id="bulk-bar"></div>
 <div id="print-area"></div>
 <div id="toast"></div>
@@ -362,6 +407,7 @@ function loadAll() {
       document.querySelector(".mobile-nav").style.display="none";
       document.querySelector(".fab").style.display="none";
       var bb=document.getElementById("btn-backup");if(bb)bb.style.display="none";
+      var ba=document.getElementById("ai-fab");if(ba)ba.style.display="none";
       var bbr=document.getElementById("btn-restore");if(bbr)bbr.style.display="none";
       var br=document.getElementById("btn-refresh");if(br)br.style.display="none";
       return;
@@ -2056,7 +2102,7 @@ function renderDashboard(){
 
   const stat=(lbl,val,sub,col,vai)=>'<div class="card stat"'+(vai?' style="cursor:pointer" onclick="'+vai+'"':'')+'><div><div class="stat-label">'+lbl+'</div><div class="stat-value" style="font-size:26px'+(col?(';color:'+col):'')+'">'+val+'</div>'+(sub?'<div class="stat-sub">'+sub+'</div>':'')+'</div></div>';
 
-  let h='<h1 class="page-title">Ciao, '+nome+'</h1>';
+  let h='<h1 class="page-title">Ciao, '+nome+'</h1>'+aiBarra();
 
   // riga di numeri sempre visibile
   h+='<div class="grid-4" style="margin-bottom:14px">'
@@ -4148,15 +4194,39 @@ let ORE_TAB='registra', ORE_PERS='', ORE_COMM='', ORE_DA='', ORE_A='';
 function oreFiltrate(o){
   o=o||{};
   const da=o.da||'',a=o.a||'';
-  return (STATE.ore||[]).filter(function(r){
+  // la ricerca libera: tutte le parole scritte devono comparire da qualche parte
+  const parole=String(o.q||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const out=(STATE.ore||[]).filter(function(r){
     const d=String(r.Data||'').slice(0,10);
     if(da&&d<da)return false;
     if(a&&d>a)return false;
     if(o.persona&&r.PersonaID!==o.persona)return false;
-    if(o.commessa&&r.Commessa!==o.commessa)return false;
+    if(o.commessa==='__vuota__'){ if(String(r.Commessa||'').trim())return false; }
+    else if(o.commessa&&r.Commessa!==o.commessa)return false;
     if(o.tipo&&r.Tipo!==o.tipo)return false;
+    if(parole.length){
+      const paglia=[dataIt(r.Data),r.Persona,r.Commessa,tipoOraLabel(r.Tipo),r.Descrizione,
+        r.Destinazione,r.Note,r.InseritoDa,nomeCommessa(r.Commessa),
+        r.Ore,r.Km].join(' ').toLowerCase();
+      for(let i=0;i<parole.length;i++)if(paglia.indexOf(parole[i])<0)return false;
+    }
     return true;
-  }).sort((x,y)=>String(y.Data).localeCompare(String(x.Data)));
+  });
+  const ord=o.ord||'data';
+  const num=x=>+x||0;
+  out.sort(function(x,y){
+    if(ord==='ore')return num(y.Ore)-num(x.Ore);
+    if(ord==='costo')return (num(y.Costo)+num(y.Rimborso))-(num(x.Costo)+num(x.Rimborso));
+    if(ord==='persona')return String(x.Persona||'').localeCompare(String(y.Persona||''))||String(y.Data).localeCompare(String(x.Data));
+    if(ord==='commessa')return String(x.Commessa||'').localeCompare(String(y.Commessa||''))||String(y.Data).localeCompare(String(x.Data));
+    if(ord==='vecchi')return String(x.Data).localeCompare(String(y.Data));
+    return String(y.Data).localeCompare(String(x.Data));
+  });
+  return out;
+}
+function nomeCommessa(id){
+  const c=(STATE.commesse||[]).filter(x=>x.ID===id)[0];
+  return (c&&c.Nome&&c.Nome!==c.ID)?c.Nome:'';
 }
 function oreTot(list){
   const t={n:list.length,ore:0,lavoro:0,viaggio:0,interno:0,assenza:0,km:0,costo:0,rimborso:0};
@@ -4196,7 +4266,9 @@ function renderOre(){
   }
   if(!admin&&ORE_TAB!=='registra'&&ORE_TAB!=='persona')ORE_TAB='registra';
   const tabs=[['registra','Registra ore'],['persona',admin?'Mastrino persona':'Le mie ore']];
-  if(admin){tabs.push(['commessa','Mastrino commessa']);tabs.push(['personale','Persone']);}
+  if(admin)tabs.push(['commessa','Mastrino commessa']);
+  tabs.push(['registro','Registro e ricerca']);
+  if(admin)tabs.push(['personale','Persone']);
   const bar=tabs.map(t=>'<button class="btn '+(ORE_TAB===t[0]?'btn-accent':'btn-ghost')+'" onclick="oreTab(\''+t[0]+'\')">'+t[1]+'</button>').join('');
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">'
    +'<h1 class="page-title" style="margin:0">Ore e trasferte</h1>'
@@ -4207,6 +4279,7 @@ function renderOre(){
 function oreContenuto(){
   if(ORE_TAB==='persona')return oreTabPersona();
   if(ORE_TAB==='commessa')return oreTabCommessa();
+  if(ORE_TAB==='registro')return oreTabRegistro();
   if(ORE_TAB==='personale')return oreTabPersonale();
   return oreTabRegistra();
 }
@@ -4378,6 +4451,216 @@ function oreTabCommessa(){
   h+='<div class="card"><div class="card-title">Dettaglio</div>'+list.map(r=>rigaOra(r,true)).join('')+'</div>';
   return h;
 }
+
+
+// ============================================================
+//  REGISTRO DELLE ORE
+//  Tutte le registrazioni in un elenco solo, con la ricerca e
+//  tutti i filtri. Quello che vedi e' quello che scarichi.
+// ============================================================
+let ORE_Q='', ORE_TIPO='', ORE_ORD='data';
+function oreRegImposta(campo,valore){
+  if(campo==='q')ORE_Q=valore;
+  else if(campo==='tipo')ORE_TIPO=valore;
+  else if(campo==='ord')ORE_ORD=valore;
+  else if(campo==='persona')ORE_PERS=valore;
+  else if(campo==='commessa')ORE_COMM=valore;
+  oreRefresh();
+  if(campo==='q'){const e=document.getElementById('or-q');if(e){e.focus();try{e.setSelectionRange(e.value.length,e.value.length);}catch(x){}}}
+}
+function oreRegPulisci(){ORE_Q='';ORE_TIPO='';ORE_PERS='';ORE_COMM='';ORE_DA='';ORE_A='';ORE_ORD='data';oreRefresh();}
+function oreRegFiltro(){
+  return {q:ORE_Q,persona:ORE_PERS,commessa:ORE_COMM,tipo:ORE_TIPO,da:ORE_DA,a:ORE_A,ord:ORE_ORD};
+}
+function oreRegLista(){ return oreFiltrate(oreRegFiltro()); }
+function oreRegDescrizione(){
+  const p=[];
+  if(ORE_Q)p.push('che contengono "'+ORE_Q+'"');
+  if(ORE_PERS){const x=(STATE.personale||[]).filter(y=>y.ID===ORE_PERS)[0];if(x)p.push('di '+x.Nome);}
+  if(ORE_COMM)p.push('sulla commessa '+ORE_COMM);
+  if(ORE_TIPO)p.push('di tipo "'+tipoOraLabel(ORE_TIPO)+'"');
+  if(ORE_DA||ORE_A)p.push(periodoTxt());
+  return p.length?p.join(', '):'tutte le registrazioni';
+}
+function oreTabRegistro(){
+  const admin=oreAdmin();
+  const persone=(STATE.personale||[]);
+  const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+  const filtriAttivi=!!(ORE_Q||ORE_PERS||ORE_COMM||ORE_TIPO||ORE_DA||ORE_A);
+
+  let h='<div class="card" style="margin-top:14px">'
+   +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">'
+   +'<span style="font-size:17px;color:var(--gray)">&#128269;</span>'
+   +'<input id="or-q" value="'+att(ORE_Q)+'" placeholder="Cerca: un nome, una commessa, una destinazione, una parola nelle note..." '
+   +'style="flex:1;padding:11px 12px;font-size:14px" oninput="oreRegImposta(\'q\',this.value)">'
+   +(filtriAttivi?'<button class="btn btn-ghost" onclick="oreRegPulisci()">Azzera tutto</button>':'')
+   +'</div>'
+   +'<div style="font-size:11.5px;color:var(--gray);line-height:1.7">'
+   +'Scrivi più parole per stringere: <em>marica venezia</em> trova le trasferte di Marica a Venezia. '
+   +'Vale su tutto: persona, commessa, tipo di ora, destinazione, descrizione, note, chi ha registrato.'
+   +'</div></div>';
+
+  // filtri
+  h+='<div class="filters" style="gap:8px;flex-wrap:wrap;margin-top:10px">'
+   +'<select onchange="oreRegImposta(\'persona\',this.value)"><option value="">Tutte le persone</option>'
+   +persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===ORE_PERS?' selected':'')+'>'+p.Nome+(p.Attivo?'':' (non in forza)')+'</option>').join('')+'</select>'
+   +'<select onchange="oreRegImposta(\'commessa\',this.value)"><option value="">Tutte le commesse</option>'
+   +comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===ORE_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('')
+   +'<option value="__vuota__"'+(ORE_COMM==='__vuota__'?' selected':'')+'>(senza commessa)</option></select>'
+   +'<select onchange="oreRegImposta(\'tipo\',this.value)"><option value="">Tutti i tipi</option>'
+   +TIPI_ORE.map(t=>'<option value="'+t[0]+'"'+(t[0]===ORE_TIPO?' selected':'')+'>'+t[1]+'</option>').join('')+'</select>'
+   +'<select onchange="oreRegImposta(\'ord\',this.value)">'
+   +[['data','Prima le più recenti'],['vecchi','Prima le più vecchie'],['ore','Prima quelle con più ore'],
+     ['costo','Prima quelle che costano di più'],['persona','In ordine di persona'],['commessa','In ordine di commessa']]
+     .map(o=>'<option value="'+o[0]+'"'+(o[0]===ORE_ORD?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>'
+   +'</div>'
+   +oreBarraPeriodo();
+
+  const list=oreRegLista();
+  const t=oreTot(list);
+
+  // riepilogo + scarico
+  h+='<div class="card" style="margin-top:12px">'
+   +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px">'
+   +'<div><div style="font-family:Georgia,serif;font-size:17px;font-weight:600">'+list.length+' registrazioni</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+att(oreRegDescrizione())+'</div></div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+   +'<button class="btn btn-accent" onclick="stampaRegistroOre()">Stampa PDF</button>'
+   +'<button class="btn btn-green" onclick="csvRegistroOre()">Esporta CSV</button>'
+   +'</div></div>'
+   +kpiOre(t,admin)
+   +'<div style="font-size:11.5px;color:var(--gray)">Il PDF e il CSV contengono <strong>esattamente queste righe</strong>, con i filtri che hai messo.</div>'
+   +'</div>';
+
+  if(!list.length){
+    return h+'<div class="card" style="margin-top:12px;color:var(--gray)">Nessuna registrazione con questi filtri. '
+     +(filtriAttivi?'Prova ad <a href="#" onclick="oreRegPulisci();return false" style="color:var(--accent)">azzerare i filtri</a>.':'')+'</div>'
+     +oreScaricaTutto();
+  }
+
+  // tabella
+  h+='<div class="card" style="margin-top:12px"><div style="overflow-x:auto">'
+   +'<table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+   +'<thead><tr style="text-align:left;color:var(--gray);font-size:11px;text-transform:uppercase;letter-spacing:.4px">'
+   +'<th style="padding:7px 5px">Data</th><th>Persona</th><th>Tipo</th><th>Commessa</th><th>Descrizione</th>'
+   +'<th style="text-align:right">Ore</th><th style="text-align:right">Km</th>'
+   +(admin?'<th style="text-align:right">Costo</th>':'')+'<th></th></tr></thead><tbody>';
+  list.slice(0,400).forEach(function(r){
+    const tp=tipoOra(r.Tipo);
+    h+='<tr style="border-top:1px solid var(--border)">'
+     +'<td style="padding:7px 5px;white-space:nowrap">'+dataIt(r.Data)+'</td>'
+     +'<td>'+(r.Persona||'')+'</td>'
+     +'<td style="color:'+tp[2]+'">'+tp[1]+'</td>'
+     +'<td style="white-space:nowrap">'+(r.Commessa||'<span style="color:var(--gray)">-</span>')+'</td>'
+     +'<td style="color:var(--gray)">'+(r.Descrizione||'')
+       +(r.Destinazione?(' <span style="color:var(--accent)">('+r.Destinazione+')</span>'):'')
+       +(r.Note?(' <em>'+r.Note+'</em>'):'')+'</td>'
+     +'<td style="text-align:right;font-weight:600;white-space:nowrap">'+nOre(r.Ore)+'</td>'
+     +'<td style="text-align:right;white-space:nowrap">'+((+r.Km)?nOre(r.Km):'-')+'</td>'
+     +(admin?('<td style="text-align:right;white-space:nowrap">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td>'):'')
+     +'<td style="text-align:right;white-space:nowrap"><button class="btn btn-accent" onclick="openNuovaOra(\''+esc(r.ID)+'\')">Apri</button></td>'
+     +'</tr>';
+  });
+  h+='<tr style="border-top:2px solid var(--border);font-weight:700">'
+   +'<td style="padding:8px 5px" colspan="5">Totale</td>'
+   +'<td style="text-align:right">'+nOre(t.ore)+'</td>'
+   +'<td style="text-align:right">'+(t.km?nOre(t.km):'-')+'</td>'
+   +(admin?('<td style="text-align:right">&euro; '+euro(t.tot)+'</td>'):'')+'<td></td></tr>';
+  h+='</tbody></table></div>';
+  if(list.length>400)h+='<div style="font-size:12px;color:var(--amber);margin-top:8px">A schermo ne mostro le prime 400 per non appesantire. <strong>Nel PDF e nel CSV ci sono tutte e '+list.length+'.</strong></div>';
+  h+='</div>';
+
+  // raggruppamenti utili sul risultato
+  h+=tabellaPerChiave(list,r=>r.Persona,'Persone',admin,t.ore);
+  h+=tabellaPerChiave(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',admin,t.produttive);
+  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore);
+
+  return h+oreScaricaTutto();
+}
+function oreScaricaTutto(){
+  if(!oreAdmin())return '';
+  return '<div class="card" style="margin-top:14px">'
+   +'<div class="card-title">Scarica tutto lo storico</div>'
+   +'<div style="font-size:12.5px;color:var(--gray);margin-bottom:10px">Senza nessun filtro, dalla prima registrazione a oggi. '
+   +'Utile per il commercialista o per tenerne una copia fuori dall\'app.</div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+   +'<button class="btn btn-green" onclick="csvTutteLeOre()">Tutte le ore (CSV)</button>'
+   +'<button class="btn btn-green" onclick="csvPersonale()">Elenco persone (CSV)</button>'
+   +'<button class="btn btn-green" onclick="csvOrePerCommessa()">Riepilogo per commessa (CSV)</button>'
+   +'<button class="btn btn-green" onclick="csvOrePerPersona()">Riepilogo per persona (CSV)</button>'
+   +'</div></div>';
+}
+
+// ---- stampa e CSV del registro ----
+function stampaRegistroOre(){
+  const list=oreRegLista();
+  if(!list.length){toast('Niente da stampare','err');return;}
+  const t=oreTot(list);
+  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
+   +intestazioneOre('Registro delle ore',oreRegDescrizione())
+   +'<table style="width:100%;font-size:13px;margin-bottom:14px">'
+   +'<tr><td style="color:#777;width:190px">Registrazioni</td><td style="font-weight:700">'+list.length+'</td></tr>'
+   +'<tr><td style="color:#777">Ore totali</td><td style="font-weight:700">'+nOre(t.ore)+' h in '+t.nGiorni+' giorni</td></tr>'
+   +'<tr><td style="color:#777">Di cui su commessa</td><td>'+nOre(t.produttive)+' h ('+nOre(t.lavoro)+' lavoro, '+nOre(t.viaggio)+' viaggio)</td></tr>'
+   +'<tr><td style="color:#777">Non su commessa</td><td>'+nOre(t.interno)+' h interne, '+nOre(t.assenza)+' h assenze</td></tr>'
+   +'<tr><td style="color:#777">Chilometri</td><td>'+nOre(t.km)+' km &mdash; rimborso &euro; '+euro(t.rimborso)+'</td></tr>'
+   +'<tr><td style="color:#777">Costo manodopera</td><td style="font-weight:700">&euro; '+euro(t.costo)+'</td></tr>'
+   +'<tr><td style="color:#777">Totale con rimborsi</td><td style="font-weight:700">&euro; '+euro(t.tot)+'</td></tr></table>'
+   +tabellaStampaOre(list,r=>r.Persona,'Persone',t.ore)
+   +tabellaStampaOre(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',t.produttive)
+   +tabellaStampaOre(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',t.ore)
+   +dettaglioStampaOre(list,true)+'</div>');
+}
+function csvRegistroOre(){
+  const list=oreRegLista();
+  const righe=[['Data','Persona','Tipo','Commessa','Nome commessa','Descrizione','Destinazione',
+    'Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
+  list.forEach(function(r){
+    righe.push([dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),r.Commessa||'',nomeCommessa(r.Commessa),
+      r.Descrizione||'',r.Destinazione||'',csvNum(r.Ore,2),csvNum(r.Km,1),csvNum(r.CostoOrario,2),
+      csvNum(r.Costo,2),csvNum(r.Rimborso,2),csvNum((+r.Costo||0)+(+r.Rimborso||0),2),
+      r.Note||'',r.InseritoDa||'']);
+  });
+  const t=oreTot(list);
+  righe.push([]);
+  righe.push(['TOTALE','','','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',
+    csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
+  righe.push([]);
+  righe.push(['Filtri usati',oreRegDescrizione()]);
+  scaricaCsv('registro-ore_'+oggiFile()+'.csv',righe);
+}
+function csvTutteLeOre(){
+  const salva=[ORE_Q,ORE_PERS,ORE_COMM,ORE_TIPO,ORE_DA,ORE_A];
+  ORE_Q='';ORE_PERS='';ORE_COMM='';ORE_TIPO='';ORE_DA='';ORE_A='';
+  csvRegistroOre();
+  ORE_Q=salva[0];ORE_PERS=salva[1];ORE_COMM=salva[2];ORE_TIPO=salva[3];ORE_DA=salva[4];ORE_A=salva[5];
+}
+function csvPersonale(){
+  const righe=[['Nome','Mansione','Email','Costo orario EUR','Rimborso EUR/km','Ore al giorno','In forza','Ore registrate','Km','Costo totale EUR','Note']];
+  (STATE.personale||[]).forEach(function(p){
+    const t=oreTot(oreFiltrate({persona:p.ID}));
+    righe.push([p.Nome,p.Mansione||'',p.Email||'',csvNum(p.CostoOrario,2),csvNum(p.EuroKm,2),
+      csvNum(p.OreGiorno,1),p.Attivo?'si':'no',csvNum(t.ore,2),csvNum(t.km,1),csvNum(t.tot,2),p.Note||'']);
+  });
+  scaricaCsv('persone_'+oggiFile()+'.csv',righe);
+}
+function csvRiepilogoOre(chiaveFn,etichetta,nomeFile){
+  const list=oreFiltrate({});
+  const g={};
+  list.forEach(function(r){const k=chiaveFn(r)||'(non indicata)';(g[k]=g[k]||[]).push(r);});
+  const righe=[[etichetta,'Registrazioni','Ore totali','Ore lavoro','Ore viaggio','Ore interne','Ore assenze',
+    'Giorni','Km','Costo ore EUR','Rimborsi EUR','Totale EUR']];
+  Object.keys(g).sort().forEach(function(k){const t=oreTot(g[k]);
+    righe.push([k,t.n,csvNum(t.ore,2),csvNum(t.lavoro,2),csvNum(t.viaggio,2),csvNum(t.interno,2),
+      csvNum(t.assenza,2),t.nGiorni,csvNum(t.km,1),csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2)]);});
+  const tt=oreTot(list);
+  righe.push([]);
+  righe.push(['TOTALE',tt.n,csvNum(tt.ore,2),csvNum(tt.lavoro,2),csvNum(tt.viaggio,2),csvNum(tt.interno,2),
+    csvNum(tt.assenza,2),tt.nGiorni,csvNum(tt.km,1),csvNum(tt.costo,2),csvNum(tt.rimborso,2),csvNum(tt.tot,2)]);
+  scaricaCsv(nomeFile+'_'+oggiFile()+'.csv',righe);
+}
+function csvOrePerCommessa(){csvRiepilogoOre(r=>r.Commessa,'Commessa','ore-per-commessa');}
+function csvOrePerPersona(){csvRiepilogoOre(r=>r.Persona,'Persona','ore-per-persona');}
 
 // ---------- TAB 4: persone ----------
 function oreTabPersonale(){
@@ -4720,7 +5003,7 @@ function modoSoloDettatura(){
     const a=document.querySelector("aside"); if(a)a.style.display="none";
     const m=document.querySelector(".mobile-nav"); if(m)m.style.display="none";
     const f=document.querySelector(".fab"); if(f)f.style.display="none";
-    ["btn-backup","btn-restore"].forEach(function(id){const e=document.getElementById(id);if(e)e.style.display="none";});
+    ["btn-backup","btn-restore","ai-fab"].forEach(function(id){const e=document.getElementById(id);if(e)e.style.display="none";});
     const main=document.querySelector("main"); if(main)main.style.marginLeft="0";
     document.body.style.paddingLeft="0";
   }catch(e){}
@@ -4766,6 +5049,274 @@ function copiaTestoVecchio(t){
     document.body.appendChild(a);a.select();document.execCommand("copy");document.body.removeChild(a);
     toast("Indirizzo copiato");
   }catch(e){toast("Copia a mano l'indirizzo","err");}
+}
+
+
+// ============================================================
+//  ASSISTENTE: domande sul magazzino, a voce o scritte
+//  Legge e basta: non registra e non modifica niente.
+// ============================================================
+let CHAT_MSG=[], CHAT_ATTESA=false, CHAT_MIC_ON=false, CHAT_REC=null;
+
+// --- il pacchetto di dati che mando all'assistente ---
+function aiNum(v,d){return Number(v||0).toFixed(d===undefined?2:d);}
+function aiBriefing(domanda){
+  const tok=vocTok(domanda||'');
+  const R=[];
+  const oggi=new Date();
+  R.push('OGGI: '+oggi.toISOString().slice(0,10)+' ('+['domenica','lunedi','martedi','mercoledi','giovedi','venerdi','sabato'][oggi.getDay()]+')');
+
+  // --- articoli ---
+  R.push('','ARTICOLI A GIACENZA (nome | giacenza | unita | soglia | fornitore | destinato a commesse)');
+  (STATE.articoli||[]).filter(a=>a.Categoria!=='Pannelli'&&a.Categoria!=='Massello'&&a.IsPannello!=='SI')
+    .forEach(function(a){
+      R.push(a.Nome+' | '+aiNum(a.Stock,2)+' | '+(a.UnitaMisura||'')+' | '+aiNum(a.SogliaRiordino,0)
+        +' | '+(a.Fornitore||'-')+' | '+aiNum(impegnatoArt(a),2));
+    });
+
+  // --- materiali a pezzi, aggregati ---
+  R.push('','MATERIALI A PEZZI (nome | tipo | caricato | residuo | unita | n.pezzi | pezzi ancora utilizzabili | destinato a commesse)');
+  const agg=function(list,tipo,co,cr,un,dec){
+    const g={};
+    (list||[]).forEach(function(p){
+      const k=p.ArticoloID||'(senza nome)';
+      g[k]=g[k]||{car:0,res:0,n:0,liberi:0,dest:0};
+      g[k].car+=(+p[co]||0); g[k].res+=(+p[cr]||0); g[k].n++;
+      if((+p[cr]||0)>0)g[k].liberi++;
+      if(String(p.Commesse||'').trim()&&(+p[cr]||0)>0)g[k].dest+=(+p[cr]||0);
+    });
+    Object.keys(g).sort().forEach(function(k){const x=g[k];
+      R.push(k+' | '+tipo+' | '+aiNum(x.car,dec)+' | '+aiNum(x.res,dec)+' | '+un+' | '+x.n+' | '+x.liberi+' | '+aiNum(x.dest,dec));});
+  };
+  agg(STATE.pannelli,'pannello','M2_originale','M2_residuo','m2',2);
+  agg(STATE.massicci,'massiccio','M3_originale','M3_residuo','m3',3);
+
+  // --- commesse con i loro totali ---
+  R.push('','COMMESSE (codice | nome | stato | consumo m2 | consumo m3 | pezzi usati | altre voci EUR | ore | costo manodopera EUR)');
+  (STATE.commesse||[]).forEach(function(c){
+    const mv=(STATE.movimenti||[]).filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&m.Commessa===c.ID);
+    let m2=0,m3=0;const pz={};
+    mv.forEach(function(m){
+      if(isMq(m.UnitaMisura))m2+=(+m.Quantita||0);
+      else if(isMc(m.UnitaMisura))m3+=(+m.Quantita||0);
+      String(m.PezzoID||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(p=>pz[p]=1);
+    });
+    const vv=(STATE.voci||[]).filter(v=>v.Commessa===c.ID).reduce((s,v)=>s+(+v.Importo||0),0);
+    const oo=oreTot((STATE.ore||[]).filter(o=>o.Commessa===c.ID));
+    R.push(c.ID+' | '+(c.Nome||'')+' | '+(c.Stato||'aperta')+' | '+aiNum(m2,2)+' | '+aiNum(m3,3)
+      +' | '+Object.keys(pz).length+' | '+aiNum(vv,2)+' | '+aiNum(oo.ore,2)+' | '+aiNum(oo.tot,2));
+  });
+
+  // --- ordini e riordini ---
+  const ordA=(STATE.ordini||[]).filter(o=>String(o.Stato||'').toLowerCase()!=='ricevuto');
+  R.push('','ORDINI NON ANCORA RICEVUTI (id | data | fornitore | stato | n.righe | commessa)');
+  if(!ordA.length)R.push('(nessuno)');
+  ordA.forEach(function(o){
+    R.push(o.ID+' | '+String(o.Data||'').slice(0,10)+' | '+(o.Fornitore||'-')+' | '+(o.Stato||'')
+      +' | '+((o.Righe||[]).length)+' | '+(o.Commessa||'-'));
+  });
+  const sotto=(STATE.articoli||[]).filter(a=>+a.Stock<=+a.SogliaRiordino);
+  R.push('','SOTTO SOGLIA, DA RIORDINARE: '+(sotto.length?sotto.map(a=>a.Nome+' ('+aiNum(a.Stock,2)+' '+(a.UnitaMisura||'')+')').join('; '):'nessuno'));
+
+  // --- ultimi movimenti ---
+  R.push('','ULTIMI 30 MOVIMENTI (data | tipo | materiale | quantita | unita | commessa | pezzi | chi)');
+  (STATE.movimenti||[]).filter(m=>m.Annullato!=='SI')
+    .slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).slice(0,30)
+    .forEach(function(m){
+      R.push(String(m.Data||'').slice(0,16)+' | '+m.Tipo+' | '+(m.NomeArticolo||'')+' | '+m.Quantita
+        +' | '+(m.UnitaMisura||'')+' | '+(m.Commessa||'-')+' | '+(m.PezzoID||'-')+' | '+(m.Utente||''));
+    });
+
+  R.push('','DETTATURE IN ATTESA DI CONFERMA: '+dettatureInAttesa().length);
+
+  // --- se la domanda parla di una commessa precisa, ci metto il dettaglio ---
+  const cc=vocCandidatiCommessa(tok);
+  if(cc.length&&cc[0].score>=0.5){
+    const id=cc[0].id;
+    R.push('','DETTAGLIO DELLA COMMESSA '+id+' ('+cc[0].nome+')');
+    R.push('consumi (data | materiale | quantita | unita | pezzo | note):');
+    (STATE.movimenti||[]).filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&m.Commessa===id)
+      .slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).slice(0,80)
+      .forEach(m=>R.push('  '+String(m.Data||'').slice(0,16)+' | '+(m.NomeArticolo||'')+' | '+m.Quantita
+        +' | '+(m.UnitaMisura||'')+' | '+(m.PezzoID||'-')+' | '+(m.Note||'')));
+    const vv=(STATE.voci||[]).filter(v=>v.Commessa===id);
+    if(vv.length){R.push('altre voci (data | categoria | descrizione | fornitore | EUR | stato):');
+      vv.forEach(v=>R.push('  '+String(v.Data||'').slice(0,10)+' | '+(v.Categoria||'')+' | '+(v.Descrizione||'')
+        +' | '+(v.Fornitore||'-')+' | '+aiNum(v.Importo,2)+' | '+(v.Stato||'')));}
+    const oo=(STATE.ore||[]).filter(o=>o.Commessa===id);
+    if(oo.length){R.push('ore (data | persona | tipo | ore | km | EUR):');
+      oo.slice(0,60).forEach(o=>R.push('  '+String(o.Data||'').slice(0,10)+' | '+(o.Persona||'')+' | '+tipoOraLabel(o.Tipo)
+        +' | '+aiNum(o.Ore,2)+' | '+aiNum(o.Km,1)+' | '+aiNum((+o.Costo||0)+(+o.Rimborso||0),2)));}
+    const rp=(STATE.pannelli||[]).concat(STATE.massicci||[])
+      .filter(p=>String(p.Commesse||'').split(',').map(x=>x.trim()).indexOf(id)>=0);
+    if(rp.length){R.push('materiale riservato a questa commessa (pezzo | materiale | residuo):');
+      rp.forEach(p=>R.push('  '+p.ID+' | '+p.ArticoloID+' | '
+        +(p.M2_residuo!==undefined?(aiNum(p.M2_residuo,2)+' m2'):(aiNum(p.M3_residuo,3)+' m3'))));}
+  }
+
+  // --- se parla di un materiale preciso, elenco i pezzi ---
+  const utili=vocParoleUtili(tok,cc.length?vocTok(cc[0].nome):null);
+  const cm=vocCandidatiMateriale(tok,utili);
+  if(cm.length&&cm[0].score>=0.45&&cm[0].tipo!=='articolo'){
+    const nome=cm[0].nome;
+    R.push('','DETTAGLIO DEL MATERIALE "'+nome+'" (pezzo | misure | caricato | residuo | % residuo | commesse | fornitore | data carico)');
+    (STATE.pannelli||[]).filter(p=>p.ArticoloID===nome).forEach(p=>R.push('  '+p.ID+' | '
+      +(p.Larghezza_mm||'?')+'x'+(p.Altezza_mm||'?')+' mm | '+aiNum(p.M2_originale,2)+' m2 | '+aiNum(p.M2_residuo,2)
+      +' m2 | '+aiNum(p.Residuale_pct,0)+'% | '+(p.Commesse||'-')+' | '+(p.Fornitore||'-')+' | '+String(p.DataCarico||'').slice(0,10)));
+    (STATE.massicci||[]).filter(p=>p.ArticoloID===nome).forEach(p=>R.push('  '+p.ID+' | '
+      +(p.Lunghezza_mm||'?')+'x'+(p.Larghezza_mm||'?')+'x'+(p.Spessore_mm||'?')+' mm | '+aiNum(p.M3_originale,3)+' m3 | '
+      +aiNum(p.M3_residuo,3)+' m3 | - | '+(p.Commesse||'-')+' | '+(p.Fornitore||'-')+' | '+String(p.DataCarico||'').slice(0,10)));
+  }
+  return R.join('\n');
+}
+
+function aiChiedi(domanda){
+  const corpo=JSON.stringify({
+    azione:'domanda', domanda:domanda, dati:aiBriefing(domanda),
+    storia:CHAT_MSG.slice(-6).map(m=>({ruolo:m.ruolo,testo:m.testo}))
+  });
+  const lista=VOC_AI_URL?[VOC_AI_URL]:VOC_AI_URLS;
+  let ultimo=null;
+  return lista.reduce(function(cat,url){
+    return cat.then(function(fatto){
+      if(fatto)return fatto;
+      return fetch(url,{method:'POST',
+        headers:{'Content-Type':'application/json',apikey:SB_KEY,Authorization:'Bearer '+SB_KEY},body:corpo})
+      .then(function(r){
+        if(r.status===404)throw {nonCe:true};
+        if(!r.ok)return r.json().catch(function(){return {};}).then(function(d){
+          throw new Error((d&&d.errore)||('Il server ha risposto '+r.status));});
+        return r.json();
+      }).then(function(d){
+        if(d&&d.errore)throw new Error(d.errore);
+        if(!d||!d.risposta)throw new Error('Risposta non leggibile');
+        VOC_AI_URL=url; return d.risposta;
+      }).catch(function(e){ if(!e||!e.nonCe)ultimo=e; return null; });
+    });
+  },Promise.resolve(null)).then(function(t){
+    if(t)return t;
+    if(ultimo)throw ultimo;
+    throw new Error("L'assistente non e' ancora installato: vedi la guida per accendere l'intelligenza artificiale");
+  });
+}
+
+// --- pannello ---
+function aiApri(pre){
+  const p=document.getElementById('ai-pan'); if(!p)return;
+  p.classList.add('on');
+  aiDisegna();
+  const inp=document.getElementById('ai-in');
+  if(inp){ if(pre)inp.value=pre; setTimeout(function(){try{inp.focus();}catch(e){}},60); }
+  if(pre)aiInvia();
+}
+function aiChiudi(){const p=document.getElementById('ai-pan');if(p)p.classList.remove('on');if(CHAT_MIC_ON)aiMicStop();}
+function aiPulisci(){CHAT_MSG=[];aiDisegna();}
+function aiCresci(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,110)+'px';}
+function aiTasto(ev){ if(ev.key==='Enter'&&!ev.shiftKey){ev.preventDefault();aiInvia();} }
+function aiSuggeriti(){
+  const c=(STATE.commesse||[]).filter(x=>String(x.Stato||'aperta').toLowerCase()!=='chiusa');
+  const nome=c.length?((c[0].Nome&&c[0].Nome!==c[0].ID)?c[0].Nome:c[0].ID):'';
+  const s=['Cosa devo riordinare?'];
+  if(nome)s.push('Come sta andando la commessa '+nome+'?');
+  s.push('Quali pannelli interi ho a magazzino?');
+  s.push('Cosa e\' successo questa settimana?');
+  return s;
+}
+function aiDisegna(){
+  const box=document.getElementById('ai-msg'); if(!box)return;
+  if(!CHAT_MSG.length){
+    box.innerHTML='<div class="ai-b ai-lui">Chiedimi quello che vuoi sul magazzino: quanto materiale c\'e\', '
+     +'come sta andando una commessa, cosa manca, cosa e\' stato consumato.<br><br>Guardo i dati veri del gestionale. '
+     +'Non registro e non modifico niente: per quello ci sono i pulsanti.</div>';
+  } else {
+    box.innerHTML=CHAT_MSG.map(function(m){
+      const cl=m.ruolo==='io'?'ai-io':(m.errore?'ai-err':'ai-lui');
+      return '<div class="ai-b '+cl+'">'+aiTesto(m.testo)+'</div>';
+    }).join('');
+  }
+  if(CHAT_ATTESA)box.innerHTML+='<div class="ai-b ai-lui" style="color:var(--gray)">sto guardando...</div>';
+  const sg=document.getElementById('ai-sugg');
+  if(sg)sg.innerHTML=CHAT_MSG.length?'':aiSuggeriti().map(t=>'<button onclick="aiApri(\''+esc(t)+'\')">'+att(t)+'</button>').join('');
+  box.scrollTop=box.scrollHeight;
+}
+function aiTesto(t){
+  return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\n/g,'<br>');
+}
+function aiInvia(){
+  const inp=document.getElementById('ai-in'); if(!inp)return;
+  const d=(inp.value||'').trim(); if(!d||CHAT_ATTESA)return;
+  inp.value='';inp.style.height='auto';
+  CHAT_MSG.push({ruolo:'io',testo:d});
+  CHAT_ATTESA=true;aiDisegna();
+  aiChiedi(d).then(function(r){
+    CHAT_ATTESA=false;CHAT_MSG.push({ruolo:'ia',testo:r});aiDisegna();
+  }).catch(function(e){
+    CHAT_ATTESA=false;
+    CHAT_MSG.push({ruolo:'ia',errore:true,testo:String((e&&e.message)||e)});
+    aiDisegna();
+  });
+}
+// --- microfono nella chat ---
+function aiMic(){ CHAT_MIC_ON?aiMicStop():aiMicStart(); }
+function aiMicStart(){
+  if(!vocMicSupportato()){toast('Su questo telefono usa il microfono della tastiera','err');return;}
+  const R=window.SpeechRecognition||window.webkitSpeechRecognition;
+  try{
+    CHAT_REC=new R();
+    CHAT_REC.lang='it-IT';CHAT_REC.continuous=false;CHAT_REC.interimResults=true;
+    let base=((document.getElementById('ai-in')||{}).value||'');
+    CHAT_REC.onresult=function(ev){
+      let t='';
+      for(let i=0;i<ev.results.length;i++)t+=ev.results[i][0].transcript;
+      const inp=document.getElementById('ai-in');
+      if(inp){inp.value=(base+' '+t).trim();aiCresci(inp);}
+    };
+    CHAT_REC.onerror=function(){aiMicStop();};
+    CHAT_REC.onend=function(){aiMicStop();};
+    CHAT_REC.start();CHAT_MIC_ON=true;aiMicBtn();
+  }catch(e){CHAT_MIC_ON=false;aiMicBtn();toast('Non riesco ad accendere il microfono','err');}
+}
+function aiMicStop(){
+  CHAT_MIC_ON=false;
+  try{ if(CHAT_REC)CHAT_REC.stop(); }catch(e){}
+  aiMicBtn();
+}
+function aiMicBtn(){
+  const b=document.getElementById('ai-mic'); if(!b)return;
+  b.style.background=CHAT_MIC_ON?'var(--red)':'var(--accent-light)';
+  b.style.color=CHAT_MIC_ON?'#fff':'var(--accent)';
+  b.innerHTML=CHAT_MIC_ON?'&#9632;':'&#127908;';
+}
+// --- barra nella dashboard ---
+function aiBarra(){
+  return '<div class="card" style="margin-bottom:14px;background:linear-gradient(180deg,#fff,#faf8f4)">'
+   +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">'
+   +'<span style="font-size:20px">&#10024;</span>'
+   +'<input id="ai-dash" placeholder="Chiedi al magazzino: quante viti 4,5x30 ho? come sta la Zaza?" '
+   +'style="flex:1;min-width:120px;padding:11px 12px;font-size:14px" onkeydown="if(event.key===\'Enter\')aiDaDash()">'
+   +'<button class="ai-tondo" style="background:var(--accent-light);color:var(--accent)" onclick="aiDashMic()" title="Detta">&#127908;</button>'
+   +'<button class="btn btn-accent" onclick="aiDaDash()">Chiedi</button>'
+   +'</div></div>';
+}
+function aiDaDash(){
+  const el=document.getElementById('ai-dash'); if(!el)return;
+  const d=(el.value||'').trim(); if(!d){aiApri();return;}
+  el.value='';aiApri(d);
+}
+function aiDashMic(){
+  if(!vocMicSupportato()){aiApri();aiMicStart();return;}
+  const R=window.SpeechRecognition||window.webkitSpeechRecognition;
+  try{
+    const rec=new R(); rec.lang='it-IT'; rec.continuous=false; rec.interimResults=true;
+    rec.onresult=function(ev){
+      let t='';for(let i=0;i<ev.results.length;i++)t+=ev.results[i][0].transcript;
+      const el=document.getElementById('ai-dash'); if(el)el.value=t;
+    };
+    rec.onend=function(){const el=document.getElementById('ai-dash');if(el&&(el.value||'').trim())aiDaDash();};
+    rec.start(); toast('Parla pure');
+  }catch(e){aiApri();}
 }
 
 // ---- l'IA che legge la dettatura ----
@@ -4892,7 +5443,10 @@ function vocNorm(t){
   return x.replace(/\s+/g,' ').trim();
 }
 function vocTok(t){
+  // il punto lo tengo solo fra cifre (4.5), non dentro le abbreviazioni:
+  // "NOB.BIANCO" deve diventare due parole, se no non trova niente
   return vocNorm(t).replace(/(\d)x(\d)/g,'$1 $2')
+    .replace(/([a-z])\.+/g,'$1 ').replace(/\.+([a-z])/g,' $1')
     .split(/[^a-z0-9.]+/).filter(x=>x&&(x.length>1||/^[0-9]$/.test(x)))
     .map(x=>x.replace(/\.$/,''));
 }
