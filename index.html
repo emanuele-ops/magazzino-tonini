@@ -299,7 +299,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v76 - Atelier</div>
+  <div id="ver-badge">v78 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4541,6 +4541,7 @@ function oreTabRegistra(){
    +'<button class="btn btn-accent" onclick="openNuovaOra()">+ Ore singole</button>'
    +(admin?'<button class="btn btn-ghost" onclick="openFoglioSettimana()">Foglio settimanale</button>':'')
    +(admin?'<button class="btn btn-ghost" onclick="openFoglioTutti()">Foglio di tutta la squadra</button>':'')
+   +(admin?'<button class="btn btn-ghost" onclick="openImportaOre()">Importa da Excel</button>':'')
    +'</div><div style="font-size:12px;color:var(--gray);line-height:1.6">'
    +'<strong>Ore singole</strong>: una registrazione per volta, quella di tutti i giorni.'
    +(admin?'<br><strong>Foglio settimanale</strong>: la settimana intera di una persona in una schermata sola, come il cartellino.':'')
@@ -4754,6 +4755,8 @@ function oreTabRegistro(){
    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
    +'<button class="btn btn-accent" onclick="stampaRegistroOre()">Stampa PDF</button>'
    +'<button class="btn btn-green" onclick="csvRegistroOre()">Esporta CSV</button>'
+   +'<button class="btn btn-green" onclick="csvDettaglioGiorni()">Dettaglio giorno per giorno</button>'
+   +'<button class="btn btn-green" onclick="csvPersoneCommesse()">Persone x commesse</button>'
    +'</div></div>'
    +kpiOre(t,admin)
    +'<div style="font-size:11.5px;color:var(--gray)">Il PDF e il CSV contengono <strong>esattamente queste righe</strong>, con i filtri che hai messo.</div>'
@@ -4840,18 +4843,27 @@ function stampaRegistroOre(){
 }
 function csvRegistroOre(){
   const list=oreRegLista();
-  const righe=[['Data','Persona','Tipo','Commessa','Nome commessa','Descrizione','Destinazione',
+  const righe=[['Data','Anno','Mese','Nr settimana','Giorno','Persona','Mansione','Tipo ora',
+    'Commessa','Nome commessa','Cliente','Stato commessa','Cliente/Interna',
+    'Descrizione','Destinazione',
     'Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
   list.forEach(function(r){
-    righe.push([dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),r.Commessa||'',nomeCommessa(r.Commessa),
+    const d=String(r.Data||'').slice(0,10);
+    const c=(STATE.commesse||[]).filter(x=>x.ID===r.Commessa)[0]||{};
+    righe.push([dataIt(r.Data),d.slice(0,4),d.slice(5,7),nrSettimana(d),giornoSettimana(d),
+      r.Persona||'',mansioneDiPersona(r.PersonaID),tipoOraLabel(r.Tipo),
+      r.Commessa||'',nomeCommessa(r.Commessa),c.Cliente||'',
+      r.Commessa?statoCommLabel(c.Stato):'',
+      r.Commessa?((c.Tipo||tipoDaCodice(r.Commessa))==='interna'?'interna':'cliente'):'',
       r.Descrizione||'',r.Destinazione||'',csvNum(r.Ore,2),csvNum(r.Km,1),csvNum(r.CostoOrario,2),
       csvNum(r.Costo,2),csvNum(r.Rimborso,2),csvNum((+r.Costo||0)+(+r.Rimborso||0),2),
       r.Note||'',r.InseritoDa||'']);
   });
   const t=oreTot(list);
   righe.push([]);
-  righe.push(['TOTALE','','','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',
-    csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
+  const vuote=n=>{const a=[];for(let i=0;i<n;i++)a.push('');return a;};
+  righe.push(['TOTALE'].concat(vuote(14),[csvNum(t.ore,2),csvNum(t.km,1),'',
+    csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']));
   righe.push([]);
   righe.push(['Filtri usati',oreRegDescrizione()]);
   scaricaCsv('registro-ore_'+oggiFile()+'.csv',righe);
@@ -4862,6 +4874,154 @@ function csvTutteLeOre(){
   csvRegistroOre();
   ORE_Q=salva[0];ORE_PERS=salva[1];ORE_COMM=salva[2];ORE_TIPO=salva[3];ORE_DA=salva[4];ORE_A=salva[5];
 }
+// Il numero della settimana ISO (quella che usano i fornitori: "settimana 37")
+function nrSettimana(iso){
+  if(!iso||iso.length<10)return '';
+  const d=new Date(iso+'T12:00:00');
+  const g=(d.getDay()+6)%7;
+  d.setDate(d.getDate()-g+3);              // il giovedi' della stessa settimana
+  const primo=new Date(d.getFullYear(),0,4);
+  const gp=(primo.getDay()+6)%7;
+  primo.setDate(primo.getDate()-gp+3);
+  return String(1+Math.round((d-primo)/(7*24*3600*1000)));
+}
+function giornoSettimana(iso){
+  if(!iso||iso.length<10)return '';
+  return GIORNI_S[(new Date(iso+'T12:00:00').getDay()+6)%7];
+}
+function mansioneDiPersona(id){
+  const p=(STATE.personale||[]).filter(x=>x.ID===id)[0];
+  return p?(p.Mansione||''):'';
+}
+// tutti i giorni fra due date, estremi compresi
+function giorniFra(da,a){
+  const out=[];
+  if(!da||!a||da>a)return out;
+  let g=da, guardia=0;
+  while(g<=a&&guardia++<1500){ out.push(g); g=piuGiorni(g,1); }
+  return out;
+}
+
+// ------------------------------------------------------------------
+//  DETTAGLIO GIORNO PER GIORNO
+//  Righe: persona + commessa. Colonne: i giorni, uno per uno.
+//  Il periodo e' quello scelto con i filtri del registro (Dal / Al).
+// ------------------------------------------------------------------
+function csvDettaglioGiorni(soloOre){
+  const list=oreRegLista();
+  if(!list.length){toast('Nessuna ora nel periodo scelto','err');return;}
+  // il periodo: quello dei filtri, o quello che copre le righe trovate
+  let da=ORE_DA,a=ORE_A;
+  if(!da||!a){
+    const date=list.map(r=>String(r.Data||'').slice(0,10)).filter(x=>x.length===10).sort();
+    da=da||date[0]; a=a||date[date.length-1];
+  }
+  const giorni=giorniFra(da,a);
+  if(!giorni.length){toast('Periodo non valido','err');return;}
+  if(giorni.length>400){toast('Periodo troppo lungo: stringi le date','err');return;}
+
+  // accumulo: chiave = persona + commessa
+  const acc={};
+  list.forEach(function(r){
+    const g=String(r.Data||'').slice(0,10);
+    const comm=String(r.Commessa||'').trim();
+    const k=(r.PersonaID||'?')+'|'+comm+'|'+(r.Tipo||'');
+    if(!acc[k])acc[k]={persona:r.Persona||'',personaId:r.PersonaID||'',commessa:comm,
+      tipo:r.Tipo||'',ore:{},km:{},costo:0,rimborso:0,tot:0};
+    acc[k].ore[g]=(acc[k].ore[g]||0)+(+r.Ore||0);
+    acc[k].km[g]=(acc[k].km[g]||0)+(+r.Km||0);
+    acc[k].costo+=(+r.Costo||0);
+    acc[k].rimborso+=(+r.Rimborso||0);
+    acc[k].tot+=(+r.Ore||0);
+  });
+
+  const testa=['Persona','Mansione','Commessa','Nome commessa','Cliente','Stato commessa',
+    'Cliente/Interna','Tipo ora'];
+  giorni.forEach(function(g){ testa.push(dataIt(g).slice(0,5)+' '+giornoSettimana(g)); });
+  testa.push('Totale ore'); testa.push('Km'); testa.push('Costo EUR');
+  const righe=[testa];
+
+  const chiavi=Object.keys(acc).sort(function(x,y){
+    const A=acc[x],B=acc[y];
+    return String(A.persona).localeCompare(String(B.persona))
+      || String(A.commessa).localeCompare(String(B.commessa))
+      || String(A.tipo).localeCompare(String(B.tipo));
+  });
+  const totGiorno={}; let totOre=0,totKm=0,totCosto=0;
+  chiavi.forEach(function(k){
+    const d=acc[k];
+    const c=(STATE.commesse||[]).filter(x=>x.ID===d.commessa)[0]||{};
+    const r=[d.persona,mansioneDiPersona(d.personaId),d.commessa||'(senza commessa)',
+      nomeCommessa(d.commessa),c.Cliente||'',
+      d.commessa?statoCommLabel(c.Stato):'',
+      d.commessa?((c.Tipo||tipoDaCodice(d.commessa))==='interna'?'interna':'cliente'):'',
+      tipoOraLabel(d.tipo)];
+    let km=0;
+    giorni.forEach(function(g){
+      const h=d.ore[g]||0;
+      totGiorno[g]=(totGiorno[g]||0)+h;
+      km+=(d.km[g]||0);
+      r.push(h?csvNum(h,2):'');
+    });
+    r.push(csvNum(d.tot,2)); r.push(km?csvNum(km,1):''); r.push(csvNum(d.costo+d.rimborso,2));
+    righe.push(r);
+    totOre+=d.tot; totKm+=km; totCosto+=(d.costo+d.rimborso);
+  });
+
+  // riga dei totali per giorno
+  const tot=['TOTALE DEL GIORNO','','','','','','',''];
+  giorni.forEach(function(g){ tot.push(totGiorno[g]?csvNum(totGiorno[g],2):''); });
+  tot.push(csvNum(totOre,2)); tot.push(csvNum(totKm,1)); tot.push(csvNum(totCosto,2));
+  righe.push([]); righe.push(tot);
+  righe.push([]);
+  righe.push(['Periodo',dataIt(da)+' - '+dataIt(a)]);
+  righe.push(['Filtri usati',oreRegDescrizione()]);
+  scaricaCsv('ore-dettaglio-giorni_'+da+'_'+a+'.csv',righe);
+}
+
+// ------------------------------------------------------------------
+//  RIEPILOGO PERSONA x COMMESSA (senza i giorni)
+//  Le stesse ore ma sommate: quanto ha messo ognuno su ogni commessa.
+// ------------------------------------------------------------------
+function csvPersoneCommesse(){
+  const list=oreRegLista();
+  if(!list.length){toast('Nessuna ora nel periodo scelto','err');return;}
+  const acc={},persone={},commesse={};
+  list.forEach(function(r){
+    const comm=String(r.Commessa||'').trim()||'(senza commessa)';
+    const p=r.Persona||'?';
+    persone[p]=1; commesse[comm]=1;
+    const k=p+'|'+comm;
+    acc[k]=(acc[k]||0)+(+r.Ore||0);
+  });
+  const listaP=Object.keys(persone).sort();
+  const listaC=Object.keys(commesse).sort();
+  const testa=['Commessa','Nome commessa','Cliente','Stato','Cliente/Interna'].concat(listaP,['Totale']);
+  const righe=[testa];
+  const totP={}; let gran=0;
+  listaC.forEach(function(comm){
+    const c=(STATE.commesse||[]).filter(x=>x.ID===comm)[0]||{};
+    const vero=comm!=='(senza commessa)';
+    const r=[comm,vero?nomeCommessa(comm):'',c.Cliente||'',
+      vero?statoCommLabel(c.Stato):'',
+      vero?((c.Tipo||tipoDaCodice(comm))==='interna'?'interna':'cliente'):''];
+    let tot=0;
+    listaP.forEach(function(p){
+      const h=acc[p+'|'+comm]||0;
+      tot+=h; totP[p]=(totP[p]||0)+h;
+      r.push(h?csvNum(h,2):'');
+    });
+    r.push(csvNum(tot,2)); gran+=tot;
+    righe.push(r);
+  });
+  const tot=['TOTALE','','','',''];
+  listaP.forEach(p=>tot.push(csvNum(totP[p]||0,2)));
+  tot.push(csvNum(gran,2));
+  righe.push([]); righe.push(tot);
+  righe.push([]); righe.push(['Filtri usati',oreRegDescrizione()]);
+  scaricaCsv('ore-persone-per-commessa_'+oggiFile()+'.csv',righe);
+}
+
 function csvPersonale(){
   const righe=[['Nome','Mansione','Email','Costo orario EUR','Rimborso EUR/km','Ore al giorno','In forza','Ore registrate','Km','Costo totale EUR','Note']];
   (STATE.personale||[]).forEach(function(p){
@@ -4926,7 +5086,8 @@ function oreTabMese(){
    +'<button class="btn btn-ghost" onclick="oreMeseImposta(\''+meseSposta(m,-1)+'\')">&larr; mese prima</button>'
    +'<input type="month" value="'+att(m)+'" onchange="oreMeseImposta(this.value)" style="padding:8px">'
    +'<button class="btn btn-ghost" onclick="oreMeseImposta(\''+meseSposta(m,1)+'\')">mese dopo &rarr;</button>'
-   +'<button class="btn btn-ghost" onclick="csvTabellaMese()">Scarica in CSV</button>'
+   +'<button class="btn btn-ghost" onclick="csvTabellaMese()">Scarica la tabella (CSV)</button>'
+   +'<button class="btn btn-ghost" onclick="csvDettaglioMese()">Dettaglio del mese: persone, commesse, giorni</button>'
    +'<span style="align-self:center;font-size:13px;color:var(--gray)">'+meseLabel(m)+'</span>'
    +'</div></div>';
 
@@ -5005,6 +5166,16 @@ function meseSposta(m,n){
   while(mm<1){mm+=12;y--;}
   while(mm>12){mm-=12;y++;}
   return y+'-'+String(mm).padStart(2,'0');
+}
+// Il dettaglio del mese che stai guardando: imposta le date e chiama
+// la stessa funzione del registro, cosi' il file e' identico.
+function csvDettaglioMese(){
+  const m=ORE_MESE||meseCorrente();
+  const salva=[ORE_Q,ORE_PERS,ORE_COMM,ORE_TIPO,ORE_DA,ORE_A];
+  ORE_Q='';ORE_PERS='';ORE_COMM='';ORE_TIPO='';
+  ORE_DA=m+'-01'; ORE_A=m+'-'+String(giorniDelMese(m)).padStart(2,'0');
+  try{ csvDettaglioGiorni(); }
+  finally{ ORE_Q=salva[0];ORE_PERS=salva[1];ORE_COMM=salva[2];ORE_TIPO=salva[3];ORE_DA=salva[4];ORE_A=salva[5]; }
 }
 function csvTabellaMese(){
   const m=ORE_MESE||meseCorrente(), ng=giorniDelMese(m);
@@ -5421,6 +5592,222 @@ function fsSalva(){
     if(!r||!r.ok){showErr('fs-err',(r&&r.err)||'Errore');return;}
     call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(r.n+' registrazioni salvate');renderPage(STATE.pagina);});
   }).catch(e=>showErr('fs-err',String((e&&e.message)||e)));
+}
+
+// ==================================================================
+//  IMPORTARE LE ORE DA UN FOGLIO EXCEL
+//
+//  Il foglio tipico e' fatto cosi':
+//     (vuoto)        10/12/25  15/12/25  16/12/25 ...
+//     CUCINA D02        6         3
+//     CAMERA LETTO      -         3         4
+//  Prima riga: le date. Prima colonna: la lavorazione (o la persona).
+//  Dentro: le ore.
+//  Si copia il pezzo di foglio da Excel e si incolla qui: Excel mette
+//  un tab fra una casella e l'altra, ed e' quello che leggiamo.
+// ==================================================================
+var IMP_MODO='descrizione';   // descrizione | persona
+
+function openImportaOre(){
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo);
+  if(!persone.length){toast('Prima devi inserire le persone','err');return;}
+  const optP=persone.map(p=>'<option value="'+att(p.ID)+'">'+p.Nome+'</option>').join('');
+  const optC='<option value="">- scegli la commessa -</option>'
+    +(STATE.commesse||[]).filter(c=>normStatoComm(c.Stato)!=='chiusa')
+     .slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
+     .map(c=>'<option value="'+att(c.ID)+'">'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('');
+  const optT=TIPI_ORE.map(t=>'<option value="'+t[0]+'"'+(t[0]==='lavoro'?' selected':'')+'>'+t[1]+'</option>').join('');
+  IMP_MODO='descrizione';
+  openModal('<div class="modal" style="width:min(1000px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Importa le ore da Excel</h2>'
+   +'<div class="info-box" style="margin-bottom:10px">'
+   +'<strong>Come si fa.</strong> In Excel seleziona il rettangolo che comprende '
+   +'<strong>la riga delle date</strong> e <strong>la colonna dei nomi</strong>, copia (Ctrl+C), '
+   +'e incolla qui sotto (Ctrl+V). La casella in alto a sinistra puo&#39; essere vuota, non importa.'
+   +'<br><br>Le celle vuote vengono saltate. Dopo l&#39;importazione le ore sono righe normali: '
+   +'le trovi in <em>Registro e ricerca</em> e le modifichi o le cancelli una per una.</div>'
+   +'<div class="form-group"><label>Nella prima colonna che cosa c&#39;e&#39;?</label>'
+   +'<select id="io-modo" onchange="impModo(this.value)">'
+   +'<option value="descrizione">Le lavorazioni o gli ambienti (es. CUCINA D02) &mdash; tutte le ore sono di una persona sola</option>'
+   +'<option value="persona">I nomi delle persone &mdash; una riga per ognuno</option>'
+   +'</select></div>'
+   +'<div class="form-row">'
+   +'<div class="form-group" id="io-box-pers"><label>Di chi sono queste ore *</label><select id="io-pers" onchange="impPreview()">'+optP+'</select></div>'
+   +'<div class="form-group"><label>Commessa *</label><select id="io-comm" onchange="impPreview()">'+optC+'</select></div>'
+   +'<div class="form-group"><label>Tipo di ora</label><select id="io-tipo" onchange="impPreview()">'+optT+'</select></div>'
+   +'</div>'
+   +'<div class="form-group"><label>Incolla qui il pezzo di foglio</label>'
+   +'<textarea id="io-txt" rows="9" style="width:100%;padding:9px;font-family:monospace;font-size:12px" '
+   +'onkeydown="tastoTab(event)" oninput="impPreview()" '
+   +'placeholder="\t10/12/2025\t15/12/2025\t16/12/2025&#10;CUCINA D02\t6\t3&#10;CAMERA LETTO D07\t\t3\t4"></textarea></div>'
+   +'<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px;cursor:pointer">'
+   +'<input type="checkbox" id="io-futuro" onchange="impPreview()" style="width:17px;height:17px;accent-color:var(--accent)">'
+   +'Le date che cadono nel futuro portale all&#39;anno prima (capita di sbagliare l&#39;anno scrivendo a dicembre)</label>'
+   +'<div id="io-prev"></div><div id="io-err"></div>'
+   +'<button class="btn-primary" id="io-btn" onclick="impSalva(this)">Importa le ore</button></div>');
+  impPreview();
+}
+function impModo(v){
+  IMP_MODO=v;
+  const b=document.getElementById('io-box-pers');
+  if(b)b.style.display=(v==='persona')?'none':'';
+  impPreview();
+}
+
+// Legge una data scritta in tutti i modi in cui Excel la puo' sputare fuori.
+function impData(t){
+  let x=String(t==null?'':t).trim();
+  if(!x)return '';
+  // numero seriale di Excel (1 = 1 gennaio 1900, col famoso buco del 1900)
+  if(/^\d{5}$/.test(x)){
+    const d=new Date(Date.UTC(1899,11,30)+(+x)*86400000);
+    return d.toISOString().slice(0,10);
+  }
+  let m=x.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m)return m[1]+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[3]).padStart(2,'0');
+  m=x.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(m){
+    let a=+m[3]; if(a<100)a+=(a>=70?1900:2000);
+    return a+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');
+  }
+  const MESI={gen:1,feb:2,mar:3,apr:4,mag:5,giu:6,lug:7,ago:8,set:9,ott:10,nov:11,dic:12,
+              jan:1,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,dec:12};
+  m=x.toLowerCase().match(/^(\d{1,2})[\s\-]([a-z]{3})[a-z]*[\s\-](\d{2,4})/);
+  if(m&&MESI[m[2]]){
+    let a=+m[3]; if(a<100)a+=(a>=70?1900:2000);
+    return a+'-'+String(MESI[m[2]]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');
+  }
+  return '';
+}
+function impNumero(t){
+  let x=String(t==null?'':t).trim();
+  if(!x||x==='-')return 0;
+  x=x.replace(/\s/g,'');
+  // Se c'e' la virgola, allora i punti sono le migliaia: 1.234,5 -> 1234.5
+  // Se la virgola non c'e', il punto e' il decimale: 1.5 resta 1.5
+  if(x.indexOf(',')>=0) x=x.replace(/\./g,'').replace(',','.');
+  const n=parseFloat(x);
+  return isNaN(n)?0:n;
+}
+// dall'incollato tira fuori: date, righe, celle
+function impParse(testo){
+  const linee=String(testo||'').split(/\r?\n/).filter(l=>l.trim()!=='');
+  if(linee.length<2)return null;
+  const spezza=l=>l.split(/\t|;/);            // Excel usa il tab, il CSV il ;
+  const testa=spezza(linee[0]);
+  const date=[];
+  for(let j=1;j<testa.length;j++)date.push(impData(testa[j]));
+  const righe=[];
+  for(let i=1;i<linee.length;i++){
+    const c=spezza(linee[i]);
+    const nome=String(c[0]||'').trim();
+    if(!nome)continue;
+    const celle=[];
+    for(let j=1;j<=date.length;j++)celle.push(impNumero(c[j]));
+    if(celle.filter(x=>x>0).length===0)continue;    // riga tutta vuota: la salto
+    righe.push({nome:nome,celle:celle});
+  }
+  return {date:date,righe:righe};
+}
+// trova la persona a partire dal nome scritto nel foglio
+function impTrovaPersona(nome){
+  const n=vocNorm(nome);
+  const pp=(STATE.personale||[]);
+  let x=pp.filter(p=>vocNorm(p.Nome)===n)[0]; if(x)return x;
+  // per nome di battesimo o cognome
+  const tok=n.split(' ').filter(Boolean);
+  x=pp.filter(function(p){
+    const pt=vocNorm(p.Nome).split(' ').filter(Boolean);
+    return tok.some(t=>pt.some(q=>vocSimile(t,q)));
+  })[0];
+  return x||null;
+}
+// costruisce le righe da salvare + i messaggi da mostrare
+function impCalcola(){
+  const testo=(document.getElementById('io-txt')||{}).value||'';
+  const dati=impParse(testo);
+  if(!dati)return {err:'Incolla almeno la riga delle date e una riga di ore.'};
+  const futuroIndietro=!!(document.getElementById('io-futuro')||{}).checked;
+  const oggi=oggiISO();
+  const comm=(document.getElementById('io-comm')||{}).value||'';
+  const tipo=(document.getElementById('io-tipo')||{}).value||'lavoro';
+  const persUnica=(document.getElementById('io-pers')||{}).value||'';
+
+  const date=dati.date.map(function(d){
+    if(d&&futuroIndietro&&d>oggi){
+      const a=(+d.slice(0,4))-1;
+      return a+d.slice(4);
+    }
+    return d;
+  });
+  const senzaData=[]; date.forEach(function(d,j){ if(!d)senzaData.push(j+1); });
+  const future=date.filter(d=>d&&d>oggi);
+  const ignoti=[];
+  const righe=[];
+  dati.righe.forEach(function(r){
+    let pid=persUnica, desc=r.nome;
+    if(IMP_MODO==='persona'){
+      const p=impTrovaPersona(r.nome);
+      if(!p){ ignoti.push(r.nome); return; }
+      pid=p.ID; desc='';
+    }
+    r.celle.forEach(function(h,j){
+      if(!(h>0))return;
+      if(!date[j])return;
+      righe.push({Data:date[j],PersonaID:pid,Commessa:tipoOraCommessa(tipo)?comm:'',
+        Tipo:tipo,Ore:h,Km:0,Destinazione:'',Descrizione:desc});
+    });
+  });
+  const ore=righe.reduce((s,r)=>s+r.Ore,0);
+  const valide=date.filter(Boolean).sort();
+  return {righe:righe,ore:ore,nDate:valide.length,da:valide[0]||'',a:valide[valide.length-1]||'',
+    senzaData:senzaData,future:future,ignoti:ignoti,comm:comm,tipo:tipo,
+    nRighe:dati.righe.length};
+}
+function impPreview(){
+  const box=document.getElementById('io-prev'); if(!box)return;
+  const c=impCalcola();
+  if(c.err){box.innerHTML='<div style="color:var(--gray);font-size:13px">'+c.err+'</div>';return;}
+  let h='<div class="card" style="margin:0 0 10px 0">'
+   +'<div style="font-size:13.5px;line-height:1.9">'
+   +'<strong>'+c.righe.length+'</strong> registrazioni da creare &middot; <strong>'+nOre(c.ore)+' ore</strong> in totale'
+   +(c.nDate?('<br>'+c.nDate+' giornate, dal <strong>'+dataIt(c.da)+'</strong> al <strong>'+dataIt(c.a)+'</strong>'):'')
+   +'<br>'+c.nRighe+' righe lette dal foglio'
+   +'</div>';
+  const av=[];
+  if(c.senzaData.length)av.push('<strong>'+c.senzaData.length+' colonne senza una data leggibile</strong> (la '
+    +c.senzaData.slice(0,8).join(', la ')+'): quelle ore non vengono importate. Controlla che la prima riga siano davvero le date.');
+  if(c.future.length)av.push('<strong>'+c.future.length+' date sono nel futuro</strong> (la piu&#39; lontana e&#39; il '
+    +dataIt(c.future.slice().sort().pop())+'). Di solito vuol dire che in Excel e&#39; stato scritto l&#39;anno sbagliato: '
+    +'se e&#39; cosi&#39;, spunta la casella qui sopra.');
+  if(c.ignoti.length)av.push('<strong>Non riconosco queste persone:</strong> '+c.ignoti.join(', ')
+    +'. Le loro ore vengono saltate. Controlla come sono scritte in <em>Persone</em>.');
+  if(tipoOraCommessa(c.tipo)&&!c.comm)av.push('<strong>Scegli la commessa.</strong>');
+  if(av.length)h+='<div class="alert alert-red" style="margin:10px 0 0 0;line-height:1.7">'+av.join('<br><br>')+'</div>';
+  // anteprima delle prime righe
+  if(c.righe.length){
+    h+='<div style="margin-top:10px;font-size:12px;font-family:monospace;line-height:1.7;max-height:150px;overflow:auto">'
+     +c.righe.slice(0,12).map(function(r){
+        const p=(STATE.personale||[]).filter(x=>x.ID===r.PersonaID)[0];
+        return dataIt(r.Data)+' &nbsp; '+att(p?p.Nome:'?')+' &nbsp; '+nOre(r.Ore)+' h'
+          +(r.Commessa?(' &nbsp; '+att(r.Commessa)):'')+(r.Descrizione?(' &nbsp; '+att(r.Descrizione)):'');
+       }).join('<br>')
+     +(c.righe.length>12?('<br>... e altre '+(c.righe.length-12)):'')+'</div>';
+  }
+  h+='</div>';
+  box.innerHTML=h;
+}
+function impSalva(b){
+  const c=impCalcola();
+  if(c.err){showErr('io-err',c.err);return;}
+  if(tipoOraCommessa(c.tipo)&&!c.comm){showErr('io-err','Scegli la commessa.');return;}
+  if(!c.righe.length){showErr('io-err','Non c\'e\' niente da importare.');return;}
+  if(b){b.disabled=true;b.textContent='Importo '+c.righe.length+' righe...';}
+  call('salvaOreBulk',{righe:c.righe}).then(function(r){
+    if(!r||!r.ok){showErr('io-err',(r&&r.err)||'Errore');if(b){b.disabled=false;b.textContent='Importa le ore';}return;}
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();
+      toast(r.n+' registrazioni importate');renderPage(STATE.pagina);});
+  }).catch(function(e){showErr('io-err',String((e&&e.message)||e));if(b){b.disabled=false;b.textContent='Importa le ore';}});
 }
 
 // ---------- modale: persona ----------
