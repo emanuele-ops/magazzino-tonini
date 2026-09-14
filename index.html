@@ -78,6 +78,7 @@
 
   .alert{padding:14px 18px;border-radius:var(--radius);margin-bottom:20px;font-size:13px}
   .alert-red{background:var(--red-light);border:1px solid #e6c4b8;color:var(--red)}
+  .alert-green{background:var(--green-light);border:1px solid #c4ddc0;color:var(--green)}
   .alert-amber{background:var(--amber-light);border:1px solid #e6cf9f;color:#7c5a16}
   .alert-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;cursor:pointer}
   .alert-row+.alert-row{border-top:1px solid rgba(0,0,0,.06)}
@@ -298,7 +299,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v74 - Atelier</div>
+  <div id="ver-badge">v76 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -336,6 +337,53 @@ window.onerror = function(msg, src, line, col){
 
 <script>
 let STATE = { articoli:[], pannelli:[], massicci:[], movimenti:[], commesse:[], fornitori:[], fabbisogni:[], modelli:[], immagini:[], ordini:[], riserve:[], voci:[], personale:[], ore:[], dettature:[], utente:{}, pagina:"dashboard" };
+// ---- stati, anno e tipo delle commesse ----
+// tre stati: offerta (solo preventivo), in lavorazione, chiusa.
+// Le vecchie "aperta" valgono come "in lavorazione".
+const STATI_COMM=[['offerta','In offerta','var(--amber)'],
+                  ['in_lavorazione','In lavorazione','var(--green)'],
+                  ['chiusa','Chiusa','var(--gray)']];
+function normStatoComm(s){
+  const x=String(s||'').toLowerCase().trim();
+  if(x==='offerta')return 'offerta';
+  if(x==='chiusa'||x==='chiuso')return 'chiusa';
+  return 'in_lavorazione';
+}
+function statoCommLabel(s){
+  const x=STATI_COMM.filter(t=>t[0]===normStatoComm(s))[0];
+  return x?x[1]:s;
+}
+function statoCommColore(s){
+  const x=STATI_COMM.filter(t=>t[0]===normStatoComm(s))[0];
+  return x?x[2]:'var(--gray)';
+}
+function badgeStatoComm(s){
+  const k=normStatoComm(s);
+  const cl=k==='offerta'?'badge-amber':(k==='chiusa'?'badge-gray':'badge-green');
+  return '<span class="badge '+cl+'">'+statoCommLabel(k)+'</span>';
+}
+// l'anno lo leggo dalle quattro cifre del codice: C2026.008 -> 2026
+function annoDaCodice(id){
+  const m=String(id||'').match(/(\d{4})/);
+  return m?m[1]:'';
+}
+// la I iniziale vuol dire progetto interno, finanziato con l'utile
+function tipoDaCodice(id){
+  return /^i/i.test(String(id||'').trim())?'interna':'cliente';
+}
+function commessaInterna(id){
+  const c=(STATE.commesse||[]).filter(x=>x.ID===id)[0];
+  return c?((c.Tipo||tipoDaCodice(id))==='interna'):tipoDaCodice(id)==='interna';
+}
+function statoDiCommessa(id){
+  const c=(STATE.commesse||[]).filter(x=>x.ID===id)[0];
+  return c?normStatoComm(c.Stato):'';
+}
+function anniCommesse(){
+  const s={};
+  (STATE.commesse||[]).forEach(function(c){const a=c.Anno||annoDaCodice(c.ID);if(a)s[a]=1;});
+  return Object.keys(s).sort().reverse();
+}
 const CAT_VOCI = ["Conto lavorazione","Forniture di terzi","Componenti","Trasporti","Manutenzioni","Pasti e trasferte","Noleggi","Servizi e consulenze","Altro"];
 let CURRENT_DETAIL=null;
 let QR_TARGET = null, APP_URL = "";
@@ -549,6 +597,25 @@ async function sbGet(table, params) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+// Legge una tabella INTERA, a blocchi di mille righe.
+// L'ordine va dato per forza (di solito la chiave), se no le pagine
+// possono tornare mescolate e qualche riga si perde per strada.
+async function sbGetTutto(table, ordine, params) {
+  const PASSO = 1000;
+  let out = [], da = 0;
+  for (;;) {
+    let url = SB_URL + "/rest/v1/" + table + "?" + (params || "select=*");
+    if (ordine) url += "&order=" + ordine;
+    const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY,
+      Range: da + "-" + (da + PASSO - 1), "Range-Unit": "items" } });
+    if (!r.ok) throw new Error(await r.text());
+    const blocco = await r.json();
+    out = out.concat(blocco);
+    if (!blocco.length || blocco.length < PASSO) return out;
+    da += PASSO;
+    if (da > 500000) return out;   // paracadute
+  }
+}
 async function sbPost(table, body) {
   const r = await fetch(SB_URL + "/rest/v1/" + table, {
     method: "POST",
@@ -596,7 +663,7 @@ async function call(fn, args) {
   try {
     // ---- LETTURA ----
     if (fn === "getArticoli") {
-      const rows = await sbGet("articoli");
+      const rows = await sbGetTutto("articoli", "id.asc");
       return rows.map(r => ({
         ID: r.id, Nome: r.nome, Categoria: r.categoria, UnitaMisura: r.unita_misura,
         Stock: r.stock, SogliaRiordino: r.soglia_riordino, TipoRiordino: r.tipo_riordino,
@@ -605,7 +672,7 @@ async function call(fn, args) {
       }));
     }
     if (fn === "getPannelli") {
-      const rows = await sbGet("pannelli");
+      const rows = await sbGetTutto("pannelli", "id.asc");
       return rows.map(r => ({
         ID: r.id, ArticoloID: r.articolo_id, Larghezza_mm: r.larghezza_mm, Altezza_mm: r.altezza_mm,
         Residuale_pct: r.residuale_pct, M2_originale: r.m2_originale, M2_residuo: r.m2_residuo,
@@ -613,7 +680,7 @@ async function call(fn, args) {
       }));
     }
     if (fn === "getMassicci") {
-      const rows = await sbGet("massicci");
+      const rows = await sbGetTutto("massicci", "id.asc");
       return rows.map(r => ({
         ID: r.id, ArticoloID: r.articolo_id, Lunghezza_mm: r.lunghezza_mm, Larghezza_mm: r.larghezza_mm,
         Spessore_mm: r.spessore_mm, M3_originale: r.m3_originale, M3_residuo: r.m3_residuo,
@@ -621,7 +688,7 @@ async function call(fn, args) {
       }));
     }
     if (fn === "getMovimenti") {
-      const rows = await sbGet("movimenti", "select=*&order=data.asc");
+      const rows = await sbGetTutto("movimenti", "data.asc,id.asc");
       return rows.map(r => ({
         ID: r.id, Data: r.data, Utente: r.utente, ArticoloID: r.articolo_id, NomeArticolo: r.nome_articolo,
         Tipo: r.tipo, Quantita: r.quantita, UnitaMisura: r.unita_misura, Commessa: r.commessa,
@@ -629,8 +696,10 @@ async function call(fn, args) {
       }));
     }
     if (fn === "getCommesse") {
-      const rows = await sbGet("commesse");
-      return rows.map(r => ({ ID: r.id, Nome: r.nome, Cliente: r.cliente, DataApertura: r.data_apertura, Stato: r.stato, Note: r.note }));
+      const rows = await sbGetTutto("commesse", "id.asc");
+      return rows.map(r => ({ ID: r.id, Nome: r.nome, Cliente: r.cliente, DataApertura: r.data_apertura,
+        Stato: normStatoComm(r.stato), Anno: r.anno || annoDaCodice(r.id), Tipo: r.tipo || tipoDaCodice(r.id),
+        Note: r.note }));
     }
     if (fn === "getFornitori") {
       const rows = await sbGet("fornitori");
@@ -648,7 +717,7 @@ async function call(fn, args) {
       return { autorizzato: "__login__" };
     }
     if (fn === "getFabbisogno") {
-      const rows = await sbGet("fabbisogni");
+      const rows = await sbGetTutto("fabbisogni", "id.asc");
       return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Tipo: r.tipo, ArticoloID: r.articolo_id, Descrizione: r.descrizione, NumPezzi: r.num_pezzi, Dim1: r.dim1, Dim2: r.dim2, Dim3: r.dim3, Quantita: r.quantita, UnitaMisura: r.unita_misura, Fornitore: r.fornitore, Stato: r.stato, DataRichiesta: r.data_richiesta, Note: r.note }));
     }
     if (fn === "getModelli") {
@@ -665,7 +734,7 @@ async function call(fn, args) {
     }
     if (fn === "getWebAppUrl") { return window.location.href; }
     if (fn === "getRiserve") {
-      const rows = await sbGet("riserve");
+      const rows = await sbGetTutto("riserve", "articolo_id.asc,commessa.asc");
       return rows.map(r => ({ ArticoloID: r.articolo_id, Commessa: r.commessa, Quantita: parseFloat(r.quantita) || 0 }));
     }
     if (fn === "getRettifiche") {
@@ -673,7 +742,7 @@ async function call(fn, args) {
       return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Voce: r.voce, Valore: r.valore, Note: r.note, Data: r.data }));
     }
     if (fn === "getVoci") {
-      const rows = await sbGet("voci_commessa", "select=*&order=data.desc");
+      const rows = await sbGetTutto("voci_commessa", "data.desc,id.asc");
       return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Data: r.data, Categoria: r.categoria,
         Descrizione: r.descrizione, Fornitore: r.fornitore || "", Quantita: r.quantita,
         Unita: r.unita || "", Importo: r.importo, NrFattura: r.nr_fattura || "",
@@ -730,7 +799,7 @@ async function call(fn, args) {
       return { ok: true };
     }
     if (fn === "getOre") {
-      const rows = await sbGet("ore", "select=*&order=data.desc");
+      const rows = await sbGetTutto("ore", "data.desc,id.asc");
       return rows.map(r => ({ ID: r.id, Data: r.data, PersonaID: r.persona_id, Persona: r.persona || "",
         Commessa: r.commessa || "", Tipo: r.tipo || "lavoro", Ore: +r.ore || 0, Km: +r.km || 0,
         Destinazione: r.destinazione || "", Descrizione: r.descrizione || "",
@@ -773,8 +842,17 @@ async function call(fn, args) {
       return { ok: true };
     }
     // ============ DETTATURE VOCALI ============
+    if (fn === "getUtentiElenco") {
+      const rows = await sbGet("utenti", "select=email,nome,ruolo,attivo");
+      return rows.map(u => ({ Email: u.email, Nome: u.nome || "", Ruolo: u.ruolo || "operator",
+        Attivo: u.attivo !== false }));
+    }
+    if (fn === "getConfig") {
+      const rows = await sbGet("config", "select=*");
+      return rows.map(c => ({ Chiave: c.chiave, Valore: c.valore || "" }));
+    }
     if (fn === "getDettature") {
-      const rows = await sbGet("dettature", "select=*&order=data.desc&limit=400");
+      const rows = await sbGetTutto("dettature", "data.desc,id.asc");
       return rows.map(r => ({ ID: r.id, Data: r.data, Utente: r.utente || "", Testo: r.testo || "",
         Tipo: r.tipo || "materiale", Stato: r.stato || "da_confermare",
         ArticoloID: r.articolo_id || "", Articolo: r.articolo || "", PezzoID: r.pezzo_id || "",
@@ -1233,7 +1311,9 @@ async function call(fn, args) {
     if (fn === "salvaCommessa") {
       const d = args;
       if (d.ID) {
-        await sbPatch("commesse", "id=eq." + encodeURIComponent(d.ID), { nome: d.Nome, cliente: d.Cliente, stato: d.Stato, note: d.Note });
+        await sbPatch("commesse", "id=eq." + encodeURIComponent(d.ID),
+          { nome: d.Nome, cliente: d.Cliente, stato: d.Stato, note: d.Note,
+            anno: d.Anno || annoDaCodice(d.ID), tipo: d.Tipo || tipoDaCodice(d.ID) });
         return { ok: true, id: d.ID };
       } else {
         // Il codice/nome digitato diventa l'ID della commessa (es. "C2026.002.01")
@@ -1241,7 +1321,10 @@ async function call(fn, args) {
         // Evita duplicati
         const esiste = await sbGet("commesse", "select=id&id=eq." + encodeURIComponent(id));
         if (esiste.length) return { ok: false, err: "Esiste già una commessa con questo codice." };
-        await sbPost("commesse", { id, nome: d.Nome, cliente: d.Cliente || "", data_apertura: new Date().toISOString().slice(0,10), stato: d.Stato || "aperta", note: d.Note || "" });
+        await sbPost("commesse", { id, nome: d.Nome, cliente: d.Cliente || "",
+          data_apertura: new Date().toISOString().slice(0,10),
+          stato: d.Stato || "in_lavorazione", note: d.Note || "",
+          anno: d.Anno || annoDaCodice(id), tipo: d.Tipo || tipoDaCodice(id) });
         return { ok: true, id };
       }
     }
@@ -1262,7 +1345,8 @@ async function call(fn, args) {
         await sbPost("commesse", { id: n,
           nome: (args.nome !== undefined && args.nome !== null) ? args.nome : (c.nome || n),
           cliente: c.cliente || "", data_apertura: c.data_apertura || null,
-          stato: c.stato || "aperta", note: c.note || "" });
+          stato: c.stato || "in_lavorazione", note: c.note || "",
+          anno: annoDaCodice(n) || c.anno || "", tipo: tipoDaCodice(n) });
       }
       // 2) sposto tutti i riferimenti dal codice vecchio a quello nuovo
       const risultato = {};
@@ -1304,7 +1388,8 @@ async function call(fn, args) {
         if (!id) return;
         if (gia.indexOf(id) >= 0 || nuove.filter(x => x.id === id).length) { saltate.push(id); return; }
         nuove.push({ id: id, nome: String(r.Nome || "").trim() || id, cliente: String(r.Cliente || "").trim(),
-          data_apertura: oggi, stato: "aperta", note: "" });
+          data_apertura: oggi, stato: r.Stato || "in_lavorazione", note: "",
+          anno: annoDaCodice(id), tipo: tipoDaCodice(id) });
       });
       if (nuove.length) await sbPost("commesse", nuove);
       return { ok: true, create: nuove.length, saltate: saltate };
@@ -2087,7 +2172,8 @@ function renderDashboard(){
   const carMese=movMese.filter(m=>m.Tipo==='carico').length;
   const recent=STATE.movimenti.filter(val).slice(-8).reverse();
   const sotto=STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino);
-  const commAperte=(STATE.commesse||[]).filter(c=>String(c.Stato||'aperta').toLowerCase()!=='chiusa');
+  const commAperte=(STATE.commesse||[]).filter(c=>normStatoComm(c.Stato)==='in_lavorazione');
+  const commOfferte=(STATE.commesse||[]).filter(c=>normStatoComm(c.Stato)==='offerta');
   const ordAperti=(STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()!=='ricevuto');
   const rifiliP=STATE.pannelli.filter(p=>/^R[0-9]/.test(p.ID)&&+p.M2_residuo>0);
   const rifiliM=STATE.massicci.filter(p=>/^RM[0-9]/.test(p.ID)&&+p.M3_residuo>0);
@@ -2108,7 +2194,7 @@ function renderDashboard(){
   h+='<div class="grid-4" style="margin-bottom:14px">'
     +stat("Da riordinare",sotto.length,sotto.length?"articoli sotto soglia":"tutto in ordine",sotto.length?"var(--red)":"var(--green)")
     +stat("Movimenti di "+nomeMese,movMese.length,carMese+" carichi &middot; "+scarMese+" scarichi","","navTo('movimenti')")
-    +stat("Commesse aperte",commAperte.length,"","","navTo('commesse')")
+    +stat("Commesse aperte",commAperte.length,commOfferte.length?(commOfferte.length+" in offerta"):"","","navTo('commesse')")
     +stat("Ordini da ricevere",ordAperti.length,"",ordAperti.length?"var(--amber)":"", "navTo('evasi')")
     +'</div>';
   h+='<div class="grid-4" style="margin-bottom:20px">'
@@ -2420,7 +2506,8 @@ function ripristinaBackup(input){
     try{ data=JSON.parse(e.target.result); }
     catch(err){ toast("File non valido: non è un backup JSON","err"); return; }
     if(!data.articoli&&!data.movimenti){ toast("Il file non sembra un backup del magazzino","err"); return; }
-    const conteggi=['articoli','pannelli','massicci','movimenti','commesse','fornitori'].map(k=>(data[k]||[]).length+' '+k).join(', ');
+    const conteggi=['articoli','pannelli','massicci','movimenti','commesse','fornitori','voci','personale','ore','dettature','ordini','offerte','fabbisogni','riserve','rettifiche','immagini','modelli','utenti','config']
+      .filter(k=>(data[k]||[]).length).map(k=>(data[k]||[]).length+' '+k).join(', ');
     openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Conferma ripristino</h2>'
      +'<div class="info-box">Backup del <strong>'+(data._data?new Date(data._data).toLocaleString('it-IT'):'data sconosciuta')+'</strong><br><br>Contiene: '+conteggi+'</div>'
      +'<div class="alert alert-red">Procedendo, questi dati verranno reinseriti nel database (sovrascrivendo quelli con lo stesso codice). Continuare?</div>'
@@ -2448,7 +2535,7 @@ async function eseguiRipristino(){
     // FORNITORI
     await up("fornitori",(data.fornitori||[]).map(f=>({nome:f.Nome,email:f.Email||'',telefono:f.Telefono||'',note:f.Note||''})),"fornitori");
     // COMMESSE
-    await up("commesse",(data.commesse||[]).map(c=>({id:c.ID,nome:c.Nome,cliente:c.Cliente||'',data_apertura:(c.DataApertura||new Date().toISOString().slice(0,10)),stato:c.Stato||'aperta',note:c.Note||''})),"commesse");
+    await up("commesse",(data.commesse||[]).map(c=>({id:c.ID,nome:c.Nome,cliente:c.Cliente||'',data_apertura:(c.DataApertura||new Date().toISOString().slice(0,10)),stato:c.Stato||'in_lavorazione',note:c.Note||'',anno:c.Anno||'',tipo:c.Tipo||'cliente'})),"commesse");
     // PANNELLI
     await up("pannelli",(data.pannelli||[]).map(p=>({id:p.ID,articolo_id:p.ArticoloID,larghezza_mm:p.Larghezza_mm,altezza_mm:p.Altezza_mm,residuale_pct:p.Residuale_pct,m2_originale:p.M2_originale,m2_residuo:p.M2_residuo,commesse:p.Commesse||'',data_carico:p.DataCarico||null,note:p.Note||'',fornitore:p.Fornitore||''})),"pannelli");
     // MASSICCI
@@ -2474,9 +2561,38 @@ async function eseguiRipristino(){
     // PERSONALE E ORE
     await up("personale",(data.personale||[]).map(p=>({id:p.ID,nome:p.Nome,mansione:p.Mansione||'',email:p.Email||'',costo_orario:p.CostoOrario||0,euro_km:p.EuroKm||0,ore_giorno:p.OreGiorno||8,attivo:p.Attivo!==false,note:p.Note||''})),"personale");
     await up("ore",(data.ore||[]).map(o=>({id:o.ID,data:o.Data||null,persona_id:o.PersonaID,persona:o.Persona||'',commessa:o.Commessa||'',tipo:o.Tipo||'lavoro',ore:o.Ore||0,km:o.Km||0,destinazione:o.Destinazione||'',descrizione:o.Descrizione||'',costo_orario:o.CostoOrario||0,euro_km:o.EuroKm||0,costo:o.Costo||0,rimborso:o.Rimborso||0,inserito_da:o.InseritoDa||'',note:o.Note||''})),"ore");
-    setP("Ripristino completato!");
+    // DETTATURE VOCALI
+    const numD=v=>(v===''||v===null||v===undefined||isNaN(parseFloat(v)))?null:parseFloat(v);
+    await up("dettature",(data.dettature||[]).map(d=>({id:d.ID,data:d.Data||null,utente:d.Utente||'',
+      testo:d.Testo||'',tipo:d.Tipo||'materiale',stato:d.Stato||'da_confermare',
+      articolo_id:d.ArticoloID||'',articolo:d.Articolo||'',pezzo_id:d.PezzoID||'',
+      quantita:numD(d.Quantita),unita:d.Unita||'',commessa:d.Commessa||'',persona_id:d.PersonaID||'',
+      importo:numD(d.Importo),categoria:d.Categoria||'',note:d.Note||'',dubbi:d.Dubbi||'',
+      creato_da:d.CreatoDa||'',confermata_da:d.ConfermataDa||'',confermata_il:d.ConfermataIl||null})),"dettature vocali");
+    // CONFIG
+    await up("config",(data.config||[]).map(c=>({chiave:c.Chiave,valore:c.Valore||''})),"impostazioni");
+    // UTENTI: solo quelli che non ci sono gia'.
+    // Chi c'e' gia' non lo tocco, se no gli cancello la password.
+    let utentiNuovi=0;
+    if((data.utenti||[]).length){
+      setP("Controllo gli utenti...");
+      let gia={};
+      try{ (await sbGet("utenti","select=email")).forEach(u=>{gia[String(u.email||'').toLowerCase()]=1;}); }
+      catch(e){ gia=null; }
+      if(gia){
+        const mancanti=(data.utenti||[]).filter(u=>u.Email&&!gia[String(u.Email).toLowerCase()]);
+        if(mancanti.length){
+          await up("utenti",mancanti.map(u=>({email:u.Email,password:'',nome:u.Nome||u.Email,
+            ruolo:u.Ruolo||'operator',attivo:u.Attivo!==false})),"utenti");
+          utentiNuovi=mancanti.length;
+        }
+      }
+    }
+    window._ripUtentiNuovi=utentiNuovi;
+    const nu=window._ripUtentiNuovi||0;
+    setP("Ripristino completato!"+(nu?(" ATTENZIONE: "+nu+" utenti sono stati ricreati SENZA password: vanno rimesse a mano da Supabase (tabella utenti) prima che possano entrare."):""));
     toast("Ripristino completato. Ricarico i dati...");
-    setTimeout(()=>location.reload(),1400);
+    setTimeout(()=>location.reload(),nu?9000:1400);
   }catch(e){ setP("Errore: "+e.message); toast("Errore durante il ripristino: "+e.message,"err"); }
 }
 function scaricaBackup(){
@@ -2484,13 +2600,16 @@ function scaricaBackup(){
   Promise.all([
     call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),
     call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
-    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci"),call("getPersonale"),call("getOre"),call("getDettature")
-  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature])=>{
+    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci"),call("getPersonale"),call("getOre"),call("getDettature"),
+    call("getUtentiElenco"),call("getConfig")
+  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config])=>{
     const d=new Date();
     const pad=n=>String(n).padStart(2,"0");
     const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
     // 1) JSON completo (per il ripristino nell'app)
-    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature};
+    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),
+      _tabelle:19,_nota:"Degli utenti sono salvati nome, email e ruolo ma NON le password: dopo un ripristino su un database vuoto le password vanno rimesse a mano.",
+      articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config};
     scaricaFile(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),"backup-magazzino_"+stamp+".json");
     // 2) Excel con un foglio per ogni tabella
     try{
@@ -2501,10 +2620,12 @@ function scaricaBackup(){
       aggiungi("Fabbisogni",fabbisogni); aggiungi("Ordini",ordini.map(o=>Object.assign({},o,{Righe:JSON.stringify(o.Righe||[])})));
       aggiungi("Offerte",offerte.map(o=>Object.assign({},o,{Dati:JSON.stringify(o.Dati||{})})));
       aggiungi("Riserve",riserve); aggiungi("Rettifiche",rettifiche); aggiungi("Immagini",immagini); aggiungi("Modelli",modelli); aggiungi("Altre voci",voci);
+      aggiungi("Personale",personale); aggiungi("Ore",ore); aggiungi("Dettature",dettature);
+      aggiungi("Utenti",utenti); aggiungi("Config",config);
       const xbuf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
       scaricaFile(new Blob([xbuf],{type:"application/octet-stream"}),"magazzino_"+stamp+".xlsx");
     }catch(e){console.error("Excel non generato:",e);}
-    toast("Backup scaricato: JSON + Excel ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti)");
+    toast("Backup scaricato: JSON + Excel ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti, "+(ore.length)+" ore)");
   }).catch(e=>toast("Errore backup: "+e.message,"err"));
 }
 function scaricaFile(blob,nome){
@@ -4026,7 +4147,7 @@ function submitCambiaCodice(id){
   const esiste=(STATE.commesse||[]).filter(x=>x.ID===n)[0];
   if(esiste&&n!==id&&(!chk||!chk.checked)){showErr('cc-err','Spunta la casella per confermare l\'unione.');return;}
   if(n===id){ // cambia solo il nome
-    call('salvaCommessa',{ID:id,Nome:nome||id,Cliente:(esiste||{}).Cliente||'',Stato:(esiste||{}).Stato||'aperta',Note:(esiste||{}).Note||''})
+    call('salvaCommessa',{ID:id,Nome:nome||id,Cliente:(esiste||{}).Cliente||'',Stato:(esiste||{}).Stato||'in_lavorazione',Note:(esiste||{}).Note||''})
       .then(function(r){ if(!r.ok){showErr('cc-err',r.err||'Errore');return;}
         call('getCommesse').then(function(c){STATE.commesse=c||[];closeModal();toast('Commessa aggiornata');renderPage(STATE.pagina);});});
     return;
@@ -4048,10 +4169,21 @@ function openCommesseBulk(){
    +'<div class="info-box">Una commessa per riga: prima il <strong>codice</strong>, poi il <strong>nome</strong>, separati da un <strong>tab</strong>, da un punto e virgola o da due o più spazi.<br>'
    +'Puoi incollare direttamente due colonne prese da Excel. Le commesse che esistono già vengono saltate.</div>'
    +'<div class="form-group"><label>Elenco</label>'
-   +'<textarea id="cb-txt" rows="10" style="width:100%;padding:9px;font-family:monospace;font-size:12.5px" '
+   +'<textarea id="cb-txt" rows="10" style="width:100%;padding:9px;font-family:monospace;font-size:12.5px" onkeydown="tastoTab(event)" '
    +'placeholder="C2026.014&#9;Palazzo Venere&#10;C2026.015&#9;Casa Rossi" oninput="cbPreview()"></textarea></div>'
    +'<div id="cb-prev"></div><div id="cb-err"></div>'
    +'<button class="btn-primary" onclick="submitCommesseBulk()">Crea le commesse</button></div>');
+}
+// Fa scrivere un vero tab dentro una casella di testo invece di
+// spostare il cursore sul pulsante successivo.
+function tastoTab(ev){
+  if(ev.key!=='Tab'||ev.shiftKey)return;
+  ev.preventDefault();
+  const el=ev.target;
+  const i=el.selectionStart, j=el.selectionEnd;
+  el.value=el.value.slice(0,i)+'\t'+el.value.slice(j);
+  el.selectionStart=el.selectionEnd=i+1;
+  if(typeof cbPreview==='function'&&el.id==='cb-txt')cbPreview();
 }
 function cbParse(){
   const t=(document.getElementById('cb-txt')||{}).value||'';
@@ -4086,44 +4218,126 @@ function submitCommesseBulk(){
   }).catch(e=>showErr('cb-err',String((e&&e.message)||e)));
 }
 
+// Cosa sto guardando adesso nella pagina Commesse.
+// Resta in memoria finche' non chiudi la pagina.
+var COMM_F={stato:'',anno:'',tipo:'',q:''};
+function commFiltro(campo,val){COMM_F[campo]=val;renderPage('commesse');}
+function commFiltroQ(val){COMM_F.q=val;
+  const d=document.getElementById('comm-lista');
+  if(d)d.innerHTML=commRighe();
+  const n=document.getElementById('comm-conta');
+  if(n)n.textContent=commFiltrate().length+' commesse';
+}
+function commFiltrate(){
+  const parole=String(COMM_F.q||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return (STATE.commesse||[]).filter(function(c){
+    if(COMM_F.stato&&normStatoComm(c.Stato)!==COMM_F.stato)return false;
+    const a=c.Anno||annoDaCodice(c.ID);
+    if(COMM_F.anno&&a!==COMM_F.anno)return false;
+    const t=c.Tipo||tipoDaCodice(c.ID);
+    if(COMM_F.tipo&&t!==COMM_F.tipo)return false;
+    if(parole.length){
+      const paglia=[c.ID,c.Nome,c.Cliente,c.Note,a,statoCommLabel(c.Stato)].join(' ').toLowerCase();
+      for(let i=0;i<parole.length;i++)if(paglia.indexOf(parole[i])<0)return false;
+    }
+    return true;
+  }).sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+}
+// quante ore sono finite su una commessa (serve per le offerte)
+function sommaOreCommessa(id){
+  let h=0;
+  (STATE.ore||[]).forEach(function(r){ if(r.Commessa===id) h+=(Number(r.Ore)||0); });
+  return h;
+}
+function commRighe(){
+  return commFiltrate().map(commRiga).join("")
+    ||'<div class="card" style="color:var(--gray)">Nessuna commessa con questi filtri.</div>';
+}
 function renderCommesse(){
-  const list=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
-  const rows=list.map(c=>{
+  const tutte=(STATE.commesse||[]);
+  const cont=function(k){return tutte.filter(c=>normStatoComm(c.Stato)===k).length;};
+  const btn=function(campo,val,testo,quante){
+    const on=COMM_F[campo]===val;
+    return '<button class="btn '+(on?'btn-accent':'btn-ghost')+'" onclick="commFiltro(\''+campo+'\',\''+val+'\')">'
+      +testo+(quante!==undefined?(' <span style="opacity:.7">'+quante+'</span>'):'')+'</button>';
+  };
+  const anni=anniCommesse();
+  const selAnni='<select onchange="commFiltro(\'anno\',this.value)"><option value="">Tutti gli anni</option>'
+    +anni.map(a=>'<option value="'+a+'"'+(COMM_F.anno===a?' selected':'')+'>'+a+'</option>').join('')+'</select>';
+  const lista=commFiltrate();
+  // se sto guardando le offerte, mostro quanto mi sono costate in ore
+  let box='';
+  if(COMM_F.stato==='offerta'){
+    let h=0,cst=0;
+    lista.forEach(function(c){
+      (STATE.ore||[]).forEach(function(r){
+        if(r.Commessa===c.ID){h+=(Number(r.Ore)||0);cst+=(Number(r.Costo)||0);}
+      });
+    });
+    box='<div class="info-box" style="margin-bottom:14px">Ore gia&#39; spese su queste offerte: <strong>'
+      +h.toFixed(1)+' ore</strong>'+(cst?(' &middot; costo <strong>&euro; '+cst.toFixed(2)+'</strong>'):'')
+      +'<div style="font-size:12px;color:var(--gray);margin-top:4px">Sono le ore registrate su commesse ancora in offerta: se non diventano lavoro, questo e&#39; quanto ti sono costate.</div></div>';
+  }
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Commesse</h1><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="openCommesseBulk()">Aggiungi un elenco</button><button class="btn btn-accent" onclick="openNuovaCommessa()">+ Nuova commessa</button></div></div>'
+    +'<div class="card" style="margin-bottom:14px"><div class="filters" style="margin-bottom:8px">'
+      +btn('stato','','Tutte',tutte.length)
+      +btn('stato','offerta','In offerta',cont('offerta'))
+      +btn('stato','in_lavorazione','In lavorazione',cont('in_lavorazione'))
+      +btn('stato','chiusa','Chiuse',cont('chiusa'))
+    +'</div><div class="filters">'
+      +selAnni
+      +btn('tipo','','Cliente + interne')
+      +btn('tipo','cliente','Solo clienti')
+      +btn('tipo','interna','Solo progetti interni')
+      +'<input placeholder="Cerca codice, cliente, nota..." value="'+String(COMM_F.q||'').replace(/"/g,'&quot;')+'" oninput="commFiltroQ(this.value)" style="min-width:220px">'
+      +'<span id="comm-conta" style="font-size:12.5px;color:var(--gray);align-self:center">'+lista.length+' commesse</span>'
+    +'</div></div>'
+    +box
+    +'<div id="comm-lista">'+commRighe()+'</div>';
+}
+function commRiga(c){
     const s=statCommessa(c.ID);
-    const stato=String(c.Stato||'aperta').toLowerCase();
-    const badgeStato=stato==='chiusa'?'<span class="badge badge-gray">chiusa</span>':'<span class="badge badge-green">aperta</span>';
+    const badgeStato=badgeStatoComm(c.Stato);
     const info=[];
     if(s.ris)info.push(s.ris+' articoli destinati');
     if(s.pan)info.push(s.pan+' pannelli');
     if(s.mas)info.push(s.mas+' massicci');
     if(s.mov)info.push(s.mov+' movimenti');
+    const ore=sommaOreCommessa(c.ID);
+    if(ore)info.push(ore.toFixed(1)+' ore');
     const infoTxt=info.length?info.join(' - '):'nessun materiale collegato';
+    const anno=c.Anno||annoDaCodice(c.ID);
+    const extra=(anno?'<span class="badge badge-gray">'+anno+'</span>':'')
+      +((c.Tipo||tipoDaCodice(c.ID))==='interna'?'<span class="badge badge-accent">progetto interno</span>':'');
     return '<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
-      +'<div style="flex:1;min-width:200px"><div style="font-weight:600;font-size:15px">'+c.ID+' '+badgeStato+'</div>'
+      +'<div style="flex:1;min-width:200px"><div style="font-weight:600;font-size:15px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+c.ID+'</span>'+badgeStato+extra+'</div>'
       +'<div style="font-size:13px;color:var(--gray);margin-top:2px">'+(c.Nome&&c.Nome!==c.ID?(c.Nome+' '):'')+(c.Cliente?('- '+c.Cliente):'')+'</div>'
       +'<div style="font-size:12px;color:var(--gray);margin-top:4px">'+infoTxt+'</div>'
       +(c.Note?'<div style="font-size:12px;color:var(--gray);margin-top:4px;font-style:italic">'+c.Note+'</div>':'')+'</div>'
       +'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-accent" onclick="openModificaCommessa(\''+esc(c.ID)+'\')">Modifica</button>'
       +'<button class="btn btn-ghost" onclick="navTo(\'ordini\');setTimeout(function(){if(typeof ordSelComm===\'function\')ordSelComm(\''+esc(c.ID)+'\');},100)">Materiali</button>'
       +'<button class="btn btn-red" onclick="confEliminaCommessa(\''+esc(c.ID)+'\')">Elimina</button></div></div></div>';
-  }).join("")||'<div class="card" style="color:var(--gray)">Nessuna commessa. Creane una col pulsante qui sopra.</div>';
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Commesse</h1><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="openCommesseBulk()">Aggiungi un elenco</button><button class="btn btn-accent" onclick="openNuovaCommessa()">+ Nuova commessa</button></div></div>'+rows;
 }
 function openModificaCommessa(id){
   const c=STATE.commesse.find(x=>x.ID===id); if(!c)return;
-  const stato=String(c.Stato||'aperta').toLowerCase();
+  const stato=normStatoComm(c.Stato);
+  const tipo=c.Tipo||tipoDaCodice(c.ID);
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Modifica commessa</h2>'
    +'<div class="info-box" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
    +'<span>Codice: <strong>'+c.ID+'</strong></span>'
    +'<button class="btn btn-accent" onclick="closeModal();openCambiaCodice(\''+esc(c.ID)+'\')">Cambia il codice</button></div>'
    +'<div class="form-group"><label>Nome / descrizione</label><input id="mc-nome" value="'+(c.Nome||'').replace(/"/g,"&quot;")+'"></div>'
    +'<div class="form-group"><label>Cliente</label><input id="mc-cli" value="'+(c.Cliente||'').replace(/"/g,"&quot;")+'"></div>'
-   +'<div class="form-group"><label>Stato</label><select id="mc-stato"><option value="aperta"'+(stato==='aperta'?' selected':'')+'>Aperta</option><option value="chiusa"'+(stato==='chiusa'?' selected':'')+'>Chiusa</option></select></div>'
+   +'<div class="form-group"><label>Stato</label><select id="mc-stato">'
+     +STATI_COMM.map(function(t){return '<option value="'+t[0]+'"'+(stato===t[0]?' selected':'')+'>'+t[1]+'</option>';}).join('')
+     +'</select><div style="font-size:12px;color:var(--gray);margin-top:4px">"In offerta" vuol dire che e&#39; ancora solo un preventivo: le ore si registrano lo stesso e a fine anno vedi quanto ti e&#39; costata.</div></div>'
+   +'<div class="form-group"><label>Anno di riferimento</label><input id="mc-anno" value="'+((c.Anno||annoDaCodice(c.ID))||'')+'" placeholder="es. 2026"></div>'
+   +'<div class="form-group"><label>Tipo</label><select id="mc-tipo"><option value="cliente"'+(tipo!=='interna'?' selected':'')+'>Commessa cliente</option><option value="interna"'+(tipo==='interna'?' selected':'')+'>Progetto interno (sull&#39;utile)</option></select></div>'
    +'<div class="form-group"><label>Note</label><input id="mc-note" value="'+(c.Note||'').replace(/"/g,"&quot;")+'"></div>'
    +'<div id="mc-err"></div><button class="btn-primary" onclick="submitModificaCommessa(\''+esc(id)+'\')">Salva</button></div>');
 }
 function submitModificaCommessa(id){
-  const d={ID:id,Nome:document.getElementById("mc-nome").value.trim(),Cliente:document.getElementById("mc-cli").value.trim(),Stato:document.getElementById("mc-stato").value,Note:document.getElementById("mc-note").value.trim()};
+  const d={ID:id,Nome:document.getElementById("mc-nome").value.trim(),Cliente:document.getElementById("mc-cli").value.trim(),Stato:document.getElementById("mc-stato").value,Note:document.getElementById("mc-note").value.trim(),Anno:document.getElementById("mc-anno").value.trim(),Tipo:document.getElementById("mc-tipo").value};
   call("salvaCommessa",d).then(r=>{if(!r.ok){showErr("mc-err",r.err||"Errore");return;}
     call("getCommesse").then(c=>{STATE.commesse=c||[];closeModal();toast("Commessa aggiornata");renderPage(STATE.pagina);});});
 }
@@ -4138,9 +4352,16 @@ function submitEliminaCommessa(id){
   call("eliminaCommessa",{id:id}).then(r=>{if(!r.ok){showErr("ec-err",r.err||"Errore");return;}
     call("getCommesse").then(c=>{STATE.commesse=c||[];closeModal();toast("Commessa eliminata");renderPage(STATE.pagina);});});
 }
-function openNuovaCommessa(){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova commessa</h2><div class="form-group"><label>Codice *</label><input id="nc-nome" placeholder="es. C2026.002.01"></div><div class="form-group"><label>Cliente / descrizione</label><input id="nc-cli" placeholder="es. Cameretta - Mario Rossi"></div><div id="nc-err"></div><button class="btn-primary" onclick="submitNuovaCommessa()">Crea commessa</button></div>');}
+function openNuovaCommessa(){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova commessa</h2>'
+  +'<div class="form-group"><label>Codice *</label><input id="nc-nome" placeholder="es. C2026.002.01"><div style="font-size:12px;color:var(--gray);margin-top:4px">Se il codice comincia per <strong>I</strong> (es. I2026.001) la commessa vale come progetto interno.</div></div>'
+  +'<div class="form-group"><label>Cliente / descrizione</label><input id="nc-cli" placeholder="es. Cameretta - Mario Rossi"></div>'
+  +'<div class="form-group"><label>Stato</label><select id="nc-stato">'
+    +STATI_COMM.map(function(t){return '<option value="'+t[0]+'"'+(t[0]==='in_lavorazione'?' selected':'')+'>'+t[1]+'</option>';}).join('')
+    +'</select></div>'
+  +'<div id="nc-err"></div><button class="btn-primary" onclick="submitNuovaCommessa()">Crea commessa</button></div>');}
 function submitNuovaCommessa(){const n=document.getElementById("nc-nome").value.trim();if(!n){showErr("nc-err","Inserisci il codice/nome.");return;}
-  call("salvaCommessa",{Nome:n,Cliente:document.getElementById("nc-cli").value.trim()}).then(r=>{if(!r.ok){showErr("nc-err",r.err||"Errore.");return;}call("getCommesse").then(c=>{STATE.commesse=c||[];if(typeof FAB_COMM!=='undefined')FAB_COMM=r.id;closeModal();toast("Commessa creata: "+n);renderPage(STATE.pagina);});});}
+  const st=document.getElementById("nc-stato");
+  call("salvaCommessa",{Nome:n,Cliente:document.getElementById("nc-cli").value.trim(),Stato:st?st.value:'in_lavorazione'}).then(r=>{if(!r.ok){showErr("nc-err",r.err||"Errore.");return;}call("getCommesse").then(c=>{STATE.commesse=c||[];if(typeof FAB_COMM!=='undefined')FAB_COMM=r.id;closeModal();toast("Commessa creata: "+n);renderPage(STATE.pagina);});});}
 
 // ============================================================
 //  ALTRE VOCI DI COMMESSA
@@ -4164,6 +4385,7 @@ const TIPI_ORE=[
   ['lavoro','Lavoro in commessa','var(--green)',true,false],
   ['viaggio','Viaggio / trasferta','var(--accent)',true,true],
   ['interno','Lavoro interno (magazzino, officina)','var(--amber)',false,false],
+  ['progetto_interno','Progetto interno (sull\'utile)','var(--accent)',true,false],
   ['ferie','Ferie','var(--gray)',false,false],
   ['permesso','Permesso','var(--gray)',false,false],
   ['assenza','Assenza','var(--gray)',false,false]
@@ -4235,7 +4457,7 @@ function oreTot(list){
     const h=+r.Ore||0;t.ore+=h;
     if(r.Tipo==='lavoro')t.lavoro+=h;
     else if(r.Tipo==='viaggio')t.viaggio+=h;
-    else if(r.Tipo==='interno')t.interno+=h;
+    else if(r.Tipo==='interno'||r.Tipo==='progetto_interno')t.interno+=h;
     else t.assenza+=h;
     t.km+=(+r.Km||0);t.costo+=(+r.Costo||0);t.rimborso+=(+r.Rimborso||0);
     gg[String(r.Data||'').slice(0,10)]=1;
@@ -4267,6 +4489,8 @@ function renderOre(){
   if(!admin&&ORE_TAB!=='registra'&&ORE_TAB!=='persona')ORE_TAB='registra';
   const tabs=[['registra','Registra ore'],['persona',admin?'Mastrino persona':'Le mie ore']];
   if(admin)tabs.push(['commessa','Mastrino commessa']);
+  if(admin)tabs.push(['mese','Tabella del mese']);
+  if(admin)tabs.push(['anno','Riepilogo anno']);
   tabs.push(['registro','Registro e ricerca']);
   if(admin)tabs.push(['personale','Persone']);
   const bar=tabs.map(t=>'<button class="btn '+(ORE_TAB===t[0]?'btn-accent':'btn-ghost')+'" onclick="oreTab(\''+t[0]+'\')">'+t[1]+'</button>').join('');
@@ -4279,6 +4503,8 @@ function renderOre(){
 function oreContenuto(){
   if(ORE_TAB==='persona')return oreTabPersona();
   if(ORE_TAB==='commessa')return oreTabCommessa();
+  if(ORE_TAB==='mese')return oreTabMese();
+  if(ORE_TAB==='anno')return oreTabAnno();
   if(ORE_TAB==='registro')return oreTabRegistro();
   if(ORE_TAB==='personale')return oreTabPersonale();
   return oreTabRegistra();
@@ -4314,6 +4540,7 @@ function oreTabRegistra(){
    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
    +'<button class="btn btn-accent" onclick="openNuovaOra()">+ Ore singole</button>'
    +(admin?'<button class="btn btn-ghost" onclick="openFoglioSettimana()">Foglio settimanale</button>':'')
+   +(admin?'<button class="btn btn-ghost" onclick="openFoglioTutti()">Foglio di tutta la squadra</button>':'')
    +'</div><div style="font-size:12px;color:var(--gray);line-height:1.6">'
    +'<strong>Ore singole</strong>: una registrazione per volta, quella di tutti i giorni.'
    +(admin?'<br><strong>Foglio settimanale</strong>: la settimana intera di una persona in una schermata sola, come il cartellino.':'')
@@ -4663,6 +4890,229 @@ function csvOrePerCommessa(){csvRiepilogoOre(r=>r.Commessa,'Commessa','ore-per-c
 function csvOrePerPersona(){csvRiepilogoOre(r=>r.Persona,'Persona','ore-per-persona');}
 
 // ---------- TAB 4: persone ----------
+// ==================================================================
+//  TABELLA DEL MESE
+//  Righe: le persone. Colonne: i giorni. Dentro: i numeri.
+//  In fondo: chi in questo mese non ha registrato niente.
+// ==================================================================
+var ORE_MESE='';
+function meseCorrente(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function giorniDelMese(m){
+  const y=+m.slice(0,4), mm=+m.slice(5,7);
+  return new Date(y,mm,0).getDate();
+}
+function meseLabel(m){
+  const N=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
+  return (N[(+m.slice(5,7))-1]||'')+' '+m.slice(0,4);
+}
+function oreMeseImposta(v){ORE_MESE=v;oreRefresh();}
+function oreTabMese(){
+  if(!ORE_MESE)ORE_MESE=meseCorrente();
+  const m=ORE_MESE, ng=giorniDelMese(m);
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo)
+    .slice().sort((a,b)=>String(a.Nome||'').localeCompare(String(b.Nome||'')));
+  // griglia[personaID][giorno] = ore
+  const g={}, totP={};
+  (STATE.ore||[]).forEach(function(r){
+    const d=String(r.Data||'').slice(0,10);
+    if(d.slice(0,7)!==m)return;
+    const gi=+d.slice(8,10);
+    if(!g[r.PersonaID])g[r.PersonaID]={};
+    g[r.PersonaID][gi]=(g[r.PersonaID][gi]||0)+(+r.Ore||0);
+    totP[r.PersonaID]=(totP[r.PersonaID]||0)+(+r.Ore||0);
+  });
+  // scelta del mese
+  let h='<div class="card" style="margin-top:14px"><div class="filters" style="gap:8px">'
+   +'<button class="btn btn-ghost" onclick="oreMeseImposta(\''+meseSposta(m,-1)+'\')">&larr; mese prima</button>'
+   +'<input type="month" value="'+att(m)+'" onchange="oreMeseImposta(this.value)" style="padding:8px">'
+   +'<button class="btn btn-ghost" onclick="oreMeseImposta(\''+meseSposta(m,1)+'\')">mese dopo &rarr;</button>'
+   +'<button class="btn btn-ghost" onclick="csvTabellaMese()">Scarica in CSV</button>'
+   +'<span style="align-self:center;font-size:13px;color:var(--gray)">'+meseLabel(m)+'</span>'
+   +'</div></div>';
+
+  if(!persone.length)return h+'<div class="card" style="color:var(--gray)">Nessuna persona in forza.</div>';
+
+  // intestazione con i giorni
+  let th='';
+  const totG={};
+  for(let i=1;i<=ng;i++){
+    const iso=m+'-'+String(i).padStart(2,'0');
+    const dow=new Date(iso+'T12:00:00').getDay();
+    const fest=(dow===0||dow===6);
+    th+='<th style="padding:3px 1px;font-size:10px;text-align:center;min-width:26px;color:'+(fest?'var(--red)':'var(--gray)')+'">'+i
+      +'<div style="font-weight:400;font-size:9px">'+GIORNI_S[(dow+6)%7].slice(0,1)+'</div></th>';
+  }
+  let body='';
+  const senzaOre=[];
+  persone.forEach(function(p){
+    const riga=g[p.ID]||{};
+    if(!totP[p.ID])senzaOre.push(p.Nome);
+    let tds='';
+    for(let i=1;i<=ng;i++){
+      const iso=m+'-'+String(i).padStart(2,'0');
+      const dow=new Date(iso+'T12:00:00').getDay();
+      const fest=(dow===0||dow===6);
+      const v=riga[i]||0;
+      tds+='<td style="text-align:center;padding:3px 1px;font-size:11px;'
+        +(v?'font-weight:600;':'color:var(--gray);')
+        +(fest?'background:#faf7f2;':'')
+        +'">'+(v?nOre(v).replace(',00',''):'')+'</td>';
+    }
+    body+='<tr style="border-top:1px solid var(--border)">'
+      +'<td style="padding:4px;font-size:12px;white-space:nowrap;position:sticky;left:0;background:var(--white)">'+p.Nome+'</td>'
+      +tds
+      +'<td style="text-align:center;padding:4px;font-weight:700;font-size:12px">'+(totP[p.ID]?nOre(totP[p.ID]):'0')+'</td></tr>';
+  });
+  // totali per giorno
+  for(let i=1;i<=ng;i++){let t=0;persone.forEach(p=>{t+=((g[p.ID]||{})[i]||0);});totG[i]=t;}
+  let tf='<tr style="border-top:2px solid var(--border);font-weight:700"><td style="padding:5px;font-size:11.5px;position:sticky;left:0;background:var(--white)">Totale</td>';
+  let gran=0;
+  for(let i=1;i<=ng;i++){gran+=totG[i];tf+='<td style="text-align:center;padding:5px 1px;font-size:10.5px">'+(totG[i]?nOre(totG[i]).replace(',00',''):'')+'</td>';}
+  tf+='<td style="text-align:center;padding:5px;color:var(--accent)">'+nOre(gran)+'</td></tr>';
+
+  h+='<div class="card" style="margin-top:12px;overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+   +'<thead><tr><th style="text-align:left;padding:3px;font-size:11px;color:var(--gray);position:sticky;left:0;background:var(--white)">Persona</th>'
+   +th+'<th style="padding:3px;font-size:11px;color:var(--gray)">Tot</th></tr></thead>'
+   +'<tbody>'+body+'</tbody><tfoot>'+tf+'</tfoot></table></div>';
+
+  // chi manca
+  if(senzaOre.length){
+    h+='<div class="alert alert-red" style="margin-top:12px"><strong>In '+meseLabel(m)+' non hanno registrato nessuna ora:</strong><br>'
+     +senzaOre.join(', ')+'</div>';
+  }else{
+    h+='<div class="alert alert-green" style="margin-top:12px">In '+meseLabel(m)+' hanno registrato tutti.</div>';
+  }
+  // giorni feriali vuoti, persona per persona
+  let buchi='';
+  persone.forEach(function(p){
+    if(!totP[p.ID])return;
+    const mancanti=[];
+    for(let i=1;i<=ng;i++){
+      const iso=m+'-'+String(i).padStart(2,'0');
+      const dow=new Date(iso+'T12:00:00').getDay();
+      if(dow===0||dow===6)continue;
+      if(iso>oggiISO())continue;
+      if(!((g[p.ID]||{})[i]))mancanti.push(i);
+    }
+    if(mancanti.length)buchi+='<div style="padding:5px 0;border-top:1px solid var(--border);font-size:12.5px"><strong>'+p.Nome+'</strong>: giorni feriali vuoti &rarr; '+mancanti.join(', ')+'</div>';
+  });
+  if(buchi)h+='<div class="card" style="margin-top:12px"><div class="card-title">Giorni lavorativi senza ore</div>'
+    +'<div style="font-size:12px;color:var(--gray);margin-bottom:4px">Sabato e domenica non contano. I giorni futuri nemmeno.</div>'+buchi+'</div>';
+  return h;
+}
+function meseSposta(m,n){
+  let y=+m.slice(0,4), mm=+m.slice(5,7)+n;
+  while(mm<1){mm+=12;y--;}
+  while(mm>12){mm-=12;y++;}
+  return y+'-'+String(mm).padStart(2,'0');
+}
+function csvTabellaMese(){
+  const m=ORE_MESE||meseCorrente(), ng=giorniDelMese(m);
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo).slice().sort((a,b)=>String(a.Nome||'').localeCompare(String(b.Nome||'')));
+  const g={};
+  (STATE.ore||[]).forEach(function(r){
+    const d=String(r.Data||'').slice(0,10);
+    if(d.slice(0,7)!==m)return;
+    const gi=+d.slice(8,10);
+    if(!g[r.PersonaID])g[r.PersonaID]={};
+    g[r.PersonaID][gi]=(g[r.PersonaID][gi]||0)+(+r.Ore||0);
+  });
+  const head=['Persona']; for(let i=1;i<=ng;i++)head.push(String(i)); head.push('Totale');
+  const righe=[head];
+  persone.forEach(function(p){
+    const r=[p.Nome]; let t=0;
+    for(let i=1;i<=ng;i++){const v=(g[p.ID]||{})[i]||0;t+=v;r.push(v?csvNum(v,2):'');}
+    r.push(csvNum(t,2)); righe.push(r);
+  });
+  scaricaCsv('ore_'+m+'.csv',righe);
+}
+
+// ==================================================================
+//  RIEPILOGO ANNO
+//  Quanto e' costato ogni gruppo di commesse: le offerte non diventate
+//  lavoro, i lavori veri, i progetti interni sull'utile.
+// ==================================================================
+var ORE_ANNO='';
+function oreAnnoImposta(v){ORE_ANNO=v;oreRefresh();}
+function oreTabAnno(){
+  const anni={};
+  (STATE.ore||[]).forEach(function(r){const a=String(r.Data||'').slice(0,4);if(a)anni[a]=1;});
+  const listaAnni=Object.keys(anni).sort().reverse();
+  if(!ORE_ANNO)ORE_ANNO=listaAnni[0]||String(new Date().getFullYear());
+  const anno=ORE_ANNO;
+
+  const righe=(STATE.ore||[]).filter(r=>String(r.Data||'').slice(0,4)===anno);
+  // gruppi
+  const G={offerta:{h:0,c:0,n:{}},in_lavorazione:{h:0,c:0,n:{}},chiusa:{h:0,c:0,n:{}},
+           interna:{h:0,c:0,n:{}},senza:{h:0,c:0,n:{}}};
+  righe.forEach(function(r){
+    const id=String(r.Commessa||'').trim();
+    const h=+r.Ore||0, c=(+r.Costo||0)+(+r.Rimborso||0);
+    let k;
+    if(!id)k='senza';
+    else if(commessaInterna(id))k='interna';
+    else{k=statoDiCommessa(id)||'in_lavorazione';}
+    if(!G[k])G[k]={h:0,c:0,n:{}};
+    G[k].h+=h;G[k].c+=c;if(id)G[k].n[id]=(G[k].n[id]||0)+h;
+  });
+  const blocchi=[
+    ['offerta','Commesse ancora in offerta','Se non diventano lavoro, questo e&#39; quanto ti sono costate.','var(--amber)'],
+    ['in_lavorazione','Commesse in lavorazione','','var(--green)'],
+    ['chiusa','Commesse chiuse','','var(--gray)'],
+    ['interna','Progetti interni (sull&#39;utile)','Lavori tuoi, finanziati con l&#39;utile: non li fattura nessuno.','var(--accent)'],
+    ['senza','Ore senza commessa','Ferie, permessi, assenze e ore non assegnate.','var(--gray)']
+  ];
+  let h='<div class="card" style="margin-top:14px"><div class="filters" style="gap:8px">'
+   +'<select onchange="oreAnnoImposta(this.value)">'
+   +listaAnni.map(a=>'<option value="'+a+'"'+(a===anno?' selected':'')+'>'+a+'</option>').join('')
+   +'</select><button class="btn btn-ghost" onclick="csvRiepilogoAnno()">Scarica in CSV</button>'
+   +'<span style="align-self:center;font-size:12.5px;color:var(--gray)">Ore dell&#39;anno '+anno+', divise per che tipo di commessa sono adesso.</span>'
+   +'</div></div>';
+
+  let totH=0,totC=0;
+  blocchi.forEach(b=>{totH+=G[b[0]].h;totC+=G[b[0]].c;});
+
+  h+='<div class="card" style="margin-top:12px"><div class="card-title">Totale '+anno+'</div>'
+   +'<div style="font-size:15px"><strong>'+nOre(totH)+' ore</strong>'
+   +(totC?(' &middot; costo <strong>&euro; '+euro(totC)+'</strong>'):'')+'</div></div>';
+
+  blocchi.forEach(function(b){
+    const d=G[b[0]];
+    if(!d.h&&!d.c)return;
+    const dett=Object.keys(d.n).sort((x,y)=>d.n[y]-d.n[x]);
+    h+='<div class="card" style="margin-top:10px;border-left:3px solid '+b[3]+'">'
+     +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">'
+     +'<div style="font-weight:600">'+b[1]+'</div>'
+     +'<div style="font-weight:700">'+nOre(d.h)+' h'+(d.c?(' &middot; &euro; '+euro(d.c)):'')+'</div></div>'
+     +(b[2]?'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+b[2]+'</div>':'')
+     +(dett.length?('<div style="margin-top:8px;font-size:12.5px;line-height:1.9">'
+        +dett.map(id=>'<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:3px"><span><span style="font-family:monospace">'+id+'</span> '+(nomeCommessa(id)||'')+'</span><span>'+nOre(d.n[id])+' h</span></div>').join('')
+        +'</div>'):'')
+     +'</div>';
+  });
+  return h;
+}
+function csvRiepilogoAnno(){
+  const anno=ORE_ANNO||String(new Date().getFullYear());
+  const righe=[['Anno','Gruppo','Commessa','Nome','Ore','Costo']];
+  const acc={};
+  (STATE.ore||[]).forEach(function(r){
+    if(String(r.Data||'').slice(0,4)!==anno)return;
+    const id=String(r.Commessa||'').trim();
+    let k; if(!id)k='senza commessa'; else if(commessaInterna(id))k='progetto interno';
+    else k=statoCommLabel(statoDiCommessa(id)||'in_lavorazione');
+    const key=k+'|'+id;
+    if(!acc[key])acc[key]={k:k,id:id,h:0,c:0};
+    acc[key].h+=(+r.Ore||0);
+    acc[key].c+=((+r.Costo||0)+(+r.Rimborso||0));
+  });
+  Object.keys(acc).sort().forEach(function(key){
+    const a=acc[key];
+    righe.push([anno,a.k,a.id,nomeCommessa(a.id),csvNum(a.h,2),csvNum(a.c,2)]);
+  });
+  scaricaCsv('riepilogo_ore_'+anno+'.csv',righe);
+}
+
 function oreTabPersonale(){
   const list=(STATE.personale||[]);
   let h='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
@@ -4773,13 +5223,130 @@ function openFoglioSettimana(persId,lun){
    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
    +'<thead><tr><th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:150px">Commessa</th>'
    +'<th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:120px">Tipo</th>'+th
-   +'<th style="width:34px"></th></tr></thead><tbody id="fs-body"></tbody></table></div>'
+   +'<th style="text-align:center;padding:4px;font-size:11px;color:var(--gray);min-width:56px">Totale</th>'
+   +'<th style="width:34px"></th></tr></thead><tbody id="fs-body"></tbody>'
+   +'<tfoot><tr id="fs-tot" style="border-top:2px solid var(--border);font-weight:700">'
+   +'<td colspan="2" style="padding:6px 4px">Totale del giorno</td>'
+   +GIORNI_S.map((g,i)=>'<td style="text-align:center;padding:6px 2px"><span id="fs-tg'+i+'">0</span></td>').join('')
+   +'<td style="text-align:center;padding:6px 2px;color:var(--accent)"><span id="fs-tsett">0</span></td><td></td></tr></tfoot>'
+   +'</table></div>'
    +'<button class="btn btn-ghost" style="margin-top:10px" onclick="fsAddRiga()">+ Aggiungi riga</button>'
    +'<div id="fs-err" style="margin-top:8px"></div>'
    +'<button class="btn-primary" onclick="fsSalva()">Salva la settimana</button></div>');
   fsAddRiga();
 }
 function fsRicarica(){openFoglioSettimana(gv('fs-pers'),gv('fs-lun'));}
+
+// ------------------------------------------------------------------
+//  FOGLIO DI TUTTI: una riga per ogni persona, sette caselle.
+//  Serve all'ufficio per mettere dentro tutta la squadra in un colpo.
+// ------------------------------------------------------------------
+var FT_N=0;
+function openFoglioTutti(lun){
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo);
+  if(!persone.length){toast('Prima devi inserire le persone','err');return;}
+  const l=lun||lunediDi('');
+  FT_N=0;
+  const th=GIORNI_S.map((g,i)=>'<th style="padding:4px;font-size:11px;color:var(--gray);text-align:center;min-width:58px">'+g+'<div style="font-weight:400">'+dataIt(piuGiorni(l,i)).slice(0,5)+'</div></th>').join('');
+  openModal('<div class="modal" style="width:min(1100px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Foglio settimanale &mdash; tutta la squadra</h2>'
+   +'<div class="info-box" style="margin-bottom:10px">Una riga per ogni persona: scegli la commessa e scrivi le ore giorno per giorno. '
+   +'Se una persona ha lavorato su piu&#39; commesse nella stessa settimana, aggiungi una seconda riga per lei col pulsante in fondo. '
+   +'Le caselle vuote non vengono salvate.</div>'
+   +'<div class="form-group" style="max-width:260px"><label>Settimana dal (lunedi) *</label><input type="date" id="ft-lun" value="'+att(l)+'" onchange="ftRicarica()"></div>'
+   +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+   +'<thead><tr><th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:130px">Persona</th>'
+   +'<th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:150px">Commessa</th>'
+   +'<th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:110px">Tipo</th>'+th
+   +'<th style="text-align:center;padding:4px;font-size:11px;color:var(--gray)">Totale</th>'
+   +'<th style="width:30px"></th></tr></thead><tbody id="ft-body"></tbody>'
+   +'<tfoot><tr style="border-top:2px solid var(--border);font-weight:700">'
+   +'<td colspan="3" style="padding:6px 4px">Totale del giorno</td>'
+   +GIORNI_S.map((g,i)=>'<td style="text-align:center;padding:6px 2px"><span id="ft-tg'+i+'">0</span></td>').join('')
+   +'<td style="text-align:center;padding:6px 2px;color:var(--accent)"><span id="ft-tsett">0</span></td><td></td></tr></tfoot>'
+   +'</table></div>'
+   +'<button class="btn btn-ghost" style="margin-top:10px" onclick="ftAddRiga()">+ Aggiungi una riga</button>'
+   +'<div id="ft-err" style="margin-top:8px"></div>'
+   +'<button class="btn-primary" onclick="ftSalva()">Salva la settimana di tutti</button></div>');
+  persone.forEach(function(p){ftAddRiga(p.ID);});
+}
+function ftRicarica(){openFoglioTutti(gv('ft-lun'));}
+function ftAddRiga(persId){
+  const n=++FT_N;
+  const persone=(STATE.personale||[]).filter(p=>p.Attivo);
+  const optP=persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===persId?' selected':'')+'>'+p.Nome+'</option>').join('');
+  const optC='<option value="">- commessa -</option>'+(STATE.commesse||[]).filter(c=>normStatoComm(c.Stato)!=='chiusa')
+    .slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
+    .map(c=>'<option value="'+att(c.ID)+'">'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('');
+  const optT=TIPI_ORE.map(t=>'<option value="'+t[0]+'">'+t[1]+'</option>').join('');
+  let celle='';
+  for(let i=0;i<7;i++){
+    celle+='<td style="padding:2px;text-align:center">'
+     +'<input class="ft-h" type="number" step="0.25" min="0" style="width:52px;padding:5px;text-align:center" placeholder="h" oninput="ftSomme()">'
+     +'<input class="ft-km" type="number" step="any" min="0" style="width:52px;padding:5px;text-align:center;margin-top:3px;display:none" placeholder="km">'
+     +'</td>';
+  }
+  const tr='<tr class="ft-riga" id="ft-r'+n+'" style="border-top:1px solid var(--border)">'
+   +'<td style="padding:3px"><select class="ft-pers" style="width:100%;padding:5px">'+optP+'</select></td>'
+   +'<td style="padding:3px"><select class="ft-comm" style="width:100%;padding:5px">'+optC+'</select>'
+   +'<input class="ft-desc" style="width:100%;padding:5px;margin-top:3px;font-size:11.5px" placeholder="cosa ha fatto"></td>'
+   +'<td style="padding:3px"><select class="ft-tipo" style="width:100%;padding:5px" onchange="ftTipo(this)">'+optT+'</select>'
+   +'<input class="ft-dest" style="width:100%;padding:5px;margin-top:3px;font-size:11.5px;display:none" placeholder="destinazione"></td>'
+   +celle
+   +'<td style="text-align:center;font-weight:600"><span class="ft-tr">0</span></td>'
+   +'<td style="text-align:center"><span style="color:var(--red);cursor:pointer;font-size:18px" onclick="ftDelRiga('+n+')">&times;</span></td></tr>';
+  document.getElementById('ft-body').insertAdjacentHTML('beforeend',tr);
+  ftSomme();
+}
+function ftDelRiga(n){const tr=document.getElementById('ft-r'+n);if(tr)tr.parentNode.removeChild(tr);ftSomme();}
+function ftTipo(sel){
+  const tr=sel.closest('tr');
+  const v=tipoOraViaggio(sel.value);
+  Array.prototype.forEach.call(tr.querySelectorAll('.ft-km'),el=>{el.style.display=v?'':'none';});
+  const d=tr.querySelector('.ft-dest'); if(d)d.style.display=v?'':'none';
+  const c=tr.querySelector('.ft-comm'); if(c)c.style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
+}
+function ftSomme(){
+  const gg=[0,0,0,0,0,0,0]; let tot=0;
+  Array.prototype.forEach.call(document.querySelectorAll('#ft-body tr.ft-riga'),function(tr){
+    const hs=tr.querySelectorAll('.ft-h'); let r=0;
+    for(let i=0;i<7;i++){const v=parseFloat(hs[i].value)||0;gg[i]+=v;r+=v;}
+    const c=tr.querySelector('.ft-tr'); if(c)c.textContent=r?nOre(r):'';
+    tot+=r;
+  });
+  for(let i=0;i<7;i++){const el=document.getElementById('ft-tg'+i);if(el)el.textContent=gg[i]?nOre(gg[i]):'0';}
+  const t=document.getElementById('ft-tsett'); if(t)t.textContent=nOre(tot);
+}
+function ftSalva(){
+  const lun=gv('ft-lun');
+  if(!lun){showErr('ft-err','Scegli la settimana.');return;}
+  const righe=[];let manca=false,mancaP=false;
+  Array.prototype.forEach.call(document.querySelectorAll('#ft-body tr.ft-riga'),function(tr){
+    const pers=tr.querySelector('.ft-pers').value;
+    const tipo=tr.querySelector('.ft-tipo').value;
+    const comm=tr.querySelector('.ft-comm').value;
+    const desc=tr.querySelector('.ft-desc').value.trim();
+    const destEl=tr.querySelector('.ft-dest');
+    const dest=destEl?destEl.value.trim():'';
+    const hs=tr.querySelectorAll('.ft-h'),ks=tr.querySelectorAll('.ft-km');
+    for(let i=0;i<7;i++){
+      const h=parseFloat(hs[i].value)||0;
+      const km=tipoOraViaggio(tipo)?(parseFloat(ks[i].value)||0):0;
+      if(h<=0&&km<=0)continue;
+      if(!pers){mancaP=true;continue;}
+      if(tipoOraCommessa(tipo)&&!comm){manca=true;continue;}
+      righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:tipo,
+        Commessa:tipoOraCommessa(tipo)?comm:'',Ore:h,Km:km,Destinazione:dest,Descrizione:desc});
+    }
+  });
+  if(mancaP){showErr('ft-err','C&#39;e&#39; una riga con le ore ma senza persona.');return;}
+  if(manca){showErr('ft-err','C&#39;e&#39; una riga con le ore compilate ma senza commessa.');return;}
+  if(!righe.length){showErr('ft-err','Non hai compilato nessuna casella.');return;}
+  call('salvaOreBulk',{righe:righe}).then(function(r){
+    if(!r||!r.ok){showErr('ft-err',(r&&r.err)||'Errore');return;}
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(r.n+' registrazioni salvate');renderPage(STATE.pagina);});
+  }).catch(e=>showErr('ft-err',String((e&&e.message)||e)));
+}
 function fsAddRiga(){
   const n=++FS_N;
   const optC='<option value="">- commessa -</option>'+(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
@@ -4788,7 +5355,7 @@ function fsAddRiga(){
   let celle='';
   for(let i=0;i<7;i++){
     celle+='<td style="padding:2px;text-align:center">'
-     +'<input class="fs-h" type="number" step="0.25" min="0" style="width:56px;padding:5px;text-align:center" placeholder="h">'
+     +'<input class="fs-h" type="number" step="0.25" min="0" style="width:56px;padding:5px;text-align:center" placeholder="h" oninput="fsSomme()">'
      +'<input class="fs-km" type="number" step="any" min="0" style="width:56px;padding:5px;text-align:center;margin-top:3px;display:none" placeholder="km">'
      +'</td>';
   }
@@ -4798,10 +5365,28 @@ function fsAddRiga(){
    +'<td style="padding:3px"><select class="fs-tipo" style="width:100%;padding:5px" onchange="fsTipo(this)">'+optT+'</select>'
    +'<input class="fs-dest" style="width:100%;padding:5px;margin-top:3px;font-size:11.5px;display:none" placeholder="destinazione"></td>'
    +celle
+   +'<td style="text-align:center;font-weight:600"><span class="fs-tr">0</span></td>'
    +'<td style="text-align:center"><span style="color:var(--red);cursor:pointer;font-size:18px" onclick="fsDelRiga('+n+')">&times;</span></td></tr>';
   document.getElementById('fs-body').insertAdjacentHTML('beforeend',tr);
+  fsSomme();
 }
-function fsDelRiga(n){const tr=document.getElementById('fs-r'+n);if(tr)tr.parentNode.removeChild(tr);}
+// Rifa i conti: le somme in fondo a ogni colonna (il giorno) e a fine riga.
+function fsSomme(){
+  const gg=[0,0,0,0,0,0,0]; let tot=0;
+  Array.prototype.forEach.call(document.querySelectorAll('#fs-body tr.fs-riga'),function(tr){
+    const hs=tr.querySelectorAll('.fs-h'); let r=0;
+    for(let i=0;i<7;i++){const v=parseFloat(hs[i].value)||0;gg[i]+=v;r+=v;}
+    const c=tr.querySelector('.fs-tr'); if(c)c.textContent=r?nOre(r):'';
+    tot+=r;
+  });
+  for(let i=0;i<7;i++){
+    const el=document.getElementById('fs-tg'+i);
+    if(el){el.textContent=gg[i]?nOre(gg[i]):'0';
+      el.style.color=gg[i]>0?'var(--text)':'var(--gray)';}
+  }
+  const t=document.getElementById('fs-tsett'); if(t)t.textContent=nOre(tot);
+}
+function fsDelRiga(n){const tr=document.getElementById('fs-r'+n);if(tr)tr.parentNode.removeChild(tr);fsSomme();}
 function fsTipo(sel){
   const tr=sel.closest('tr');
   const v=tipoOraViaggio(sel.value);
@@ -5103,7 +5688,7 @@ function aiBriefing(domanda){
     });
     const vv=(STATE.voci||[]).filter(v=>v.Commessa===c.ID).reduce((s,v)=>s+(+v.Importo||0),0);
     const oo=oreTot((STATE.ore||[]).filter(o=>o.Commessa===c.ID));
-    R.push(c.ID+' | '+(c.Nome||'')+' | '+(c.Stato||'aperta')+' | '+aiNum(m2,2)+' | '+aiNum(m3,3)
+    R.push(c.ID+' | '+(c.Nome||'')+' | '+statoCommLabel(c.Stato)+((c.Tipo||tipoDaCodice(c.ID))==='interna'?' (interna)':'')+' | '+aiNum(m2,2)+' | '+aiNum(m3,3)
       +' | '+Object.keys(pz).length+' | '+aiNum(vv,2)+' | '+aiNum(oo.ore,2)+' | '+aiNum(oo.tot,2));
   });
 
@@ -5214,7 +5799,7 @@ function aiPulisci(){CHAT_MSG=[];aiDisegna();}
 function aiCresci(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,110)+'px';}
 function aiTasto(ev){ if(ev.key==='Enter'&&!ev.shiftKey){ev.preventDefault();aiInvia();} }
 function aiSuggeriti(){
-  const c=(STATE.commesse||[]).filter(x=>String(x.Stato||'aperta').toLowerCase()!=='chiusa');
+  const c=(STATE.commesse||[]).filter(x=>normStatoComm(x.Stato)==='in_lavorazione');
   const nome=c.length?((c[0].Nome&&c[0].Nome!==c[0].ID)?c[0].Nome:c[0].ID):'';
   const s=['Cosa devo riordinare?'];
   if(nome)s.push('Come sta andando la commessa '+nome+'?');
@@ -5336,8 +5921,8 @@ function vocCatalogo(){
   return {
     articoli:(STATE.articoli||[]).map(a=>({id:a.ID,nome:a.Nome,unita:a.UnitaMisura||'pz'})),
     materiali:mats,
-    commesse:(STATE.commesse||[]).filter(c=>String(c.Stato||'aperta').toLowerCase()!=='chiusa')
-      .map(c=>({id:c.ID,nome:c.Nome||c.ID})),
+    commesse:(STATE.commesse||[]).filter(c=>normStatoComm(c.Stato)!=='chiusa')
+      .map(c=>({id:c.ID,nome:(c.Nome||c.ID)+(commessaInterna(c.ID)?' [progetto interno]':'')+(normStatoComm(c.Stato)==='offerta'?' [in offerta]':'')})),
     persone:(STATE.personale||[]).filter(p=>p.Attivo).map(p=>({id:p.ID,nome:p.Nome})),
     categorie:categorieVoci()
   };
