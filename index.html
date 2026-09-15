@@ -299,7 +299,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v79 - Atelier</div>
+  <div id="ver-badge">v80 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4413,6 +4413,7 @@ function dataIt(iso){const t=String(iso||'').slice(0,10);return t.length===10?(t
 const GIORNI_S=['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
 
 let ORE_TAB='registra', ORE_PERS='', ORE_COMM='', ORE_DA='', ORE_A='';
+let ORE_Q='', ORE_TIPO='', ORE_ORD='data';
 
 function oreFiltrate(o){
   o=o||{};
@@ -4576,6 +4577,36 @@ function oreSetPeriodo(quale){
   else if(quale==='tutto'){ORE_DA='';ORE_A='';}
   oreRefresh();
 }
+// Barra di ricerca + tipo + persona, uguale in tutte le schede.
+// Usa gli stessi filtri del registro, cosi' quello che imposti da una
+// parte lo ritrovi dall'altra invece di doverlo rifare.
+function oreBarraCerca(o){
+  o=o||{};
+  const attivi=!!(ORE_Q||ORE_TIPO||(o.persona&&ORE_PERS)||(o.commessa&&ORE_COMM));
+  let h='<div class="filters" style="gap:8px;margin-top:10px">'
+   +'<input id="oc-q" value="'+att(ORE_Q)+'" placeholder="Cerca: una commessa, una destinazione, una parola nelle note..." '
+   +'oninput="oreCercaImposta(this.value)" style="flex:1;min-width:230px;padding:9px 11px">'
+   +'<select onchange="ORE_TIPO=this.value;oreRefresh()"><option value="">Tutti i tipi</option>'
+   +TIPI_ORE.map(t=>'<option value="'+t[0]+'"'+(t[0]===ORE_TIPO?' selected':'')+'>'+t[1]+'</option>').join('')+'</select>';
+  if(o.persona){
+    h+='<select onchange="ORE_PERS=this.value;oreRefresh()"><option value="">Tutte le persone</option>'
+     +(STATE.personale||[]).map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===ORE_PERS?' selected':'')+'>'+p.Nome+'</option>').join('')+'</select>';
+  }
+  if(o.commessa){
+    h+='<select onchange="ORE_COMM=this.value;oreRefresh()"><option value="">Tutte le commesse</option>'
+     +(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
+       .map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===ORE_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('')
+     +'<option value="__vuota__"'+(ORE_COMM==='__vuota__'?' selected':'')+'>(senza commessa)</option></select>';
+  }
+  if(attivi)h+='<button class="btn btn-ghost" onclick="oreCercaAzzera()">Azzera i filtri</button>';
+  return h+'</div>';
+}
+function oreCercaImposta(v){
+  ORE_Q=v; oreRefresh();
+  const e=document.getElementById('oc-q');
+  if(e){e.focus();try{e.setSelectionRange(e.value.length,e.value.length);}catch(x){}}
+}
+function oreCercaAzzera(){ ORE_Q=''; ORE_TIPO=''; oreRefresh(); }
 function oreBarraPeriodo(){
   return '<div class="filters" style="gap:8px;flex-wrap:wrap">'
    +'<div style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--gray)">dal <input type="date" id="op-da" value="'+att(ORE_DA)+'" onchange="ORE_DA=this.value;oreRefresh()" style="width:150px"></div>'
@@ -4602,7 +4633,9 @@ function kpiOre(t,admin){
   }
   return h+'</div>';
 }
-function tabellaPerChiave(list,chiaveFn,etichetta,admin,totProd){
+// campo: su che cosa e' raggruppata la tabella (commessa | persona | tipo),
+// base: i filtri gia' attivi, che vanno mantenuti aprendo il dettaglio.
+function tabellaPerChiave(list,chiaveFn,etichetta,admin,totProd,campo,base){
   const g={};
   list.forEach(function(r){const k=chiaveFn(r)||'(non indicata)';(g[k]=g[k]||[]).push(r);});
   const keys=Object.keys(g).sort();
@@ -4615,7 +4648,22 @@ function tabellaPerChiave(list,chiaveFn,etichetta,admin,totProd){
   keys.forEach(function(k){
     const t=oreTot(g[k]);
     const pct=totProd>0?Math.round(t.ore/totProd*1000)/10:0;
-    h+='<tr style="border-top:1px solid var(--border)"><td style="padding:7px 4px">'+k+'</td>'
+    // per aprire il dettaglio mi serve il valore vero, non l'etichetta
+    let val=k, ok=!!campo;
+    if(campo==='tipo'){
+      const tt=TIPI_ORE.filter(x=>x[1]===k)[0]; if(tt)val=tt[0]; else ok=false;
+    }
+    if(campo==='persona'){
+      const pp=(STATE.personale||[]).filter(x=>x.Nome===k)[0]; if(pp)val=pp.ID; else ok=false;
+    }
+    if(campo==='commessa'&&k==='(non indicata)')val='__vuota__';
+    const apri=ok?('oreDettApri('+att(JSON.stringify(Object.assign({},base||{},
+      {titolo:etichetta.replace(/e$/,'a')+': '+k,
+       sottotitolo:oreDettSottotitolo(Object.assign({},base||{})),
+       },(function(o){o[campo]=val;return o;})({})))).replace(/'/g,'&#39;')+')'):'';
+    h+='<tr style="border-top:1px solid var(--border)'+(ok?';cursor:pointer':'')+'"'
+     +(ok?(' onclick="'+apri+'" title="Apri le registrazioni"'):'')+'>'
+     +'<td style="padding:7px 4px'+(ok?';color:var(--accent);text-decoration:underline':'')+'">'+k+'</td>'
      +'<td style="text-align:right;font-weight:600">'+nOre(t.ore)+'</td>'
      +'<td style="text-align:right;color:var(--gray)">'+(totProd>0?(nOre(pct)+'%'):'-')+'</td>'
      +'<td style="text-align:right;color:var(--gray)">'+(t.km?nOre(t.km):'-')+'</td>'
@@ -4639,22 +4687,28 @@ function oreTabPersona(){
      +persone.map(x=>'<option value="'+att(x.ID)+'"'+(x.ID===ORE_PERS?' selected':'')+'>'+x.Nome+(x.Attivo?'':' (non in forza)')+'</option>').join('')
      +'</select></div>';
   }
+  h+=oreBarraCerca();
   h+=oreBarraPeriodo();
   if(!p)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Scegli una persona.</div>';
-  const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A});
+  const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A,q:ORE_Q,tipo:ORE_TIPO});
   const t=oreTot(list);
   h+='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
    +'<div><div style="font-family:Georgia,serif;font-size:18px;font-weight:600">'+p.Nome+'</div>'
    +'<div style="font-size:12px;color:var(--gray)">'+(p.Mansione||'')
      +(admin&&p.CostoOrario?(' &middot; &euro; '+euro(p.CostoOrario)+'/ora'):'')
      +(admin&&p.EuroKm?(' &middot; &euro; '+euro(p.EuroKm)+'/km'):'')+'</div></div>'
-   +'<div style="display:flex;gap:8px"><button class="btn btn-accent" onclick="stampaMastrinoPersona()">Stampa PDF</button>'
-   +'<button class="btn btn-green" onclick="csvMastrinoPersona()">Esporta CSV</button></div></div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-accent" onclick="stampaMastrinoPersona()">Stampa PDF</button>'
+   +'<button class="btn btn-green" onclick="csvMastrinoPersona()">Esporta CSV</button>'
+   +'<button class="btn btn-green" onclick="csvDettaglioPeriodo()">Dettaglio giorno per giorno</button>'
+   +'<button class="btn btn-green" onclick="csvPersoneCommessePeriodo()">Persone x commesse</button></div></div>'
    +kpiOre(t,admin)+'</div>';
   if(!list.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Nessuna ora in questo periodo.</div>';
-  h+=tabellaPerChiave(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',admin,t.produttive);
-  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore);
-  h+='<div class="card"><div class="card-title">Dettaglio giorno per giorno</div>'+list.map(r=>rigaOra(r,false)).join('')+'</div>';
+  const baseP={persona:ORE_PERS,da:ORE_DA,a:ORE_A,q:ORE_Q};
+  h+=tabellaPerChiave(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',admin,t.produttive,'commessa',baseP);
+  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore,'tipo',baseP);
+  h+='<div class="card"><div class="card-title">Dettaglio giorno per giorno</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Ogni riga si modifica o si cancella da qui.</div>'
+   +list.map(r=>rigaOra(r,false)).join('')+'</div>';
   return h;
 }
 
@@ -4665,19 +4719,25 @@ function oreTabCommessa(){
   let h='<div class="filters" style="margin-top:14px"><select onchange="ORE_COMM=this.value;oreRefresh()">'
    +'<option value="">Tutte le commesse</option>'
    +comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===ORE_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('')
-   +'</select></div>'+oreBarraPeriodo();
-  const list=oreFiltrate({commessa:ORE_COMM,da:ORE_DA,a:ORE_A}).filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
+   +'</select></div>'+oreBarraCerca()+oreBarraPeriodo();
+  const list=oreFiltrate({commessa:ORE_COMM,da:ORE_DA,a:ORE_A,q:ORE_Q,tipo:ORE_TIPO,persona:ORE_PERS})
+    .filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
   const t=oreTot(list);
   h+='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
    +'<div style="font-family:Georgia,serif;font-size:18px;font-weight:600">'+(ORE_COMM?('Commessa '+ORE_COMM):'Tutte le commesse')+'</div>'
-   +'<div style="display:flex;gap:8px"><button class="btn btn-accent" onclick="stampaMastrinoCommessa()">Stampa PDF</button>'
-   +'<button class="btn btn-green" onclick="csvMastrinoCommessa()">Esporta CSV</button></div></div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-accent" onclick="stampaMastrinoCommessa()">Stampa PDF</button>'
+   +'<button class="btn btn-green" onclick="csvMastrinoCommessa()">Esporta CSV</button>'
+   +'<button class="btn btn-green" onclick="csvDettaglioPeriodo()">Dettaglio giorno per giorno</button>'
+   +'<button class="btn btn-green" onclick="csvPersoneCommessePeriodo()">Persone x commesse</button></div></div>'
    +kpiOre(t,admin)+'</div>';
   if(!list.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Nessuna ora registrata su commessa in questo periodo.</div>';
-  if(!ORE_COMM)h+=tabellaPerChiave(list,r=>r.Commessa,'Commesse',admin,t.ore);
-  h+=tabellaPerChiave(list,r=>r.Persona,'Persone',admin,t.ore);
-  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore);
-  h+='<div class="card"><div class="card-title">Dettaglio</div>'+list.map(r=>rigaOra(r,true)).join('')+'</div>';
+  const baseC={commessa:ORE_COMM,da:ORE_DA,a:ORE_A,q:ORE_Q};
+  if(!ORE_COMM)h+=tabellaPerChiave(list,r=>r.Commessa,'Commesse',admin,t.ore,'commessa',baseC);
+  h+=tabellaPerChiave(list,r=>r.Persona,'Persone',admin,t.ore,'persona',baseC);
+  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore,'tipo',baseC);
+  h+='<div class="card"><div class="card-title">Dettaglio</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Ogni riga si modifica o si cancella da qui.</div>'
+   +list.map(r=>rigaOra(r,true)).join('')+'</div>';
   return h;
 }
 
@@ -4687,7 +4747,6 @@ function oreTabCommessa(){
 //  Tutte le registrazioni in un elenco solo, con la ricerca e
 //  tutti i filtri. Quello che vedi e' quello che scarichi.
 // ============================================================
-let ORE_Q='', ORE_TIPO='', ORE_ORD='data';
 function oreRegImposta(campo,valore){
   if(campo==='q')ORE_Q=valore;
   else if(campo==='tipo')ORE_TIPO=valore;
@@ -5074,9 +5133,10 @@ function oreTabMese(){
     .slice().sort((a,b)=>String(a.Nome||'').localeCompare(String(b.Nome||'')));
   // griglia[personaID][giorno] = ore
   const g={}, totP={};
-  (STATE.ore||[]).forEach(function(r){
+  // la griglia mostra quello che passa dai filtri in alto
+  oreFiltrate({da:m+'-01',a:m+'-'+String(ng).padStart(2,'0'),
+    commessa:ORE_COMM,tipo:ORE_TIPO,q:ORE_Q}).forEach(function(r){
     const d=String(r.Data||'').slice(0,10);
-    if(d.slice(0,7)!==m)return;
     const gi=+d.slice(8,10);
     if(!g[r.PersonaID])g[r.PersonaID]={};
     g[r.PersonaID][gi]=(g[r.PersonaID][gi]||0)+(+r.Ore||0);
@@ -5089,8 +5149,12 @@ function oreTabMese(){
    +'<button class="btn btn-ghost" onclick="oreMeseImposta(\''+meseSposta(m,1)+'\')">mese dopo &rarr;</button>'
    +'<button class="btn btn-ghost" onclick="csvTabellaMese()">Scarica la tabella (CSV)</button>'
    +'<button class="btn btn-ghost" onclick="csvDettaglioMese()">Dettaglio del mese: persone, commesse, giorni</button>'
-   +'<span style="align-self:center;font-size:13px;color:var(--gray)">'+meseLabel(m)+'</span>'
-   +'</div></div>';
+   +'</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:8px"><strong>'+meseLabel(m)+'</strong> &middot; '
+   +'Clicca un numero per vedere e correggere le ore di quel giorno. '
+   +'Clicca il nome per aprire tutto il mese di quella persona. Le caselle vuote hanno un <strong>+</strong>: da li&#39; aggiungi le ore che mancano.</div>'
+   +oreBarraCerca({commessa:true})
+   +'</div>';
 
   if(!persone.length)return h+'<div class="card" style="color:var(--gray)">Nessuna persona in forza.</div>';
 
@@ -5115,13 +5179,21 @@ function oreTabMese(){
       const dow=new Date(iso+'T12:00:00').getDay();
       const fest=(dow===0||dow===6);
       const v=riga[i]||0;
-      tds+='<td style="text-align:center;padding:3px 1px;font-size:11px;'
+      const f={persona:p.ID,giorno:iso,da:iso,a:iso,commessa:ORE_COMM,tipo:ORE_TIPO,
+        titolo:p.Nome+' - '+dataIt(iso),sottotitolo:''};
+      tds+='<td onclick=\'oreDettApri('+att(JSON.stringify(f)).replace(/'/g,'&#39;')+')\' '
+        +'title="Apri le ore di questo giorno" '
+        +'style="text-align:center;padding:3px 1px;font-size:11px;cursor:pointer;'
         +(v?'font-weight:600;':'color:var(--gray);')
         +(fest?'background:#faf7f2;':'')
-        +'">'+(v?nOre(v).replace(',00',''):'')+'</td>';
+        +'">'+(v?nOre(v).replace(',00',''):'<span style="opacity:.35">+</span>')+'</td>';
     }
+    const fMese={persona:p.ID,da:m+'-01',a:m+'-'+String(ng).padStart(2,'0'),
+      commessa:ORE_COMM,tipo:ORE_TIPO,titolo:p.Nome+' - '+meseLabel(m),sottotitolo:''};
     body+='<tr style="border-top:1px solid var(--border)">'
-      +'<td style="padding:4px;font-size:12px;white-space:nowrap;position:sticky;left:0;background:var(--white)">'+p.Nome+'</td>'
+      +'<td onclick=\'oreDettApri('+att(JSON.stringify(fMese)).replace(/'/g,'&#39;')+')\' '
+      +'title="Apri tutto il mese di questa persona" '
+      +'style="padding:4px;font-size:12px;white-space:nowrap;position:sticky;left:0;background:var(--white);cursor:pointer;color:var(--accent);text-decoration:underline">'+p.Nome+'</td>'
       +tds
       +'<td style="text-align:center;padding:4px;font-weight:700;font-size:12px">'+(totP[p.ID]?nOre(totP[p.ID]):'0')+'</td></tr>';
   });
@@ -5170,6 +5242,10 @@ function meseSposta(m,n){
 }
 // Il dettaglio del mese che stai guardando: imposta le date e chiama
 // la stessa funzione del registro, cosi' il file e' identico.
+// Gli stessi due scarichi del registro, richiamabili da qualunque scheda:
+// usano i filtri che hai davanti in quel momento.
+function csvDettaglioPeriodo(){ csvDettaglioGiorni(); }
+function csvPersoneCommessePeriodo(){ csvPersoneCommesse(); }
 function csvDettaglioMese(){
   const m=ORE_MESE||meseCorrente();
   const salva=[ORE_Q,ORE_PERS,ORE_COMM,ORE_TIPO,ORE_DA,ORE_A];
@@ -5182,9 +5258,9 @@ function csvTabellaMese(){
   const m=ORE_MESE||meseCorrente(), ng=giorniDelMese(m);
   const persone=(STATE.personale||[]).filter(p=>p.Attivo).slice().sort((a,b)=>String(a.Nome||'').localeCompare(String(b.Nome||'')));
   const g={};
-  (STATE.ore||[]).forEach(function(r){
+  oreFiltrate({da:m+'-01',a:m+'-'+String(ng).padStart(2,'0'),
+    commessa:ORE_COMM,tipo:ORE_TIPO,q:ORE_Q}).forEach(function(r){
     const d=String(r.Data||'').slice(0,10);
-    if(d.slice(0,7)!==m)return;
     const gi=+d.slice(8,10);
     if(!g[r.PersonaID])g[r.PersonaID]={};
     g[r.PersonaID][gi]=(g[r.PersonaID][gi]||0)+(+r.Ore||0);
@@ -5213,7 +5289,11 @@ function oreTabAnno(){
   if(!ORE_ANNO)ORE_ANNO=listaAnni[0]||String(new Date().getFullYear());
   const anno=ORE_ANNO;
 
-  const righe=(STATE.ore||[]).filter(r=>String(r.Data||'').slice(0,4)===anno);
+  const righe=(STATE.ore||[]).filter(function(r){
+    if(String(r.Data||'').slice(0,4)!==anno)return false;
+    if(ORE_PERS&&r.PersonaID!==ORE_PERS)return false;
+    return true;
+  });
   // gruppi
   const G={offerta:{h:0,c:0,n:{}},in_lavorazione:{h:0,c:0,n:{}},chiusa:{h:0,c:0,n:{}},
            interna:{h:0,c:0,n:{}},senza:{h:0,c:0,n:{}}};
@@ -5237,7 +5317,10 @@ function oreTabAnno(){
   let h='<div class="card" style="margin-top:14px"><div class="filters" style="gap:8px">'
    +'<select onchange="oreAnnoImposta(this.value)">'
    +listaAnni.map(a=>'<option value="'+a+'"'+(a===anno?' selected':'')+'>'+a+'</option>').join('')
-   +'</select><button class="btn btn-ghost" onclick="csvRiepilogoAnno()">Scarica in CSV</button>'
+   +'</select>'
+   +'<select onchange="ORE_PERS=this.value;oreRefresh()"><option value="">Tutte le persone</option>'
+   +(STATE.personale||[]).map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===ORE_PERS?' selected':'')+'>'+p.Nome+'</option>').join('')+'</select>'
+   +'<button class="btn btn-ghost" onclick="csvRiepilogoAnno()">Scarica in CSV</button>'
    +'<span style="align-self:center;font-size:12.5px;color:var(--gray)">Ore dell&#39;anno '+anno+', divise per che tipo di commessa sono adesso.</span>'
    +'</div></div>';
 
@@ -5258,7 +5341,15 @@ function oreTabAnno(){
      +'<div style="font-weight:700">'+nOre(d.h)+' h'+(d.c?(' &middot; &euro; '+euro(d.c)):'')+'</div></div>'
      +(b[2]?'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+b[2]+'</div>':'')
      +(dett.length?('<div style="margin-top:8px;font-size:12.5px;line-height:1.9">'
-        +dett.map(id=>'<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:3px"><span><span style="font-family:monospace">'+id+'</span> '+(nomeCommessa(id)||'')+'</span><span>'+nOre(d.n[id])+' h</span></div>').join('')
+        +dett.map(function(id){
+            const f={commessa:id,da:anno+'-01-01',a:anno+'-12-31',persona:ORE_PERS,
+              titolo:'Commessa '+id+(nomeCommessa(id)?(' - '+nomeCommessa(id)):''),sottotitolo:'anno '+anno};
+            return '<div onclick=\'oreDettApri('+att(JSON.stringify(f)).replace(/'/g,'&#39;')+')\' '
+              +'title="Apri le registrazioni" '
+              +'style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:3px;cursor:pointer">'
+              +'<span><span style="font-family:monospace;color:var(--accent);text-decoration:underline">'+id+'</span> '+(nomeCommessa(id)||'')+'</span>'
+              +'<span>'+nOre(d.n[id])+' h</span></div>';
+          }).join('')
         +'</div>'):'')
      +'</div>';
   });
@@ -5270,6 +5361,7 @@ function csvRiepilogoAnno(){
   const acc={};
   (STATE.ore||[]).forEach(function(r){
     if(String(r.Data||'').slice(0,4)!==anno)return;
+    if(ORE_PERS&&r.PersonaID!==ORE_PERS)return;
     const id=String(r.Commessa||'').trim();
     let k; if(!id)k='senza commessa'; else if(commessaInterna(id))k='progetto interno';
     else k=statoCommLabel(statoDiCommessa(id)||'in_lavorazione');
@@ -5312,13 +5404,17 @@ function oreTabPersonale(){
 }
 
 // ---------- modale: una registrazione ----------
-function openNuovaOra(id){
+function openNuovaOra(id,pre){
   if(!(STATE.personale||[]).length){toast('Prima devi inserire le persone','err');navTo('ore');return;}
   const r=id?(STATE.ore||[]).filter(x=>x.ID===id)[0]:null;
   const admin=oreAdmin(),mia=personaMia();
   const persone=(STATE.personale||[]).filter(p=>p.Attivo||(r&&r.PersonaID===p.ID));
   if(!admin&&!mia){toast('Il tuo utente non è collegato a nessuna persona in elenco','err');return;}
-  const d=r||{Data:oggiISO(),PersonaID:(admin?((persone[0]||{}).ID||''):mia.ID),Tipo:'lavoro',Commessa:(ORE_COMM||''),Ore:'',Km:'',Destinazione:'',Descrizione:'',Note:''};
+  pre=pre||{};
+  const d=r||{Data:(pre.Data||oggiISO()),
+    PersonaID:(admin?(pre.PersonaID||(persone[0]||{}).ID||''):mia.ID),
+    Tipo:(pre.Tipo||'lavoro'),Commessa:(pre.Commessa||ORE_COMM||''),
+    Ore:'',Km:'',Destinazione:'',Descrizione:'',Note:''};
   const optP=persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===d.PersonaID?' selected':'')+'>'+p.Nome+(p.Mansione?(' - '+p.Mansione):'')+'</option>').join('');
   const optT=TIPI_ORE.map(t=>'<option value="'+t[0]+'"'+(t[0]===d.Tipo?' selected':'')+'>'+t[1]+'</option>').join('');
   const optC=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
@@ -5361,7 +5457,7 @@ function submitOra(id){
     if(v&&v.PersonaID===d.PersonaID){d.CostoOrario=v.CostoOrario;d.EuroKm=v.EuroKm;}}
   call('salvaOra',d).then(function(r){
     if(!r||!r.ok){showErr('no-err',(r&&r.err)||'Errore');return;}
-    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(id?'Registrazione aggiornata':'Ore registrate');renderPage(STATE.pagina);});
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(id?'Registrazione aggiornata':'Ore registrate');oreDopoModifica();});
   }).catch(e=>showErr('no-err',String((e&&e.message)||e)));
 }
 function confEliminaOra(id){
@@ -5373,7 +5469,7 @@ function confEliminaOra(id){
 function submitEliminaOra(id){
   call('eliminaOra',{id:id}).then(function(r){
     if(!r||!r.ok){showErr('eo-err','Errore');return;}
-    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast('Registrazione eliminata');renderPage(STATE.pagina);});
+    call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast('Registrazione eliminata');oreDopoModifica();});
   }).catch(e=>showErr('eo-err',String((e&&e.message)||e)));
 }
 
@@ -6008,6 +6104,83 @@ function impSalva(b){
     call('getOre').then(function(o){STATE.ore=o||[];closeModal();
       toast(r.n+' registrazioni importate');renderPage(STATE.pagina);});
   }).catch(function(e){showErr('io-err',String((e&&e.message)||e));if(b){b.disabled=false;b.textContent='Importa le ore';}});
+}
+
+// ==================================================================
+//  DETTAGLIO DELLE ORE
+//  ORE_DETT tiene da dove sei arrivato, cosi' dopo una modifica la
+//  finestra si riapre uguale invece di sparire.
+// ==================================================================
+var ORE_DETT=null;
+
+function oreDettSottotitolo(f){
+  const p=[];
+  if(f.persona){const x=(STATE.personale||[]).filter(y=>y.ID===f.persona)[0];if(x)p.push(x.Nome);}
+  if(f.commessa&&f.commessa!=='__vuota__')p.push('commessa '+f.commessa);
+  if(f.commessa==='__vuota__')p.push('senza commessa');
+  if(f.tipo)p.push(tipoOraLabel(f.tipo));
+  if(f.giorno)p.push(dataIt(f.giorno));
+  else if(f.da||f.a)p.push('dal '+dataIt(f.da||'')+' al '+dataIt(f.a||''));
+  return p.join(' &middot; ');
+}
+function oreDettApri(f){
+  ORE_DETT=Object.assign({q:''},f||{});
+  oreDettDisegna();
+}
+function oreDettChiudi(){ ORE_DETT=null; closeModal(); }
+function oreDettLista(){
+  const f=ORE_DETT||{};
+  return oreFiltrate({q:f.q,persona:f.persona,commessa:f.commessa,tipo:f.tipo,
+    da:f.da,a:f.a,ord:f.ord||'vecchi'});
+}
+function oreDettCerca(v){
+  if(!ORE_DETT)return;
+  ORE_DETT.q=v;
+  const box=document.getElementById('od-lista');
+  if(box)box.innerHTML=oreDettRighe();
+  const k=document.getElementById('od-tot');
+  if(k)k.innerHTML=oreDettTotale();
+}
+function oreDettRighe(){
+  const list=oreDettLista();
+  if(!list.length)return '<div style="color:var(--gray);font-size:13px;padding:10px 0">'
+    +'Nessuna registrazione. Con <strong>+ Aggiungi ore</strong> ne crei una nuova gia&#39; compilata.</div>';
+  return list.map(r=>rigaOra(r,true)).join('');
+}
+function oreDettTotale(){
+  const t=oreTot(oreDettLista()), admin=oreAdmin();
+  return '<strong>'+nOre(t.ore)+' ore</strong> in '+t.n+' registrazioni'
+    +(t.km?(' &middot; '+nOre(t.km)+' km'):'')
+    +(admin&&t.tot?(' &middot; <strong>&euro; '+euro(t.tot)+'</strong>'):'');
+}
+function oreDettDisegna(){
+  const f=ORE_DETT||{};
+  openModal('<div class="modal" style="width:min(820px,96vw)">'
+   +'<button class="modal-close" onclick="oreDettChiudi()">&times;</button>'
+   +'<h2 style="margin-bottom:2px">'+att(f.titolo||'Dettaglio ore')+'</h2>'
+   +(f.sottotitolo?('<div style="font-size:13px;color:var(--gray);margin-bottom:10px">'+f.sottotitolo+'</div>'):'')
+   +'<div class="info-box" id="od-tot" style="margin-bottom:10px">'+oreDettTotale()+'</div>'
+   +'<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+   +'<input id="od-q" value="'+att(f.q||'')+'" placeholder="Cerca dentro queste ore: una persona, una commessa, una parola..." '
+   +'oninput="oreDettCerca(this.value)" style="flex:1;min-width:220px;padding:9px 11px">'
+   +'<button class="btn btn-accent" onclick="oreDettNuova()">+ Aggiungi ore</button>'
+   +'</div>'
+   +'<div id="od-lista" style="max-height:52vh;overflow:auto">'+oreDettRighe()+'</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:10px">'
+   +'Quello che correggi qui vale dappertutto: mastrini, tabella del mese, riepilogo anno, report e scarichi '
+   +'leggono tutti le stesse righe.</div></div>');
+}
+// nuova riga gia' compilata con il contesto da cui sei partito
+function oreDettNuova(){
+  const f=ORE_DETT||{};
+  openNuovaOra('',{Data:f.giorno||f.da||'',PersonaID:f.persona||'',
+    Commessa:f.commessa||'',Tipo:(f.tipo&&f.tipo!=='__vuota__')?f.tipo:''});
+}
+// dopo una modifica o una cancellazione: rinfresco la pagina e, se ero
+// dentro il dettaglio, lo riapro com'era
+function oreDopoModifica(){
+  renderPage(STATE.pagina);
+  if(ORE_DETT)setTimeout(oreDettDisegna,60);
 }
 
 // ---------- modale: persona ----------
