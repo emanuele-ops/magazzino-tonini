@@ -299,7 +299,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v80 - Atelier</div>
+  <div id="ver-badge">v81 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4491,6 +4491,7 @@ function renderOre(){
   if(!admin&&ORE_TAB!=='registra'&&ORE_TAB!=='persona')ORE_TAB='registra';
   const tabs=[['registra','Registra ore'],['persona',admin?'Mastrino persona':'Le mie ore']];
   if(admin)tabs.push(['commessa','Mastrino commessa']);
+  if(admin)tabs.push(['agenda','Agenda giorno per giorno']);
   if(admin)tabs.push(['mese','Tabella del mese']);
   if(admin)tabs.push(['anno','Riepilogo anno']);
   tabs.push(['registro','Registro e ricerca']);
@@ -4505,6 +4506,7 @@ function renderOre(){
 function oreContenuto(){
   if(ORE_TAB==='persona')return oreTabPersona();
   if(ORE_TAB==='commessa')return oreTabCommessa();
+  if(ORE_TAB==='agenda')return oreTabAgenda();
   if(ORE_TAB==='mese')return oreTabMese();
   if(ORE_TAB==='anno')return oreTabAnno();
   if(ORE_TAB==='registro')return oreTabRegistro();
@@ -5110,6 +5112,178 @@ function csvOrePerCommessa(){csvRiepilogoOre(r=>r.Commessa,'Commessa','ore-per-c
 function csvOrePerPersona(){csvRiepilogoOre(r=>r.Persona,'Persona','ore-per-persona');}
 
 // ---------- TAB 4: persone ----------
+// ==================================================================
+//  AGENDA GIORNO PER GIORNO
+//  Un blocco per ogni giornata: dentro, una riga per persona con
+//  le sue commesse e le ore su ognuna. Come l'agenda di carta.
+// ==================================================================
+var AGENDA_MAX=60;   // quante giornate disegno per volta
+
+function agendaGruppi(){
+  const list=oreFiltrate({q:ORE_Q,persona:ORE_PERS,commessa:ORE_COMM,tipo:ORE_TIPO,
+    da:ORE_DA,a:ORE_A});
+  const per={};
+  list.forEach(function(r){
+    const d=String(r.Data||'').slice(0,10);
+    if(!per[d])per[d]={giorno:d,ore:0,persone:{}};
+    per[d].ore+=(+r.Ore||0);
+    const k=r.PersonaID||'?';
+    if(!per[d].persone[k])per[d].persone[k]={id:k,nome:r.Persona||'?',ore:0,righe:[]};
+    per[d].persone[k].ore+=(+r.Ore||0);
+    per[d].persone[k].righe.push(r);
+  });
+  const giorni=Object.keys(per).sort();
+  if(ORE_ORD!=='vecchi')giorni.reverse();
+  return giorni.map(g=>per[g]);
+}
+function agendaNomeGiorno(iso){
+  const G=['lunedi','martedi','mercoledi','giovedi','venerdi','sabato','domenica'];
+  const M=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio',
+           'agosto','settembre','ottobre','novembre','dicembre'];
+  const d=new Date(iso+'T12:00:00');
+  return G[(d.getDay()+6)%7]+' '+d.getDate()+' '+M[d.getMonth()]+' '+d.getFullYear();
+}
+// le voci di una persona in quel giorno, scritte di seguito
+function agendaVoci(righe){
+  return righe.slice().sort((a,b)=>(+b.Ore||0)-(+a.Ore||0)).map(function(r){
+    const t=tipoOra(r.Tipo);
+    const dove=r.Commessa
+      ? ('<span style="font-family:monospace">'+r.Commessa+'</span>'
+         +(nomeCommessa(r.Commessa)?(' <span style="color:var(--gray)">'+nomeCommessa(r.Commessa)+'</span>'):''))
+      : ('<span style="color:'+t[2]+'">'+t[1]+'</span>');
+    const extra=[];
+    if(r.Commessa&&!oreProduttive(r.Tipo))extra.push(t[1]);
+    if(r.Descrizione)extra.push(r.Descrizione);
+    if(r.Destinazione)extra.push(r.Destinazione);
+    if(+r.Km)extra.push(nOre(r.Km)+' km');
+    if(r.Note)extra.push(r.Note);
+    return '<span style="display:inline-block;margin:0 14px 3px 0">'
+      +'<strong>'+nOre(r.Ore)+'h</strong> '+dove
+      +(extra.length?(' <span style="color:var(--gray);font-size:11.5px">('+extra.join(' &middot; ')+')</span>'):'')
+      +'</span>';
+  }).join('');
+}
+function oreTabAgenda(){
+  const admin=oreAdmin();
+  let h='<div class="card" style="margin-top:14px">'
+   +'<div style="font-size:12.5px;color:var(--gray);margin-bottom:8px">'
+   +'Una giornata per riquadro, come sull&#39;agenda: chi c&#39;era, su che commessa e quante ore. '
+   +'Clicca il nome di una persona per correggere le sue ore di quel giorno, o la data per vedere tutta la giornata.</div>'
+   +oreBarraCerca({persona:true,commessa:true})
+   +oreBarraPeriodo()
+   +'<div class="filters" style="gap:8px;margin-top:8px">'
+   +'<select onchange="ORE_ORD=this.value;oreRefresh()">'
+   +'<option value="data"'+(ORE_ORD!=='vecchi'?' selected':'')+'>Prima i giorni piu&#39; recenti</option>'
+   +'<option value="vecchi"'+(ORE_ORD==='vecchi'?' selected':'')+'>Prima i giorni piu&#39; vecchi</option>'
+   +'</select>'
+   +'<button class="btn btn-accent" onclick="stampaAgenda()">Stampa PDF</button>'
+   +'<button class="btn btn-green" onclick="csvAgenda()">Esporta CSV</button>'
+   +'</div></div>';
+
+  const gg=agendaGruppi();
+  if(!gg.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Nessuna ora in questo periodo.</div>';
+
+  const tot=oreTot(oreFiltrate({q:ORE_Q,persona:ORE_PERS,commessa:ORE_COMM,tipo:ORE_TIPO,da:ORE_DA,a:ORE_A}));
+  h+='<div class="info-box" style="margin-top:12px">'+gg.length+' giornate &middot; <strong>'
+   +nOre(tot.ore)+' ore</strong>'+(admin&&tot.tot?(' &middot; <strong>&euro; '+euro(tot.tot)+'</strong>'):'')+'</div>';
+
+  const mostro=gg.slice(0,AGENDA_MAX);
+  mostro.forEach(function(d){
+    const fGiorno={giorno:d.giorno,da:d.giorno,a:d.giorno,persona:ORE_PERS,commessa:ORE_COMM,
+      tipo:ORE_TIPO,titolo:agendaNomeGiorno(d.giorno),sottotitolo:''};
+    h+='<div class="card" style="margin-bottom:10px;padding-top:10px">'
+     +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;'
+     +'border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:8px">'
+     +'<div onclick=\'oreDettApri('+att(JSON.stringify(fGiorno)).replace(/'/g,'&#39;')+')\' '
+     +'title="Apri tutta la giornata" '
+     +'style="font-family:Georgia,serif;font-size:15.5px;font-weight:600;cursor:pointer;color:var(--accent)">'
+     +agendaNomeGiorno(d.giorno)+'</div>'
+     +'<div style="font-weight:700;font-size:14px">'+nOre(d.ore)+' h</div></div>';
+
+    Object.keys(d.persone).map(k=>d.persone[k])
+      .sort((a,b)=>String(a.nome).localeCompare(String(b.nome)))
+      .forEach(function(p){
+        const pers=(STATE.personale||[]).filter(x=>x.ID===p.id)[0]||{};
+        const atteso=+pers.OreGiorno||0;
+        const poche=atteso>0&&p.ore<atteso&&!p.righe.some(r=>r.Tipo==='ferie'||r.Tipo==='permesso'||r.Tipo==='assenza');
+        const f={persona:p.id,giorno:d.giorno,da:d.giorno,a:d.giorno,commessa:ORE_COMM,tipo:ORE_TIPO,
+          titolo:p.nome+' - '+dataIt(d.giorno),sottotitolo:''};
+        h+='<div style="display:flex;gap:10px;padding:5px 0;border-top:1px solid #f0ece5;flex-wrap:wrap">'
+         +'<div onclick=\'oreDettApri('+att(JSON.stringify(f)).replace(/'/g,'&#39;')+')\' '
+         +'title="Correggi le ore di questa persona in questo giorno" '
+         +'style="min-width:150px;font-weight:600;cursor:pointer;color:var(--accent);text-decoration:underline">'
+         +att(p.nome)+'</div>'
+         +'<div style="width:62px;text-align:right;font-weight:700'+(poche?';color:var(--red)':'')+'">'
+         +nOre(p.ore)+' h</div>'
+         +'<div style="flex:1;min-width:220px;font-size:13px;line-height:1.75">'+agendaVoci(p.righe)+'</div>'
+         +'</div>';
+      });
+    h+='<div style="margin-top:8px"><button class="btn btn-ghost" '
+     +'onclick=\'oreDettApri('+att(JSON.stringify(fGiorno)).replace(/'/g,'&#39;')+')\'>'
+     +'Apri / correggi questa giornata</button></div>';
+    h+='</div>';
+  });
+  if(gg.length>AGENDA_MAX){
+    h+='<div class="card" style="color:var(--gray);font-size:13px">'
+     +'Mostrate le prime '+AGENDA_MAX+' giornate di '+gg.length+'. '
+     +'Stringi il periodo qui sopra per vedere le altre, oppure '
+     +'<span style="color:var(--accent);text-decoration:underline;cursor:pointer" onclick="AGENDA_MAX+=60;oreRefresh()">mostrane altre 60</span>. '
+     +'Lo scarico in CSV e la stampa contengono comunque tutte le giornate del periodo.</div>';
+  }
+  return h;
+}
+// l'agenda in CSV: una riga per registrazione, in ordine di giorno
+function csvAgenda(){
+  const gg=agendaGruppi();
+  if(!gg.length){toast('Niente da esportare','err');return;}
+  const righe=[['Giorno','Data','Persona','Ore della persona nel giorno','Commessa','Nome commessa',
+    'Tipo','Ore','Descrizione','Destinazione','Km','Costo EUR','Note','Totale del giorno']];
+  gg.forEach(function(d){
+    let primaRigaDelGiorno=true;   // il totale della giornata lo scrivo una volta sola
+    Object.keys(d.persone).map(k=>d.persone[k])
+      .sort((a,b)=>String(a.nome).localeCompare(String(b.nome)))
+      .forEach(function(p){
+        p.righe.forEach(function(r,i){
+          righe.push([agendaNomeGiorno(d.giorno).split(' ')[0],dataIt(d.giorno),p.nome,
+            i===0?csvNum(p.ore,2):'',
+            r.Commessa||'',nomeCommessa(r.Commessa),tipoOraLabel(r.Tipo),csvNum(r.Ore,2),
+            r.Descrizione||'',r.Destinazione||'',r.Km?csvNum(r.Km,1):'',
+            csvNum((+r.Costo||0)+(+r.Rimborso||0),2),r.Note||'',
+            primaRigaDelGiorno?csvNum(d.ore,2):'']);
+          primaRigaDelGiorno=false;
+        });
+      });
+  });
+  righe.push([]);
+  righe.push(['Filtri usati',oreRegDescrizione()]);
+  scaricaCsv('agenda-ore_'+oggiFile()+'.csv',righe);
+}
+function stampaAgenda(){
+  const gg=agendaGruppi();
+  if(!gg.length){toast('Niente da stampare','err');return;}
+  let h='<div style="font-family:Georgia,serif;color:#3a342d">'
+   +intestazioneOre('Agenda delle ore',periodoTxt());
+  gg.forEach(function(d){
+    h+='<div style="break-inside:avoid;margin-bottom:12px">'
+     +'<div style="border-bottom:1px solid #ccc;padding-bottom:3px;margin-bottom:5px;'
+     +'display:flex;justify-content:space-between"><strong>'+agendaNomeGiorno(d.giorno)+'</strong>'
+     +'<strong>'+nOre(d.ore)+' h</strong></div>';
+    Object.keys(d.persone).map(k=>d.persone[k])
+      .sort((a,b)=>String(a.nome).localeCompare(String(b.nome)))
+      .forEach(function(p){
+        h+='<div style="font-size:12px;margin:2px 0;display:flex;gap:8px">'
+         +'<span style="min-width:140px;font-weight:600">'+p.nome+'</span>'
+         +'<span style="width:50px;text-align:right">'+nOre(p.ore)+' h</span>'
+         +'<span style="flex:1">'+p.righe.map(function(r){
+             return nOre(r.Ore)+'h '+(r.Commessa||tipoOraLabel(r.Tipo))
+               +(r.Descrizione?(' ('+r.Descrizione+')'):'');
+           }).join(' &middot; ')+'</span></div>';
+      });
+    h+='</div>';
+  });
+  stampaHTML(h+'</div>');
+}
+
 // ==================================================================
 //  TABELLA DEL MESE
 //  Righe: le persone. Colonne: i giorni. Dentro: i numeri.
