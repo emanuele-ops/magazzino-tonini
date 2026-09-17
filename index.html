@@ -299,7 +299,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v81 - Atelier</div>
+  <div id="ver-badge">v83 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -676,7 +676,8 @@ async function call(fn, args) {
       return rows.map(r => ({
         ID: r.id, ArticoloID: r.articolo_id, Larghezza_mm: r.larghezza_mm, Altezza_mm: r.altezza_mm,
         Residuale_pct: r.residuale_pct, M2_originale: r.m2_originale, M2_residuo: r.m2_residuo,
-        Commesse: r.commesse || "", DataCarico: r.data_carico || "", Note: r.note || "", Fornitore: r.fornitore || ""
+        Commesse: r.commesse || "", DataCarico: r.data_carico || "", Note: r.note || "", Fornitore: r.fornitore || "",
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || ""
       }));
     }
     if (fn === "getMassicci") {
@@ -684,7 +685,8 @@ async function call(fn, args) {
       return rows.map(r => ({
         ID: r.id, ArticoloID: r.articolo_id, Lunghezza_mm: r.lunghezza_mm, Larghezza_mm: r.larghezza_mm,
         Spessore_mm: r.spessore_mm, M3_originale: r.m3_originale, M3_residuo: r.m3_residuo,
-        Commesse: r.commesse || "", Fornitore: r.fornitore || "", DataCarico: r.data_carico || "", Note: r.note || ""
+        Commesse: r.commesse || "", Fornitore: r.fornitore || "", DataCarico: r.data_carico || "", Note: r.note || "",
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || ""
       }));
     }
     if (fn === "getMovimenti") {
@@ -692,7 +694,8 @@ async function call(fn, args) {
       return rows.map(r => ({
         ID: r.id, Data: r.data, Utente: r.utente, ArticoloID: r.articolo_id, NomeArticolo: r.nome_articolo,
         Tipo: r.tipo, Quantita: r.quantita, UnitaMisura: r.unita_misura, Commessa: r.commessa,
-        PezzoID: r.pezzo_id || "", Note: r.note || "", Annullato: r.annullato ? "SI" : "NO", Fornitore: r.fornitore || ""
+        PezzoID: r.pezzo_id || "", Note: r.note || "", Annullato: r.annullato ? "SI" : "NO", Fornitore: r.fornitore || "",
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || ""
       }));
     }
     if (fn === "getCommesse") {
@@ -730,7 +733,7 @@ async function call(fn, args) {
     }
     if (fn === "getOrdini") {
       const rows = await sbGet("ordini", "select=*&order=data.desc");
-      return rows.map(r => ({ ID: r.id, Data: r.data, Commessa: r.commessa, Fornitore: r.fornitore, Stato: r.stato, Righe: (typeof r.righe === "string" ? JSON.parse(r.righe || "[]") : (r.righe || [])), Note: r.note, Email: r.email }));
+      return rows.map(r => ({ ID: r.id, Data: r.data, Commessa: r.commessa, Fornitore: r.fornitore, Stato: r.stato, Righe: (typeof r.righe === "string" ? JSON.parse(r.righe || "[]") : (r.righe || [])), Note: r.note, Email: r.email, Ddt: r.ddt || "", DataDdt: r.data_ddt || "" }));
     }
     if (fn === "getWebAppUrl") { return window.location.href; }
     if (fn === "getRiserve") {
@@ -746,7 +749,8 @@ async function call(fn, args) {
       return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Data: r.data, Categoria: r.categoria,
         Descrizione: r.descrizione, Fornitore: r.fornitore || "", Quantita: r.quantita,
         Unita: r.unita || "", Importo: r.importo, NrFattura: r.nr_fattura || "",
-        Stato: r.stato, InOrdine: !!r.in_ordine, OrdineID: r.ordine_id || "", Note: r.note || "" }));
+        Stato: r.stato, InOrdine: !!r.in_ordine, OrdineID: r.ordine_id || "", Note: r.note || "",
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || "" }));
     }
     if (fn === "salvaVoce") {
       const d = args;
@@ -1007,7 +1011,8 @@ async function call(fn, args) {
         id, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente",
         articolo_id: d.ArticoloID, nome_articolo: art.nome, tipo: d.Tipo,
         quantita: qty, unita_misura: art.unita_misura, commessa: d.Commessa || "",
-        pezzo_id: d.PezzoID || "", note: d.Note || "", annullato: false, fornitore: d.Fornitore || ""
+        pezzo_id: d.PezzoID || "", note: d.Note || "", annullato: false, fornitore: d.Fornitore || "",
+        ddt: d.Ddt || "", data_ddt: d.DataDdt || null
       });
       return { ok: true, id, nuovoStock: Math.max(0, nuovoStock) };
     }
@@ -1058,6 +1063,8 @@ async function call(fn, args) {
       if (d.Commessa !== undefined) upd.commessa = d.Commessa || "";
       if (d.Note !== undefined) upd.note = d.Note || "";
       if (d.Fornitore !== undefined) upd.fornitore = d.Fornitore || "";
+      if (d.Ddt !== undefined) upd.ddt = d.Ddt || "";
+      if (d.DataDdt !== undefined) upd.data_ddt = d.DataDdt || null;
       if (d.Quantita !== undefined && d.Quantita !== "") {
         const movRows = await sbGet("movimenti", "select=*&id=eq." + encodeURIComponent(d.movId));
         if (movRows.length) {
@@ -1092,11 +1099,11 @@ async function call(fn, args) {
       for (let i = 0; i < qty; i++) {
         const pid = "P" + String(start + i).padStart(4, "0");
         nuovi.push(pid);
-        await sbPost("pannelli", { id: pid, articolo_id: tipo, larghezza_mm: w, altezza_mm: h, residuale_pct: 100, m2_originale: m2, m2_residuo: m2, commesse: "", data_carico: nowStr(), note: d.Note || "", fornitore: forn });
+        await sbPost("pannelli", { id: pid, articolo_id: tipo, larghezza_mm: w, altezza_mm: h, residuale_pct: 100, m2_originale: m2, m2_residuo: m2, commesse: "", data_carico: nowStr(), note: d.Note || "", fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       }
       const totM2 = round3(m2 * qty);
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: tipo, nome_articolo: tipo, tipo: "carico", quantita: totM2, unita_misura: "m²", commessa: "", pezzo_id: nuovi.join(","), note: "Carico " + qty + " pannelli " + w + "x" + h + "mm", annullato: false, fornitore: forn });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: tipo, nome_articolo: tipo, tipo: "carico", quantita: totM2, unita_misura: "m²", commessa: "", pezzo_id: nuovi.join(","), note: "Carico " + qty + " pannelli " + w + "x" + h + "mm", annullato: false, fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       return { ok: true, ids: nuovi, totM2, newStock: null, articoloId: tipo };
     }
     // ---- PANNELLO REFILO (extra numerazione, codice R-progressivo nascosto) ----
@@ -1116,9 +1123,9 @@ async function call(fn, args) {
       tutti.forEach(p => { const m = String(p.id||"").match(/^R(\d+)$/); if (m) { const n = parseInt(m[1],10)||0; if (n>mx) mx=n; } });
       const pid = "R" + String(mx + 1).padStart(4, "0");
       // articolo_id = descrizione (fa da "tipo" cosi si raggruppa per descrizione), ma il nome mostrato e la descrizione
-      await sbPost("pannelli", { id: pid, articolo_id: desc, larghezza_mm: w, altezza_mm: h, residuale_pct: 100, m2_originale: m2, m2_residuo: m2, commesse: "", data_carico: nowStr(), note: d.Note || "REFILO", fornitore: forn });
+      await sbPost("pannelli", { id: pid, articolo_id: desc, larghezza_mm: w, altezza_mm: h, residuale_pct: 100, m2_originale: m2, m2_residuo: m2, commesse: "", data_carico: nowStr(), note: d.Note || "REFILO", fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m2, unita_misura: "m²", commessa: "", pezzo_id: pid, note: "Carico refilo: " + desc, annullato: false, fornitore: forn });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m2, unita_misura: "m²", commessa: "", pezzo_id: pid, note: "Carico refilo: " + desc, annullato: false, fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       return { ok: true, id: pid, m2 };
     }
     if (fn === "scaricaPannello") {
@@ -1209,9 +1216,9 @@ async function call(fn, args) {
       let mx = 0;
       tutti.forEach(p => { const m = String(p.id||"").match(/^RM(\d+)$/); if (m) { const n = parseInt(m[1],10)||0; if (n>mx) mx=n; } });
       const mid = "RM" + String(mx + 1).padStart(4, "0");
-      await sbPost("massicci", { id: mid, articolo_id: desc, lunghezza_mm: L, larghezza_mm: W, spessore_mm: S, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "REFILO" });
+      await sbPost("massicci", { id: mid, articolo_id: desc, lunghezza_mm: L, larghezza_mm: W, spessore_mm: S, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "REFILO", ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m3, unita_misura: "m³", commessa: "", pezzo_id: mid, note: "Carico refilo massello: " + desc, annullato: false, fornitore: forn });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m3, unita_misura: "m³", commessa: "", pezzo_id: mid, note: "Carico refilo massello: " + desc, annullato: false, fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       return { ok: true, id: mid, m3 };
     }
     if (fn === "caricaMassicci") {
@@ -1225,7 +1232,7 @@ async function call(fn, args) {
         const m3 = round5(parseFloat(d.M3totale));
         if (!m3 || m3 <= 0) return { ok: false, err: "m3 non validi." };
         const mid = "M" + String(start).padStart(4, "0");
-        nuovi.push(mid); rows.push({ id: mid, articolo_id: tipo, lunghezza_mm: null, larghezza_mm: null, spessore_mm: null, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "" });
+        nuovi.push(mid); rows.push({ id: mid, articolo_id: tipo, lunghezza_mm: null, larghezza_mm: null, spessore_mm: null, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "", ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
         totM3 = m3;
       } else {
         const L = parseInt(d.Lunghezza_mm), W = parseInt(d.Larghezza_mm), S = parseInt(d.Spessore_mm), qty = parseInt(d.Quantita);
@@ -1233,13 +1240,13 @@ async function call(fn, args) {
         const m3 = round5((L/1000)*(W/1000)*(S/1000));
         for (let i = 0; i < qty; i++) {
           const mid = "M" + String(start + i).padStart(4, "0");
-          nuovi.push(mid); rows.push({ id: mid, articolo_id: tipo, lunghezza_mm: L, larghezza_mm: W, spessore_mm: S, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "" });
+          nuovi.push(mid); rows.push({ id: mid, articolo_id: tipo, lunghezza_mm: L, larghezza_mm: W, spessore_mm: S, m3_originale: m3, m3_residuo: m3, commesse: "", fornitore: forn, data_carico: nowStr(), note: d.Note || "", ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
         }
         totM3 = round5(m3 * qty);
       }
       for (const row of rows) await sbPost("massicci", row);
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: tipo, nome_articolo: tipo, tipo: "carico", quantita: totM3, unita_misura: "m³", commessa: "", pezzo_id: nuovi.join(","), note: "Carico massiccio", annullato: false, fornitore: forn });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: tipo, nome_articolo: tipo, tipo: "carico", quantita: totM3, unita_misura: "m³", commessa: "", pezzo_id: nuovi.join(","), note: "Carico massiccio", annullato: false, fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       return { ok: true, ids: nuovi, totM3, newStock: null, articoloId: tipo };
     }
     if (fn === "scaricaMassiccio") {
@@ -1631,12 +1638,13 @@ async function call(fn, args) {
       if (String(r.stato).toLowerCase() === "ricevuto") return { ok: false, err: "Già ricevuto." };
       const num = parseInt(r.num_pezzi) || 1, d1 = parseInt(r.dim1) || 0, d2 = parseInt(r.dim2) || 0, d3 = parseInt(r.dim3) || 0, qta = parseFloat(r.quantita) || 0;
       if (!r.articolo_id) return { ok: false, err: "Manca il tipo/articolo." };
+      const ddtF = args.Ddt || "", dataDdtF = args.DataDdt || null;
       if (r.tipo === "articolo") {
-        if (qta > 0) await call("registraMovimento", { ArticoloID: r.articolo_id, Tipo: "carico", Quantita: qta, Fornitore: r.fornitore, Commessa: r.commessa, Note: "Ricezione ordine commessa " + r.commessa });
+        if (qta > 0) await call("registraMovimento", { ArticoloID: r.articolo_id, Tipo: "carico", Quantita: qta, Fornitore: r.fornitore, Commessa: r.commessa, Note: "Ricezione ordine commessa " + r.commessa, Ddt: ddtF, DataDdt: dataDdtF });
       } else if (r.tipo === "pannello") {
-        if (d1 && d2) await call("caricaPannelli", { ArticoloID: r.articolo_id, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: r.fornitore });
+        if (d1 && d2) await call("caricaPannelli", { ArticoloID: r.articolo_id, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: r.fornitore, Ddt: ddtF, DataDdt: dataDdtF });
       } else {
-        if (d1 && d2 && d3) await call("caricaMassicci", { ArticoloID: r.articolo_id, modo: "misure", Lunghezza_mm: d1, Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: r.fornitore });
+        if (d1 && d2 && d3) await call("caricaMassicci", { ArticoloID: r.articolo_id, modo: "misure", Lunghezza_mm: d1, Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: r.fornitore, Ddt: ddtF, DataDdt: dataDdtF });
       }
       await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto" });
       return { ok: true };
@@ -1671,24 +1679,26 @@ async function call(fn, args) {
       if (String(rows[0].stato).toLowerCase() === "ricevuto") return { ok: false, err: "Ordine già ricevuto." };
       const righe = typeof rows[0].righe === "string" ? JSON.parse(rows[0].righe || "[]") : (rows[0].righe || []);
       const commessa = rows[0].commessa || "", forn = rows[0].fornitore || "";
+      // la bolla del fornitore: la stessa su tutte le righe di questo ordine
+      const ddt = args.Ddt || "", dataDdt = args.DataDdt || null;
       for (const r of righe) {
         const num = parseInt(r.numPezzi) || 1, d1 = parseInt(r.dim1) || 0, d2 = parseInt(r.dim2) || 0, d3 = parseInt(r.dim3) || 0, qta = parseFloat(r.quantita) || 0;
         if (r.tipo === "generico") {
-          if (qta > 0) await call("registraMovimento", { ArticoloID: r.artId || (await call("salvaArticolo", { Nome: r.nome || r.descrizione, Categoria: "Generici", UnitaMisura: r.unita || "pz", Stock: 0 })).id, Tipo: "carico", Quantita: qta, Fornitore: forn, Note: "Ricezione ordine generico" });
+          if (qta > 0) await call("registraMovimento", { ArticoloID: r.artId || (await call("salvaArticolo", { Nome: r.nome || r.descrizione, Categoria: "Generici", UnitaMisura: r.unita || "pz", Stock: 0 })).id, Tipo: "carico", Quantita: qta, Fornitore: forn, Note: "Ricezione ordine generico", Ddt: ddt, DataDdt: dataDdt });
         } else if (r.artId) {
           if (r.tipo === "articolo" && qta > 0) {
-            await call("registraMovimento", { ArticoloID: r.artId, Tipo: "carico", Quantita: qta, Fornitore: forn, Commessa: commessa, Note: "Ricezione ordine commessa " + commessa });
+            await call("registraMovimento", { ArticoloID: r.artId, Tipo: "carico", Quantita: qta, Fornitore: forn, Commessa: commessa, Note: "Ricezione ordine commessa " + commessa, Ddt: ddt, DataDdt: dataDdt });
             if (commessa) { await aggiornaImpegnato(r.artId, qta, "add"); await setRiserva(r.artId, commessa, qta); }
           } else if (r.tipo === "pannello" && d1 && d2) {
-            await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: forn });
+            await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
           } else if (r.tipo === "massiccio" && d1 && d2 && d3) {
-            await call("caricaMassicci", { ArticoloID: r.artId, modo: "misure", Lunghezza_mm: d1, Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: forn });
+            await call("caricaMassicci", { ArticoloID: r.artId, modo: "misure", Lunghezza_mm: d1, Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
           }
         }
         if (r.fabId) await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(r.fabId), { stato: "ricevuto" }).catch(()=>{});
-        if (r.voceId) await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(r.voceId), { stato: "ricevuto" }).catch(()=>{});
+        if (r.voceId) await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(r.voceId), { stato: "ricevuto", ddt: ddt, data_ddt: dataDdt }).catch(()=>{});
       }
-      await sbPatch("ordini", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto" });
+      await sbPatch("ordini", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto", ddt: ddt, data_ddt: dataDdt });
       return { ok: true };
     }
     if (fn === "eliminaOrdine") {
@@ -1952,7 +1962,7 @@ function csvRiepilogo(anno,mese){
 // ---- CSV: report di una commessa ----
 function csvReportCommessa(comm){
   const out=[['Sezione','Data','Materiale o voce','Categoria / cod. fornitore','Codici pezzo',
-    'Quantita','Unita','% del caricato','Importo EUR','Fornitore','N. fattura','Stato','Note','Operatore']];
+    'Quantita','Unita','% del caricato','Importo EUR','Fornitore','Bolla DDT','N. fattura','Stato','Note','Operatore']];
   const movs=movCommessa(comm).filter(m=>m.Tipo==='scarico');
   const cfDi=function(m){let a=(STATE.articoli||[]).find(x=>x.ID===m.ArticoloID);
     if(!a)a=(STATE.articoli||[]).find(x=>x.Nome===m.NomeArticolo||x.Nome===m.ArticoloID);
@@ -1966,26 +1976,27 @@ function csvReportCommessa(comm){
   Object.keys(tot).forEach(function(k){const t=tot[k];
     t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
     out.push(['Consumo totale','',t.nome,t.cf,t.pezzi.join(' '),
-      csvNum(t.q,(t.unita==='pz')?0:3),t.unita||'',csvPct(t.q,t.nome,t.unita),'','','','',''+t.n+' movimenti','']);});
+      csvNum(t.q,(t.unita==='pz')?0:3),t.unita||'',csvPct(t.q,t.nome,t.unita),'','','','','',''+t.n+' movimenti','']);});
   // altre voci
   (STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
     .forEach(v=>out.push(['Altra voce',String(v.Data||'').slice(0,10),v.Descrizione||'',v.Categoria||'','',
-      csvNum(v.Quantita,3),v.Unita||'','',csvNum(v.Importo,2),v.Fornitore||'',v.NrFattura||'',v.Stato||'',v.Note||'','']));
+      csvNum(v.Quantita,3),v.Unita||'','',csvNum(v.Importo,2),v.Fornitore||'',v.Ddt||'',v.NrFattura||'',v.Stato||'',v.Note||'','']));
   // dettaglio movimenti
   movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(m){
+    const bo=bollaDi(m);
     out.push(['Movimento',String(m.Data||'').slice(0,16),m.NomeArticolo||'',cfDi(m),m.PezzoID||'',
       csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
-      csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',m.Fornitore||'','','',m.Note||'',m.Utente||'']);});
+      csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);});
   // manodopera e trasferte
   oreDiCommessa(comm).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(r){
     out.push(['Manodopera',dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),'',
-      csvNum(r.Ore,2),'ore','',csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','',
+      csvNum(r.Ore,2),'ore','',csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','','',
       (r.Descrizione||'')+(r.Destinazione?(' - '+r.Destinazione):'')+((+r.Km)?(' - '+nOre(r.Km)+' km'):'')+(r.Note?(' - '+r.Note):''),
       r.InseritoDa||'']);});
   // rettifiche
   (STATE.rettifiche||[]).filter(r=>r.Commessa===comm)
-    .forEach(r=>out.push(['Rettifica manuale','',r.Voce||'','','','','','','','','','',(r.Valore||'')+' '+(r.Note||''),'']));
+    .forEach(r=>out.push(['Rettifica manuale','',r.Voce||'','','','','','','','','','','',(r.Valore||'')+' '+(r.Note||''),'']));
   scaricaCsv('commessa_'+String(comm).replace(/[^A-Za-z0-9._-]/g,'-')+'.csv',out);
 }
 
@@ -1996,7 +2007,7 @@ function csvUtilizzo(){
   const keys=Object.keys(g).sort((a,b)=>((g[a].voce?1:0)-(g[b].voce?1:0))||g[a].nome.localeCompare(g[b].nome));
   const out=[['Tipo','Nome','Categoria','Unita','Totale materiale','% del caricato','Totale EUR',
     'Commessa','Totale commessa','Importo commessa EUR','Data','Quantita riga','% riga','Importo riga EUR',
-    'Codici pezzo / fattura','Fornitore','Operatore','Note']];
+    'Codici pezzo / fattura','Fornitore','Bolla DDT','Operatore','Note']];
   keys.forEach(function(k){
     const x=g[k],dec=nDec(x.unita);
     Object.keys(x.comm).sort().forEach(function(c){
@@ -2007,7 +2018,7 @@ function csvUtilizzo(){
           c, x.voce?'':csvNum(cc.q,dec), x.voce?csvNum(cc.imp,2):'',
           String(r.data||'').slice(0,16), csvNum(r.q,dec),
           x.voce?'':csvPct(r.q,x.nome,x.unita), x.voce?csvNum(r.imp,2):'',
-          x.voce?(r.ft||''):(r.pezzo||''), r.forn||'', r.chi||'', r.note||'']);
+          x.voce?(r.ft||''):(r.pezzo||''), r.forn||'', r.ddt||'', r.chi||'', r.note||'']);
       });
     });
   });
@@ -2198,6 +2209,12 @@ function renderDashboard(){
     +stat("Commesse aperte",commAperte.length,commOfferte.length?(commOfferte.length+" in offerta"):"","","navTo('commesse')")
     +stat("Ordini da ricevere",ordAperti.length,"",ordAperti.length?"var(--amber)":"", "navTo('evasi')")
     +'</div>';
+  // le bolle: quante sono arrivate questo mese e quante entrate non ne hanno una
+  const entrateMese=(STATE.movimenti||[]).filter(m=>m.Tipo==='carico'&&m.Annullato!=='SI'
+    &&String(m.Data||'').slice(0,7)===new Date().toISOString().slice(0,7));
+  const bolleMese={}; let senzaBolla=0;
+  entrateMese.forEach(function(m){ const b=bollaDi(m); if(b.ddt)bolleMese[b.ddt]=1; else senzaBolla++; });
+
   h+='<div class="grid-4" style="margin-bottom:20px">'
     +stat("Pannelli",m2.toFixed(2)+" m&sup2;",destP+" pezzi destinati a commesse","","navTo('pannelli')")
     +stat("Massicci",m3.toFixed(3)+" m&sup3;",destM+" pezzi destinati a commesse","","navTo('massicci')")
@@ -2210,6 +2227,9 @@ function renderDashboard(){
     +stat("Trasferte di "+nomeMese,nOre(oreMese.km)+" km",nOre(oreMese.viaggio)+" h di viaggio","","navTo('ore')")
     +stat("Persone in forza",(STATE.personale||[]).filter(p=>p.Attivo).length,"","","navTo('ore')")
     +stat("Dettature da confermare",dettatureInAttesa().length,dettatureInAttesa().length?"registrazioni dettate a voce":"nessuna in attesa",dettatureInAttesa().length?"var(--amber)":"","navTo('dettatura')")
+    +stat("Bolle di "+nomeMese,Object.keys(bolleMese).length,
+      senzaBolla?(senzaBolla+" entrate senza bolla"):"tutte le entrate hanno la bolla",
+      senzaBolla?"var(--amber)":"var(--green)","navTo('report')")
     +'</div>';
 
   h+='<details class="acc"><summary>Materiali da riordinare'+(sotto.length?'<span class="sum-badge">'+sotto.length+'</span>':'')+'</summary>'+renderReorderBody()+'</details>';
@@ -2538,17 +2558,17 @@ async function eseguiRipristino(){
     // COMMESSE
     await up("commesse",(data.commesse||[]).map(c=>({id:c.ID,nome:c.Nome,cliente:c.Cliente||'',data_apertura:(c.DataApertura||new Date().toISOString().slice(0,10)),stato:c.Stato||'in_lavorazione',note:c.Note||'',anno:c.Anno||'',tipo:c.Tipo||'cliente'})),"commesse");
     // PANNELLI
-    await up("pannelli",(data.pannelli||[]).map(p=>({id:p.ID,articolo_id:p.ArticoloID,larghezza_mm:p.Larghezza_mm,altezza_mm:p.Altezza_mm,residuale_pct:p.Residuale_pct,m2_originale:p.M2_originale,m2_residuo:p.M2_residuo,commesse:p.Commesse||'',data_carico:p.DataCarico||null,note:p.Note||'',fornitore:p.Fornitore||''})),"pannelli");
+    await up("pannelli",(data.pannelli||[]).map(p=>({id:p.ID,articolo_id:p.ArticoloID,larghezza_mm:p.Larghezza_mm,altezza_mm:p.Altezza_mm,residuale_pct:p.Residuale_pct,m2_originale:p.M2_originale,m2_residuo:p.M2_residuo,commesse:p.Commesse||'',data_carico:p.DataCarico||null,note:p.Note||'',fornitore:p.Fornitore||'',ddt:p.Ddt||'',data_ddt:p.DataDdt||null})),"pannelli");
     // MASSICCI
-    await up("massicci",(data.massicci||[]).map(m=>({id:m.ID,articolo_id:m.ArticoloID,lunghezza_mm:m.Lunghezza_mm||null,larghezza_mm:m.Larghezza_mm||null,spessore_mm:m.Spessore_mm||null,m3_originale:m.M3_originale,m3_residuo:m.M3_residuo,commesse:m.Commesse||'',fornitore:m.Fornitore||'',data_carico:m.DataCarico||null,note:m.Note||''})),"massicci");
+    await up("massicci",(data.massicci||[]).map(m=>({id:m.ID,articolo_id:m.ArticoloID,lunghezza_mm:m.Lunghezza_mm||null,larghezza_mm:m.Larghezza_mm||null,spessore_mm:m.Spessore_mm||null,m3_originale:m.M3_originale,m3_residuo:m.M3_residuo,commesse:m.Commesse||'',fornitore:m.Fornitore||'',data_carico:m.DataCarico||null,note:m.Note||'',ddt:m.Ddt||'',data_ddt:m.DataDdt||null})),"massicci");
     // MOVIMENTI
-    await up("movimenti",(data.movimenti||[]).map(m=>({id:m.ID,data:m.Data,utente:m.Utente,articolo_id:m.ArticoloID,nome_articolo:m.NomeArticolo,tipo:m.Tipo,quantita:m.Quantita,unita_misura:m.UnitaMisura,commessa:m.Commessa||'',pezzo_id:m.PezzoID||'',note:m.Note||'',annullato:(m.Annullato==='SI'||m.Annullato===true),fornitore:m.Fornitore||''})),"movimenti");
+    await up("movimenti",(data.movimenti||[]).map(m=>({id:m.ID,data:m.Data,utente:m.Utente,articolo_id:m.ArticoloID,nome_articolo:m.NomeArticolo,tipo:m.Tipo,quantita:m.Quantita,unita_misura:m.UnitaMisura,commessa:m.Commessa||'',pezzo_id:m.PezzoID||'',note:m.Note||'',annullato:(m.Annullato==='SI'||m.Annullato===true),fornitore:m.Fornitore||'',ddt:m.Ddt||'',data_ddt:m.DataDdt||null})),"movimenti");
     // RISERVE
     await up("riserve",(data.riserve||[]).map(r=>({articolo_id:r.ArticoloID,commessa:r.Commessa,quantita:r.Quantita})),"riserve");
     // FABBISOGNI
     await up("fabbisogni",(data.fabbisogni||[]).map(f=>({id:f.ID,commessa:f.Commessa,tipo:f.Tipo,articolo_id:f.ArticoloID,descrizione:f.Descrizione,num_pezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita_misura:f.UnitaMisura,fornitore:f.Fornitore,stato:f.Stato,data_richiesta:f.DataRichiesta||null,note:f.Note})),"fabbisogni");
     // ORDINI
-    await up("ordini",(data.ordini||[]).map(o=>({id:o.ID,data:o.Data,commessa:o.Commessa,fornitore:o.Fornitore,stato:o.Stato,righe:JSON.stringify(o.Righe||[]),note:o.Note,email:o.Email})),"ordini");
+    await up("ordini",(data.ordini||[]).map(o=>({id:o.ID,data:o.Data,commessa:o.Commessa,fornitore:o.Fornitore,stato:o.Stato,righe:JSON.stringify(o.Righe||[]),note:o.Note,email:o.Email,ddt:o.Ddt||'',data_ddt:o.DataDdt||null})),"ordini");
     // OFFERTE
     await up("offerte",(data.offerte||[]).map(o=>({id:o.ID,data:o.Data,cliente:o.Cliente,commessa:o.Commessa,oggetto:o.Oggetto,dati:JSON.stringify(o.Dati||{})})),"offerte");
     // RETTIFICHE
@@ -2558,7 +2578,7 @@ async function eseguiRipristino(){
     // MODELLI
     await up("modelli",(data.modelli||[]).map(m=>({chiave:m.Chiave,titolo:m.Titolo,oggetto:m.Oggetto,corpo:m.Corpo,note:m.Note})),"modelli");
     // ALTRE VOCI DI COMMESSA
-    await up("voci_commessa",(data.voci||[]).map(v=>({id:v.ID,commessa:v.Commessa,data:v.Data||null,categoria:v.Categoria,descrizione:v.Descrizione,fornitore:v.Fornitore||'',quantita:v.Quantita,unita:v.Unita||'',importo:v.Importo,nr_fattura:v.NrFattura||'',stato:v.Stato||'solo_costo',in_ordine:!!v.InOrdine,ordine_id:v.OrdineID||'',note:v.Note||''})),"altre voci");
+    await up("voci_commessa",(data.voci||[]).map(v=>({id:v.ID,commessa:v.Commessa,data:v.Data||null,categoria:v.Categoria,descrizione:v.Descrizione,fornitore:v.Fornitore||'',quantita:v.Quantita,unita:v.Unita||'',importo:v.Importo,nr_fattura:v.NrFattura||'',stato:v.Stato||'solo_costo',in_ordine:!!v.InOrdine,ordine_id:v.OrdineID||'',note:v.Note||'',ddt:v.Ddt||'',data_ddt:v.DataDdt||null})),"altre voci");
     // PERSONALE E ORE
     await up("personale",(data.personale||[]).map(p=>({id:p.ID,nome:p.Nome,mansione:p.Mansione||'',email:p.Email||'',costo_orario:p.CostoOrario||0,euro_km:p.EuroKm||0,ore_giorno:p.OreGiorno||8,attivo:p.Attivo!==false,note:p.Note||''})),"personale");
     await up("ore",(data.ore||[]).map(o=>({id:o.ID,data:o.Data||null,persona_id:o.PersonaID,persona:o.Persona||'',commessa:o.Commessa||'',tipo:o.Tipo||'lavoro',ore:o.Ore||0,km:o.Km||0,destinazione:o.Destinazione||'',descrizione:o.Descrizione||'',costo_orario:o.CostoOrario||0,euro_km:o.EuroKm||0,costo:o.Costo||0,rimborso:o.Rimborso||0,inserito_da:o.InseritoDa||'',note:o.Note||''})),"ore");
@@ -2772,10 +2792,76 @@ function submitModificaArticolo(id){
 function renderArticoli(){
   const cats=Array.from(new Set(CATS.concat(STATE.articoli.map(a=>a.Categoria)).filter(c=>c&&c!=='Pannelli'&&c!=='Massello')));
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Articoli</h1><div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:6px"><button class="btn '+(ART_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'fam\')">Famiglie</button><button class="btn '+(ART_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'<button class="btn btn-accent" onclick="openNuovoArticolo()">+ Nuovo articolo</button></div></div>'
-  +'<div class="filters"><input id="flt-art" placeholder="Cerca nome, codice, fornitore..." oninput="filterArticoli()"><select id="flt-cat" onchange="filterArticoli()"><option value="">Tutte le categorie</option>'+cats.map(c=>'<option>'+c+'</option>').join("")+'</select></div>'
+  +'<div class="filters"><input id="flt-art" placeholder="Cerca nome, codice, fornitore..." oninput="filterArticoli()"><select id="flt-cat" onchange="filterArticoli()"><option value="">Tutte le categorie</option>'+cats.map(c=>'<option>'+c+'</option>').join("")+'</select>'+ctrlDispon()+'</div>'
   +'<div id="art-cont">'+articoliCont("","")+'</div>';
 }
 let VISTA_DEF=(function(){try{return localStorage.getItem("at_vista")||"griglia";}catch(e){return "griglia";}})();
+
+// ==================================================================
+//  QUELLO CHE RESTA A MAGAZZINO
+//  Tre modi di guardare gli elenchi:
+//    disp   prima quello che resta, dal piu' pieno al piu' vuoto
+//    solo   solo quello che resta: l'esaurito sparisce
+//    tutti  tutto in ordine di codice, com'era prima
+//  La scelta resta salvata sul browser.
+// ==================================================================
+let DISPON=(function(){try{return localStorage.getItem("at_dispon")||"disp";}catch(e){return "disp";}})();
+function setDispon(v){
+  DISPON=v;
+  try{localStorage.setItem("at_dispon",v);}catch(e){}
+  renderPage(STATE.pagina);
+}
+// quanto ne resta, qualunque cosa sia
+function residuoDi(x,tipo){
+  if(tipo==='pannello')return +x.M2_residuo||0;
+  if(tipo==='massiccio')return +x.M3_residuo||0;
+  return +x.Stock||0;
+}
+// c'e' ancora qualcosa? (per i pannelli sotto il 10% e' praticamente finito,
+// ma resta comunque un pezzo esistente: lo considero disponibile se ha m2)
+function disponibile(x,tipo){ return residuoDi(x,tipo)>0.0001; }
+// applica la scelta: filtra e ordina
+function ordinaDispon(list,tipo,ordBase){
+  let out=list.slice();
+  if(DISPON==='solo')out=out.filter(x=>disponibile(x,tipo));
+  if(DISPON==='tutti')return out.sort(ordBase);
+  return out.sort(function(a,b){
+    const da=disponibile(a,tipo), db=disponibile(b,tipo);
+    if(da!==db)return da?-1:1;              // prima quelli che ci sono
+    const ra=residuoDi(a,tipo), rb=residuoDi(b,tipo);
+    if(da&&ra!==rb)return rb-ra;            // poi dal piu' pieno
+    return ordBase(a,b);
+  });
+}
+// il menu, uguale nelle tre pagine
+function ctrlDispon(){
+  return '<select onchange="setDispon(this.value)" title="Cosa far vedere per primo" style="max-width:230px">'
+   +'<option value="disp"'+(DISPON==='disp'?' selected':'')+'>Prima quelli disponibili</option>'
+   +'<option value="solo"'+(DISPON==='solo'?' selected':'')+'>Solo quelli disponibili</option>'
+   +'<option value="tutti"'+(DISPON==='tutti'?' selected':'')+'>Tutti, in ordine di codice</option>'
+   +'</select>';
+}
+// la riga che dice quanti sono e quanti ne sono stati nascosti
+function contaDispon(list,tipo,nome){
+  const n=list.filter(x=>disponibile(x,tipo)).length, tot=list.length, fin=tot-n;
+  if(!tot)return '';
+  let t='<strong>'+n+'</strong> '+nome+' con qualcosa a magazzino';
+  if(fin)t+=(DISPON==='solo')
+    ?(' &middot; <span style="color:var(--gray)">'+fin+' esauriti, nascosti</span>')
+    :(' &middot; <span style="color:var(--gray)">'+fin+' esauriti, in fondo</span>');
+  return '<div style="font-size:12.5px;color:var(--gray);margin:-4px 0 10px">'+t+'</div>';
+}
+// ordina anche le famiglie: prima quelle che hanno piu' roba
+function ordinaFamiglie(chiavi,g,tipo){
+  if(DISPON==='tutti')return chiavi.sort();
+  const res={};
+  chiavi.forEach(function(k){ res[k]=g[k].reduce((s,x)=>s+residuoDi(x,tipo),0); });
+  return chiavi.sort(function(a,b){
+    if((res[a]>0.0001)!==(res[b]>0.0001))return res[a]>0.0001?-1:1;
+    if(res[a]!==res[b])return res[b]-res[a];
+    return String(a).localeCompare(String(b));
+  });
+}
 // densita delle griglie: quanto sono strette le schede. Salvata per utente.
 const DENSITA={fitta:['150px','8px','Fitta'],media:['232px','12px','Media'],larga:['320px','16px','Larga']};
 let DENS=(function(){try{return localStorage.getItem("at_densita")||"media";}catch(e){return "media";}})();
@@ -2801,10 +2887,17 @@ function articoliCont(q,cat){
   if(cat)list=list.filter(a=>a.Categoria===cat);
   if(q){const s=q.toLowerCase();list=list.filter(a=>(a.Nome||"").toLowerCase().indexOf(s)>=0||(a.ID||"").toLowerCase().indexOf(s)>=0||(a.Fornitore||"").toLowerCase().indexOf(s)>=0||(a.CodiceFornitore||"").toLowerCase().indexOf(s)>=0||(a.Note||"").toLowerCase().indexOf(s)>=0);}
   if(!list.length)return '<div class="card" style="color:var(--gray)">Nessun articolo.</div>';
-  if(ART_VIEW==='griglia'){const ord=list.slice().sort((a,b)=>String(a.Nome).localeCompare(String(b.Nome)));return '<div class="piece-grid">'+ord.map(cardArticolo).join("")+'</div>';}
-  const g={}; list.forEach(a=>{(g[a.Categoria||'Altro']=g[a.Categoria||'Altro']||[]).push(a);});
-  let html='';
-  Object.keys(g).forEach(catName=>{
+  const intestazione=contaDispon(list,'articolo','articoli');
+  const perNome=(a,b)=>String(a.Nome).localeCompare(String(b.Nome));
+  if(ART_VIEW==='griglia'){
+    const ord=ordinaDispon(list,'articolo',perNome);
+    if(!ord.length)return intestazione+'<div class="card" style="color:var(--gray)">Nessun articolo disponibile. Cambia il filtro per vedere anche gli esauriti.</div>';
+    return intestazione+'<div class="piece-grid">'+ord.map(cardArticolo).join("")+'</div>';
+  }
+  const g={}; ordinaDispon(list,'articolo',perNome).forEach(a=>{(g[a.Categoria||'Altro']=g[a.Categoria||'Altro']||[]).push(a);});
+  let html=intestazione;
+  if(!Object.keys(g).length)return html+'<div class="card" style="color:var(--gray)">Nessun articolo disponibile. Cambia il filtro per vedere anche gli esauriti.</div>';
+  ordinaFamiglie(Object.keys(g),g,'articolo').forEach(catName=>{
     const arr=g[catName],sotto=arr.filter(a=>+a.Stock<=+a.SogliaRiordino).length;
     html+='<div style="margin-bottom:26px"><div onclick="famTog(this)" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer;user-select:none"><span class="fam-c">▾</span><span style="font-weight:600;font-size:15px">'+catName+'</span><span class="badge badge-gray">'+arr.length+'</span>'+(sotto?'<span class="badge badge-red">'+sotto+' sotto soglia</span>':'')+'</div><div class="piece-grid">'+arr.map(cardArticolo).join("")+'</div></div>';
   });
@@ -2820,7 +2913,7 @@ function setPannView(v){setVistaDefault(v);}
 function renderPannelli(){
   const tb='<div style="display:flex;gap:6px"><button class="btn '+(PANN_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'fam\')">Famiglie</button><button class="btn '+(PANN_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setPannView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'';
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Pannelli</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefilo()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoPannelli()">+ Carico pannelli</button></div></div>'
-    +'<div class="filters"><input id="pann-q" placeholder="Cerca pannello per codice o tipo..." oninput="filtraPannelli()"></div>'
+    +'<div class="filters"><input id="pann-q" placeholder="Cerca pannello per codice o tipo..." oninput="filtraPannelli()">'+ctrlDispon()+'</div>'
     +'<div id="pann-cont">'+pannelliCont("")+'</div>';
 }
 function cardPannello(p){const pct=+p.Residuale_pct||0,c=colorPct(pct),iu=imgUrlFor(p.ArticoloID),art=STATE.articoli.find(a=>a.ID===p.ArticoloID);
@@ -2830,10 +2923,17 @@ function pannelliCont(filtro){
   let list=STATE.pannelli;
   if(filtro){const q=filtro.toLowerCase();list=list.filter(p=>{const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);return (p.ID+' '+(art?art.Nome:'')+' '+p.ArticoloID+' '+(p.Fornitore||'')+' '+(p.Note||'')).toLowerCase().indexOf(q)>=0;});}
   if(!list.length)return '<div class="card" style="color:var(--gray)">Nessun pannello.</div>';
-  if(PANN_VIEW==='griglia'){const ord=list.slice().sort((a,b)=>String(a.ID).localeCompare(String(b.ID)));return '<div class="piece-grid">'+ord.map(cardPannello).join("")+'</div>';}
-  const g={}; list.forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
-  let html='';
-  Object.keys(g).forEach(id=>{
+  const intestazione=contaDispon(list,'pannello','pannelli');
+  const perId=(a,b)=>String(a.ID).localeCompare(String(b.ID));
+  if(PANN_VIEW==='griglia'){
+    const ord=ordinaDispon(list,'pannello',perId);
+    if(!ord.length)return intestazione+'<div class="card" style="color:var(--gray)">Nessun pannello disponibile. Cambia il filtro per vedere anche quelli finiti.</div>';
+    return intestazione+'<div class="piece-grid">'+ord.map(cardPannello).join("")+'</div>';
+  }
+  const g={}; ordinaDispon(list,'pannello',perId).forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
+  let html=intestazione;
+  if(!Object.keys(g).length)return html+'<div class="card" style="color:var(--gray)">Nessun pannello disponibile. Cambia il filtro per vedere anche quelli finiti.</div>';
+  ordinaFamiglie(Object.keys(g),g,'pannello').forEach(id=>{
     const ps=g[id],art=STATE.articoli.find(a=>a.ID===id);
     const tot=ps.reduce((s,p)=>s+(+p.M2_residuo||0),0),us=ps.filter(p=>+p.Residuale_pct>10).length;const dest=destinatoPannelli(id);
     html+='<div style="margin-bottom:26px"><div onclick="famTog(this)" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer;user-select:none"><span class="fam-c">▾</span><span style="font-weight:600;font-size:15px">'+(art?art.Nome:id)+'</span><span class="badge badge-gray">'+id+'</span><span style="font-size:12px;color:var(--gray)">'+tot.toFixed(2)+' m2 residui'+(dest>0?(' <span style="color:var(--accent);text-decoration:underline;cursor:pointer" onclick="event.stopPropagation();openDestinati(\''+esc(id)+'\',\'pannello\')">(di cui '+dest.toFixed(2)+' destinati a commesse)</span>'):'')+' - '+us+'/'+ps.length+' utilizzabili</span></div><div class="piece-grid">'+ps.map(cardPannello).join("")+'</div></div>';
@@ -2851,17 +2951,24 @@ function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct
 function renderMassicci(){
   const tb='<div style="display:flex;gap:6px"><button class="btn '+(MASS_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'fam\')">Famiglie</button><button class="btn '+(MASS_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setMassView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'';
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Legni massicci</h1><div style="display:flex;gap:8px;align-items:center">'+tb+'<button class="btn btn-ghost" onclick="openCaricoRefiloMassiccio()">+ Pezzo di refilo</button><button class="btn btn-accent" onclick="openCaricoMassiccio()">+ Carico massiccio</button></div></div>'
-    +'<div class="filters"><input id="mass-q" placeholder="Cerca massiccio per codice o tipo..." oninput="filtraMassicci()"></div>'
+    +'<div class="filters"><input id="mass-q" placeholder="Cerca massiccio per codice o tipo..." oninput="filtraMassicci()">'+ctrlDispon()+'</div>'
     +'<div id="mass-cont">'+massicciCont("")+'</div>';
 }
 function massicciCont(filtro){
   let list=STATE.massicci;
   if(filtro){const q=filtro.toLowerCase();list=list.filter(p=>{const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);return (p.ID+' '+(art?art.Nome:'')+' '+p.ArticoloID+' '+(p.Fornitore||'')+' '+(p.Note||'')).toLowerCase().indexOf(q)>=0;});}
   if(!list.length)return '<div class="card" style="color:var(--gray)">Nessun massiccio.</div>';
-  if(MASS_VIEW==='griglia'){const ord=list.slice().sort((a,b)=>String(a.ID).localeCompare(String(b.ID)));return '<div class="piece-grid">'+ord.map(cardMassiccio).join("")+'</div>';}
-  const g={}; list.forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
-  let html='';
-  Object.keys(g).forEach(id=>{
+  const intestazione=contaDispon(list,'massiccio','massicci');
+  const perId=(a,b)=>String(a.ID).localeCompare(String(b.ID));
+  if(MASS_VIEW==='griglia'){
+    const ord=ordinaDispon(list,'massiccio',perId);
+    if(!ord.length)return intestazione+'<div class="card" style="color:var(--gray)">Nessun massiccio disponibile. Cambia il filtro per vedere anche quelli finiti.</div>';
+    return intestazione+'<div class="piece-grid">'+ord.map(cardMassiccio).join("")+'</div>';
+  }
+  const g={}; ordinaDispon(list,'massiccio',perId).forEach(p=>{(g[p.ArticoloID]=g[p.ArticoloID]||[]).push(p);});
+  let html=intestazione;
+  if(!Object.keys(g).length)return html+'<div class="card" style="color:var(--gray)">Nessun massiccio disponibile. Cambia il filtro per vedere anche quelli finiti.</div>';
+  ordinaFamiglie(Object.keys(g),g,'massiccio').forEach(id=>{
     const ps=g[id],art=STATE.articoli.find(a=>a.ID===id);
     const tot=ps.reduce((s,p)=>s+(+p.M3_residuo||0),0),us=ps.filter(p=>+p.M3_residuo>0.0001).length;const dest=destinatoMassicci(id);
     html+='<div style="margin-bottom:26px"><div onclick="famTog(this)" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer;user-select:none"><span class="fam-c">▾</span><span style="font-weight:600;font-size:15px">'+(art?art.Nome:id)+'</span><span class="badge badge-gray">'+id+'</span><span style="font-size:12px;color:var(--gray)">'+tot.toFixed(3)+' m3 residui'+(dest>0?(' <span style="color:var(--accent);text-decoration:underline;cursor:pointer" onclick="event.stopPropagation();openDestinati(\''+esc(id)+'\',\'massiccio\')">(di cui '+dest.toFixed(3)+' destinati a commesse)</span>'):'')+' - '+us+'/'+ps.length+' disponibili</span></div><div class="piece-grid">'+ps.map(cardMassiccio).join("")+'</div></div>';
@@ -2878,7 +2985,7 @@ function renderMovimenti(){
   +'<input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMov()">'
   +'<input id="flt-txt" placeholder="Cerca materiale, pezzo, note..." oninput="filterMov()"></div>'
   +'<div class="info-box">Spunta le caselle a sinistra per lavorare su piu movimenti insieme: cambiare la commessa o annullarli in blocco.</div>'
-  +'<div class="table-wrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="mov-all" onclick="selAllMov(this)" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></th><th>Data</th><th>Operatore</th><th>Articolo</th><th>Cod. forn.</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
+  +'<div class="table-wrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="mov-all" onclick="selAllMov(this)" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></th><th>Data</th><th>Operatore</th><th>Articolo</th><th>Cod. forn.</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Bolla DDT</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
 }
 function selAllMov(chk){
   if(SELTIPO!=='movimento'){SEL={};SELTIPO='movimento';}
@@ -2890,7 +2997,7 @@ function selAllMov(chk){
 function rowsMov(list){
   const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'-';};
   MOV_VIS=list.map(m=>m.ID);
-  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="9" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
+  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(bollaDi(m).forn||m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(bollaDi(m).ddt||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="10" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
 }
 function movFiltrati(){
   const te=document.getElementById("flt-tipo"),ce=document.getElementById("flt-comm"),xe=document.getElementById("flt-txt");
@@ -2985,6 +3092,8 @@ function renderReport(){
   return '<h1 class="page-title">Report &amp; Analisi</h1>'
     +'<div class="op-sec" style="margin-top:0">Report per commessa</div>'
     +'<div class="qa-grid">'+blocchi+'</div>'
+    +'<div class="op-sec">Bolle e DDT dei fornitori</div>'
+    +renderReportBolle()
     +'<div class="op-sec">Dove e stato usato</div>'
     +'<div class="info-box">Cerca un materiale, un codice pezzo (P1154, RM0003, ART-0042), una altra voce o una commessa: vedi quanto ne e uscito, su quali commesse e quando.</div>'
     +'<div class="filters"><input id="ut-q" placeholder="Cerca materiale, codice pezzo, altra voce o commessa..." oninput="filtraUtilizzo()"><button class="btn btn-accent" onclick="stampaUtilizzo()">Stampa PDF</button><button class="btn btn-green" onclick="csvUtilizzo()">Esporta CSV</button></div>'
@@ -3042,8 +3151,10 @@ function utilizzoDati(filtro){
     pezzi.forEach(p=>{if(cc.pezzi.indexOf(p)<0)cc.pezzi.push(p);});
     const d=String(m.Data||'').slice(0,10);
     if(d){if(!cc.dal||d<cc.dal)cc.dal=d;if(!cc.al||d>cc.al)cc.al=d;}
+    const bo=bollaDi(m);
     cc.det.push({data:String(m.Data||'').slice(0,16),q:(+m.Quantita||0),unita:m.UnitaMisura||'',
-      pezzo:pezzi.join(', ')||'-',note:m.Note||'',chi:m.Utente||'',forn:forn||''});
+      pezzo:pezzi.join(', ')||'-',note:m.Note||'',chi:m.Utente||'',forn:(bo.forn||forn||''),
+      ddt:bo.ddt||''});
   });
   (STATE.voci||[]).forEach(function(v){
     const nome=v.Descrizione||'(senza descrizione)';
@@ -3061,7 +3172,7 @@ function utilizzoDati(filtro){
     const d=String(v.Data||'').slice(0,10);
     if(d){if(!cc.dal||d<cc.dal)cc.dal=d;if(!cc.al||d>cc.al)cc.al=d;}
     cc.det.push({data:d,q:(+v.Quantita||0),unita:v.Unita||'',imp:(+v.Importo||0),
-      forn:v.Fornitore||'',ft:v.NrFattura||'',stato:v.Stato||'',note:v.Note||''});
+      forn:v.Fornitore||'',ft:v.NrFattura||'',stato:v.Stato||'',note:v.Note||'',ddt:v.Ddt||''});
   });
   return g;
 }
@@ -3098,12 +3209,12 @@ function utilizzoCont(filtro){
       const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(cc.q,x.nome,x.unita);
       const tot=(x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita))
         +' <span style="font-weight:600;color:'+(x.voce?'var(--gray)':colorePct(pctUsoNum(cc.q,x.nome,x.unita)))+'">'+pctC+'</span>';
-      const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','%','Pezzi','Fornitore','Operatore','Note'];
+      const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Bolla DDT','Fattura','Stato','Note']:['Data','Quantita','%','Pezzi','Fornitore','Bolla DDT','Operatore','Note'];
       const det=cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
         const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
         const dx=x.voce
-          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),pr,(r.q?(r.q+' '+r.unita):''),r.forn,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
-          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo,r.forn,r.chi,r.note];
+          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),pr,(r.q?(r.q+' '+r.unita):''),r.forn,r.ddt,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
+          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo,r.forn,r.ddt,r.chi,r.note];
         return '<tr>'+dx.map(function(v,i){return '<td style="padding:3px 6px;border-top:1px solid var(--border)'+(i===1?';text-align:right;font-weight:600;white-space:nowrap':'')+(i===2?';text-align:center;color:var(--gray)':'')+'">'+(v||'-')+'</td>';}).join("")+'</tr>';
       }).join("");
       return '<div style="padding:10px 0;border-top:1px solid var(--border)">'
@@ -3132,12 +3243,12 @@ function stampaUtilizzo(){
       +'<div style="font-size:10.5px;color:#777;margin-bottom:5px">'+metaDi(x)+'</div>';
     out+=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
-      const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Fattura','Stato','Note']:['Data','Quantita','%','Codici pezzo','Fornitore','Operatore','Note'];
+      const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Bolla DDT','Fattura','Stato','Note']:['Data','Quantita','%','Codici pezzo','Fornitore','Bolla DDT','Operatore','Note'];
       const rr=cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
         const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
         const dx=x.voce
-          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),pr,(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ft||'-',r.stato||'-',r.note||'-']
-          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo||'-',r.forn||'-',r.chi||'-',r.note||'-'];
+          ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),pr,(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ddt||'-',r.ft||'-',r.stato||'-',r.note||'-']
+          : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo||'-',r.forn||'-',r.ddt||'-',r.chi||'-',r.note||'-'];
         return '<tr>'+dx.map(function(v,i){return '<td'+(i===1?' align="right"':(i===2?' align="center"':''))+'>'+v+'</td>';}).join("")+'</tr>';
       }).join("");
       const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(cc.q,x.nome,x.unita);
@@ -3882,12 +3993,38 @@ function buildOrdinePDF(o){
    +'</div>';
 }
 function esportaOrdinePDF(id){const o=(STATE.ordini||[]).find(x=>x.ID===id);if(!o)return;stampaHTML(buildOrdinePDF(o));}
+// Prima di caricare a magazzino chiedo il numero della bolla: e' l'unico
+// momento in cui ce l'hai in mano, e senza non si controlla piu' niente.
 function caricaOrdineMagazzino(id){
-  call("riceviOrdine",{id:id}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
+  const o=(STATE.ordini||[]).find(x=>x.ID===id)||{};
+  const righe=(o.Righe||[]).length;
+  openModal('<div class="modal" style="width:540px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Carico a magazzino &mdash; ordine '+att(o.ID||id)+'</h2>'
+   +'<div class="info-box">Fornitore: <strong>'+att(o.Fornitore||'-')+'</strong>'
+   +(o.Commessa?('<br>Commessa: <strong>'+att(o.Commessa)+'</strong>'):'')
+   +'<br>'+righe+' righe entrano a magazzino.</div>'
+   +'<div class="alert" style="background:#faf7f2;border:1px solid var(--border);color:var(--text)">'
+   +'Scrivi il numero della <strong>bolla (DDT)</strong> che ti ha lasciato il fornitore: '
+   +'resta attaccato a tutto quello che entra adesso, e a fine mese ti serve per spuntare le bolle '
+   +'con le fatture.</div>'
+   +campiDdt('ro',o.Ddt||'',oggiISO())
+   +'<div id="ro-err"></div>'
+   +'<button class="btn-primary" onclick="submitCaricoOrdine(\''+esc(id)+'\',this)">Carica a magazzino</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="submitCaricoOrdine(\''+esc(id)+'\',this,true)">Carica senza bolla</button>'
+   +'</div>');
+}
+function submitCaricoOrdine(id,btn,senza){
+  const b=senza?{Ddt:'',DataDdt:null}:leggiDdt('ro');
+  if(!senza&&!b.Ddt){showErr('ro-err','Scrivi il numero della bolla, oppure usa "Carica senza bolla".');return;}
+  if(btn){btn.disabled=true;btn.textContent='Carico...';}
+  call("riceviOrdine",{id:id,Ddt:b.Ddt,DataDdt:b.DataDdt}).then(r=>{
+    if(!r.ok){showErr('ro-err',r.err||"Errore");if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}return;}
     Promise.all([call("getOrdini"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),call("getFabbisogno"),call("getVoci")]).then(([or,a,p,m,mv,fb,vc])=>{
       STATE.ordini=or||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];STATE.fabbisogni=fb||[];STATE.voci=vc||[];
-      toast("Ordine caricato a magazzino");renderPage(STATE.pagina);});
-  });
+      closeModal();
+      toast("Ordine caricato a magazzino"+(b.Ddt?(" con la bolla "+b.Ddt):" (senza bolla)"));
+      renderPage(STATE.pagina);});
+  }).catch(e=>{showErr('ro-err',String((e&&e.message)||e));if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}});
 }
 function openEliminaOrdine(id){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina ordine</h2><div class="alert alert-red">L\'ordine verra rimosso dalla lista. La merce gia caricata a magazzino resta in magazzino.</div><div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOrdine(\''+esc(id)+'\')">Elimina ordine</button></div>');
@@ -4447,6 +4584,25 @@ function oreFiltrate(o){
     return String(y.Data).localeCompare(String(x.Data));
   });
   return out;
+}
+// Da dove arriva questa roba: bolla e fornitore.
+// Se il movimento non ce li ha (tipico degli scarichi in commessa),
+// li cerco sul pezzo, che se li e' tenuti da quando e' entrato.
+function bollaDi(m){
+  if(!m)return {ddt:'',forn:'',data:''};
+  if(m.Ddt||m.Fornitore)return {ddt:m.Ddt||'',forn:m.Fornitore||'',data:m.DataDdt||''};
+  const ids=String(m.PezzoID||'').split(',').map(x=>x.trim()).filter(Boolean);
+  for(let i=0;i<ids.length;i++){
+    const p=(STATE.pannelli||[]).filter(x=>x.ID===ids[i])[0]
+         ||(STATE.massicci||[]).filter(x=>x.ID===ids[i])[0];
+    if(p&&(p.Ddt||p.Fornitore))return {ddt:p.Ddt||'',forn:p.Fornitore||'',data:p.DataDdt||''};
+  }
+  return {ddt:'',forn:'',data:''};
+}
+function ddtTxt(m){
+  const b=bollaDi(m);
+  if(!b.ddt&&!b.forn)return '';
+  return (b.forn||'')+(b.ddt?((b.forn?' &middot; ':'')+'bolla '+b.ddt):'');
 }
 function nomeCommessa(id){
   const c=(STATE.commesse||[]).filter(x=>x.ID===id)[0];
@@ -6357,6 +6513,184 @@ function oreDopoModifica(){
   if(ORE_DETT)setTimeout(oreDettDisegna,60);
 }
 
+// ==================================================================
+//  REPORT BOLLE (DDT)
+//  Tutto quello che e' entrato, raggruppato per bolla o per fornitore,
+//  per spuntarlo con le bolle di carta e con le fatture.
+// ==================================================================
+var DDT_GRUPPO='ddt', DDT_DA='', DDT_A='', DDT_Q='', DDT_FORN='';
+
+// tutte le entrate: i carichi di magazzino + le altre voci con una bolla
+function ddtRighe(){
+  const out=[];
+  (STATE.movimenti||[]).forEach(function(m){
+    if(m.Tipo!=='carico')return;
+    if(m.Annullato==='SI'||m.Annullato===true)return;
+    const b=bollaDi(m);
+    out.push({tipo:'magazzino',data:String(m.Data||'').slice(0,10),
+      ddt:b.ddt,dataDdt:b.data||'',forn:b.forn,
+      cosa:m.NomeArticolo||m.ArticoloID||'',q:(+m.Quantita||0),unita:m.UnitaMisura||'',
+      commessa:m.Commessa||'',pezzi:m.PezzoID||'',importo:0,
+      note:m.Note||'',chi:m.Utente||'',rif:m.ID});
+  });
+  (STATE.voci||[]).forEach(function(v){
+    if(!v.Ddt&&!v.Fornitore)return;
+    out.push({tipo:'altra voce',data:String(v.Data||'').slice(0,10),
+      ddt:v.Ddt||'',dataDdt:v.DataDdt||'',forn:v.Fornitore||'',
+      cosa:v.Descrizione||'',q:(+v.Quantita||0),unita:v.Unita||'',
+      commessa:v.Commessa||'',pezzi:'',importo:(+v.Importo||0),
+      note:(v.NrFattura?('fattura '+v.NrFattura+' '):'')+(v.Note||''),chi:'',rif:v.ID});
+  });
+  return out.filter(function(r){
+    if(DDT_DA&&r.data<DDT_DA)return false;
+    if(DDT_A&&r.data>DDT_A)return false;
+    if(DDT_FORN&&(r.forn||'')!==DDT_FORN)return false;
+    if(DDT_Q){
+      const q=DDT_Q.toLowerCase();
+      const paglia=[r.ddt,r.forn,r.cosa,r.commessa,r.pezzi,r.note,r.chi].join(' ').toLowerCase();
+      if(paglia.indexOf(q)<0)return false;
+    }
+    return true;
+  });
+}
+function ddtGruppi(){
+  const g={};
+  ddtRighe().forEach(function(r){
+    const k=(DDT_GRUPPO==='fornitore')
+      ? (r.forn||'(senza fornitore)')
+      : (r.ddt?(r.ddt+(r.forn?(' — '+r.forn):'')):'(senza DDT)');
+    if(!g[k])g[k]={chiave:k,ddt:r.ddt,forn:r.forn,righe:[],importo:0,dal:r.data,al:r.data};
+    g[k].righe.push(r); g[k].importo+=r.importo;
+    if(r.data&&r.data<g[k].dal)g[k].dal=r.data;
+    if(r.data&&r.data>g[k].al)g[k].al=r.data;
+  });
+  return Object.keys(g).sort(function(a,b){
+    // le bolle piu' recenti in cima; "senza DDT" sempre in fondo
+    if(a.indexOf('(senza')===0)return 1;
+    if(b.indexOf('(senza')===0)return -1;
+    return String(g[b].al).localeCompare(String(g[a].al));
+  }).map(k=>g[k]);
+}
+function ddtImposta(campo,val){
+  if(campo==='gruppo')DDT_GRUPPO=val;
+  else if(campo==='da')DDT_DA=val;
+  else if(campo==='a')DDT_A=val;
+  else if(campo==='forn')DDT_FORN=val;
+  else if(campo==='q')DDT_Q=val;
+  renderPage(STATE.pagina);
+  if(campo==='q'){const e=document.getElementById('dd-q');if(e){e.focus();try{e.setSelectionRange(e.value.length,e.value.length);}catch(x){}}}
+}
+function ddtAzzera(){DDT_DA='';DDT_A='';DDT_Q='';DDT_FORN='';renderPage(STATE.pagina);}
+function renderReportBolle(){
+  const gg=ddtGruppi();
+  const forns={};
+  ddtRighe().forEach(function(r){ if(r.forn)forns[r.forn]=1; });
+  const senza=gg.filter(g=>g.chiave.indexOf('(senza DDT)')===0)[0];
+  let h='<div class="card" style="margin-top:14px">'
+   +'<div style="font-size:12.5px;color:var(--gray);margin-bottom:8px">'
+   +'Tutto quello che e&#39; entrato a magazzino, raggruppato come ti serve per spuntare le bolle di carta. '
+   +'Clicca una bolla per aprire le righe.</div>'
+   +'<div class="filters" style="gap:8px">'
+   +'<select onchange="ddtImposta(\'gruppo\',this.value)">'
+   +'<option value="ddt"'+(DDT_GRUPPO==='ddt'?' selected':'')+'>Raggruppa per numero di bolla</option>'
+   +'<option value="fornitore"'+(DDT_GRUPPO==='fornitore'?' selected':'')+'>Raggruppa per fornitore</option>'
+   +'</select>'
+   +'<select onchange="ddtImposta(\'forn\',this.value)"><option value="">Tutti i fornitori</option>'
+   +Object.keys(forns).sort().map(f=>'<option value="'+att(f)+'"'+(f===DDT_FORN?' selected':'')+'>'+f+'</option>').join('')+'</select>'
+   +'<div style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--gray)">dal '
+   +'<input type="date" value="'+att(DDT_DA)+'" onchange="ddtImposta(\'da\',this.value)" style="width:150px"></div>'
+   +'<div style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--gray)">al '
+   +'<input type="date" value="'+att(DDT_A)+'" onchange="ddtImposta(\'a\',this.value)" style="width:150px"></div>'
+   +'<input id="dd-q" value="'+att(DDT_Q)+'" placeholder="Cerca: bolla, fornitore, materiale, commessa..." oninput="ddtImposta(\'q\',this.value)" style="flex:1;min-width:200px;padding:9px 11px">'
+   +((DDT_DA||DDT_A||DDT_Q||DDT_FORN)?'<button class="btn btn-ghost" onclick="ddtAzzera()">Azzera</button>':'')
+   +'<button class="btn btn-green" onclick="csvBolle()">Esporta CSV</button>'
+   +'<button class="btn btn-accent" onclick="stampaBolle()">Stampa PDF</button>'
+   +'</div></div>';
+
+  if(!gg.length)return h+'<div class="card" style="color:var(--gray)">Nessuna entrata in questo periodo.</div>';
+
+  const nRighe=gg.reduce((s,g)=>s+g.righe.length,0);
+  h+='<div class="info-box" style="margin-top:12px">'
+   +'<strong>'+gg.length+'</strong> '+(DDT_GRUPPO==='fornitore'?'fornitori':'bolle')
+   +' &middot; '+nRighe+' entrate'
+   +(senza?(' &middot; <span style="color:var(--red)"><strong>'+senza.righe.length+'</strong> senza numero di bolla</span>'):'')
+   +'</div>';
+
+  gg.forEach(function(g,i){
+    const q={};
+    g.righe.forEach(function(r){ if(r.unita)q[r.unita]=(q[r.unita]||0)+r.q; });
+    const qTxt=Object.keys(q).map(u=>nOre(q[u])+' '+u).join(' &middot; ');
+    h+='<div class="card" style="margin-bottom:10px">'
+     +'<div onclick="famTog(this)" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer;user-select:none">'
+     +'<div style="display:flex;align-items:center;gap:8px"><span class="fam-c">'+(i<3?'&#9662;':'&#9656;')+'</span>'
+     +'<span style="font-weight:600;font-size:14.5px'+(g.chiave.indexOf('(senza')===0?';color:var(--red)':'')+'">'+att(g.chiave)+'</span>'
+     +'<span class="badge badge-gray">'+g.righe.length+' righe</span></div>'
+     +'<div style="font-size:12.5px;color:var(--gray)">'+qTxt
+     +(g.importo?(' &middot; <strong>&euro; '+euro(g.importo)+'</strong>'):'')
+     +' &middot; '+(g.dal===g.al?dataIt(g.dal):(dataIt(g.dal)+' - '+dataIt(g.al)))+'</div></div>'
+     +'<div'+(i<3?'':' style="display:none"')+'><div style="overflow-x:auto;margin-top:8px">'
+     +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+     +'<thead><tr style="text-align:left;color:var(--gray);font-size:10.5px;text-transform:uppercase">'
+     +'<th style="padding:4px">Data</th><th>Bolla</th><th>Fornitore</th><th>Materiale</th>'
+     +'<th style="text-align:right">Quantita</th><th>Commessa</th><th>Pezzi</th><th>Note</th></tr></thead><tbody>'
+     +g.righe.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
+        return '<tr style="border-top:1px solid var(--border)">'
+         +'<td style="padding:4px;white-space:nowrap">'+dataIt(r.data)+'</td>'
+         +'<td style="font-family:monospace">'+(r.ddt||'<span style="color:var(--red)">-</span>')+'</td>'
+         +'<td>'+(r.forn||'-')+'</td>'
+         +'<td style="font-weight:600">'+att(r.cosa)+'</td>'
+         +'<td style="text-align:right;white-space:nowrap">'+(r.importo?('&euro; '+euro(r.importo)):(nOre(r.q)+' '+r.unita))+'</td>'
+         +'<td style="font-family:monospace;font-size:11px">'+(r.commessa||'-')+'</td>'
+         +'<td style="font-size:11px;color:var(--gray)">'+att(String(r.pezzi||'-').slice(0,60))+'</td>'
+         +'<td style="font-size:11px;color:var(--gray)">'+att(r.note||'')+'</td></tr>';
+       }).join('')
+     +'</tbody></table></div></div></div>';
+  });
+  return h;
+}
+function csvBolle(){
+  const gg=ddtGruppi();
+  if(!gg.length){toast('Niente da esportare','err');return;}
+  const righe=[[(DDT_GRUPPO==='fornitore'?'Fornitore':'Bolla'),'Data','N. DDT','Data DDT','Fornitore',
+    'Tipo','Materiale','Quantita','Unita','Importo EUR','Commessa','Codici pezzo','Note','Registrato da']];
+  gg.forEach(function(g){
+    g.righe.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).forEach(function(r){
+      righe.push([g.chiave,dataIt(r.data),r.ddt||'',r.dataDdt?dataIt(r.dataDdt):'',r.forn||'',
+        r.tipo,r.cosa,r.q?csvNum(r.q,3):'',r.unita||'',r.importo?csvNum(r.importo,2):'',
+        r.commessa||'',r.pezzi||'',r.note||'',r.chi||'']);
+    });
+  });
+  righe.push([]);
+  righe.push(['Raggruppamento',DDT_GRUPPO==='fornitore'?'per fornitore':'per numero di bolla']);
+  righe.push(['Periodo',(DDT_DA?dataIt(DDT_DA):'dall\'inizio')+' - '+(DDT_A?dataIt(DDT_A):'a oggi')]);
+  scaricaCsv('bolle-ddt_'+oggiFile()+'.csv',righe);
+}
+function stampaBolle(){
+  const gg=ddtGruppi();
+  if(!gg.length){toast('Niente da stampare','err');return;}
+  let h='<div style="font-family:Georgia,serif;color:#3a342d">'
+   +pdfHead('Bolle e DDT dei fornitori',
+     (DDT_GRUPPO==='fornitore'?'raggruppate per fornitore':'raggruppate per numero di bolla')
+     +'<br>'+(DDT_DA?dataIt(DDT_DA):'dall\'inizio')+' - '+(DDT_A?dataIt(DDT_A):'a oggi'));
+  gg.forEach(function(g){
+    h+='<div style="break-inside:avoid;margin-bottom:12px">'
+     +'<h3 style="font-size:13px;margin:12px 0 3px;border-bottom:1px solid #ccc;padding-bottom:2px">'
+     +g.chiave+' <span style="font-weight:400;color:#777">&mdash; '+g.righe.length+' righe'
+     +(g.importo?(' &middot; &euro; '+euro(g.importo)):'')+'</span></h3>'
+     +'<table border="1" cellpadding="4" style="border-collapse:collapse;width:100%;font-size:10.5px">'
+     +'<thead><tr style="background:#f0e9e0"><th align="left">Data</th><th align="left">Bolla</th>'
+     +'<th align="left">Fornitore</th><th align="left">Materiale</th><th align="right">Quantita</th>'
+     +'<th align="left">Commessa</th><th align="left">Note</th></tr></thead><tbody>'
+     +g.righe.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(function(r){
+        return '<tr><td>'+dataIt(r.data)+'</td><td>'+(r.ddt||'-')+'</td><td>'+(r.forn||'-')+'</td>'
+         +'<td>'+r.cosa+'</td><td align="right">'+(r.importo?('&euro; '+euro(r.importo)):(nOre(r.q)+' '+r.unita))+'</td>'
+         +'<td>'+(r.commessa||'-')+'</td><td>'+(r.note||'-')+'</td></tr>';
+       }).join('')
+     +'</tbody></table></div>';
+  });
+  stampaHTML(h+'</div>');
+}
+
 // ---------- modale: persona ----------
 function openNuovaPersona(id){
   const p=id?(STATE.personale||[]).filter(x=>x.ID===id)[0]:null;
@@ -7622,6 +7956,36 @@ function submitEliminaVoce(id){
     call("getVoci").then(v=>{STATE.voci=v||[];closeModal();toast("Voce eliminata");renderPage(STATE.pagina);});});
 }
 // -- MOVIMENTO ARTICOLO --
+// ==================================================================
+//  LA BOLLA DEL FORNITORE (DDT)
+//  Due campi uguali in tutte le finestre in cui entra materiale.
+//  Non sono obbligatori: ci sono carichi che una bolla non ce l'hanno
+//  (refili, rientri da cantiere, correzioni). Quello che entra senza
+//  bolla lo ritrovi nel report Bolle, sotto "senza DDT".
+// ==================================================================
+function campiDdt(pre,ddt,data){
+  return '<div class="form-row">'
+   +'<div class="form-group"><label>N. DDT / bolla del fornitore</label>'
+   +'<input id="'+pre+'-ddt" list="ddt-dl" autocomplete="off" value="'+att(ddt||'')+'" placeholder="es. 1245/26">'
+   +datalistDdt()
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Serve per il controllo con le bolle. Se non ce l&#39;hai, lascia vuoto.</div></div>'
+   +'<div class="form-group"><label>Data della bolla</label>'
+   +'<input type="date" id="'+pre+'-ddtdata" value="'+att(String(data||'').slice(0,10))+'"></div>'
+   +'</div>';
+}
+// i numeri di bolla gia' usati, per non riscriverli a mano
+function datalistDdt(){
+  const v={};
+  (STATE.movimenti||[]).forEach(function(m){ if(m.Ddt)v[m.Ddt]=1; });
+  (STATE.voci||[]).forEach(function(x){ if(x.Ddt)v[x.Ddt]=1; });
+  const l=Object.keys(v).sort().reverse().slice(0,60);
+  return '<datalist id="ddt-dl">'+l.map(x=>'<option value="'+att(x)+'">').join('')+'</datalist>';
+}
+function leggiDdt(pre){
+  const a=document.getElementById(pre+'-ddt'), b=document.getElementById(pre+'-ddtdata');
+  return { Ddt:(a?a.value.trim():''), DataDdt:(b?b.value:'')||null };
+}
+
 function openMovimento(artId,tipo){
   artId=artId||"";tipo=tipo||"carico";
   const art=STATE.articoli.find(a=>a.ID===artId);
@@ -7632,7 +7996,9 @@ function openMovimento(artId,tipo){
     +'<div class="form-group"><label>Articolo *</label>'+comboHTML('mov','Cerca o scegli articolo...',(art?art.ID:''),(art?(art.Nome+' ('+art.ID+')'):''))+'</div>'
     +'<div id="stk" class="info-box" style="'+(art?'':'display:none')+'">Stock attuale: <strong id="stk-v">'+(art?art.Stock+' '+art.UnitaMisura:'')+'</strong></div>'
     +'<div class="form-group"><label>Quantita *</label><input type="number" id="mov-qty" min="0.001" step="any" placeholder="0"></div>'
-    +'<div class="form-group" id="forn-wrap" style="'+(tipo==='carico'?'':'display:none')+'"><label>Fornitore</label><input id="mov-forn" value="'+(art?(art.Fornitore||''):'')+'" placeholder="es. Saviola"></div>'
+    +'<div id="forn-wrap" style="'+(tipo==='carico'?'':'display:none')+'">'
+    +'<div class="form-group"><label>Fornitore</label><input id="mov-forn" value="'+(art?(art.Fornitore||''):'')+'" placeholder="es. Saviola"></div>'
+    +campiDdt('mov','',oggiISO())+'</div>'
     +'<div class="form-group"><label>Commessa</label><select id="mov-comm" onchange="onCommessaChange(\'mov-comm\');aggiornaDestinazione()">'+optCommesse()+'</select></div>'
     +'<div class="form-group" id="dest-wrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="mov-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note</label><input id="mov-note" placeholder="Opzionale..."></div>'
@@ -7650,13 +8016,14 @@ function updStock(){const a=STATE.articoli.find(x=>x.ID===comboVal('mov'));const
 function submitMov(){
   const id=comboVal('mov'),t=document.getElementById("mov-tipo").value,q=parseFloat(document.getElementById("mov-qty").value),c=document.getElementById("mov-comm").value,n=document.getElementById("mov-note").value;
   const forn=t==='carico'?document.getElementById("mov-forn").value:"";
+  const bolla=t==='carico'?leggiDdt('mov'):{Ddt:'',DataDdt:null};
   const dest=(document.getElementById("mov-dest")||{}).value||"destina";
   if(!id||!q||q<=0){showErr("mov-err","Compila articolo e quantita.");return;}
   const a=STATE.articoli.find(x=>x.ID===id);
   if(t==="scarico"&&q>+a.Stock){showErr("mov-err","Stock insufficiente. Disponibile: "+a.Stock+" "+a.UnitaMisura);return;}
   // CARICO con commessa + "scarica subito": carico e poi scarico immediato nella commessa
   if(t==='carico'&&c&&dest==='scarica'){
-    call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn}).then(r1=>{
+    call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r1=>{
       if(!r1.ok){showErr("mov-err",r1.err);return;}
       call("registraMovimento",{ArticoloID:id,Tipo:"scarico",Quantita:q,Commessa:c,Note:n||("Consumo diretto commessa "+c)}).then(r2=>{
         if(!r2.ok){showErr("mov-err",r2.err);return;}
@@ -7667,7 +8034,7 @@ function submitMov(){
   }
   // CARICO con commessa + "destina": carico normale + riserva alla commessa
   if(t==='carico'&&c&&dest==='destina'){
-    call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn}).then(r1=>{
+    call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r1=>{
       if(!r1.ok){showErr("mov-err",r1.err);return;}
       call("assegnaArticoloSingolo",{artId:id,commessa:c,quantita:q}).then(()=>{
         refreshDopoMov();toast("Caricato e destinato alla commessa "+c);
@@ -7676,7 +8043,7 @@ function submitMov(){
     return;
   }
   // Caso normale (solo carico senza commessa, o scarico)
-  call("registraMovimento",{ArticoloID:id,Tipo:t,Quantita:q,Commessa:c,Note:n,Fornitore:forn}).then(r=>{
+  call("registraMovimento",{ArticoloID:id,Tipo:t,Quantita:q,Commessa:c,Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r=>{
     if(!r.ok){showErr("mov-err",r.err);return;}
     STATE.articoli=STATE.articoli.map(x=>x.ID===id?Object.assign({},x,{Stock:r.nuovoStock}):x);
     STATE.movimenti.push({ID:r.id,Data:new Date().toISOString().slice(0,19).replace("T"," "),Utente:STATE.utente.Nome,ArticoloID:id,NomeArticolo:a.Nome,Tipo:t,Quantita:q,UnitaMisura:a.UnitaMisura,Commessa:c,Note:n,Fornitore:forn,Annullato:"NO"});
@@ -7725,6 +8092,7 @@ function openCaricoPannelli(){
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm *</label><input type="number" id="cp-w" placeholder="2800" oninput="cpPrev()"></div><div class="form-group"><label>Altezza mm *</label><input type="number" id="cp-h" placeholder="2070" oninput="cpPrev()"></div></div>'
     +'<div class="form-row"><div class="form-group"><label>N. pannelli *</label><input type="number" id="cp-q" min="1" placeholder="10" oninput="cpPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cp-f" value="'+next+'" oninput="cpPrev()"></div></div>'
     +'<div class="form-group"><label>Fornitore</label><input id="cp-forn" placeholder="es. Saviola"></div>'
+    +campiDdt('cp','',oggiISO())
     +'<div class="form-group"><label>Commessa (opzionale)</label><select id="cp-comm" onchange="cpDestChange()">'+optCommesse()+'</select></div>'
     +'<div class="form-group" id="cp-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="cp-dest"><option value="destina">Destina alla commessa (i pannelli restano a magazzino, riservati)</option><option value="scarica">Scarica subito nella commessa (consumati ora)</option></select></div>'
     +'<div class="form-group"><label>Note (sempre visibili sul pannello)</label><input id="cp-note" placeholder="es. avanzo cantiere, difetto angolo..."></div>'
@@ -7752,7 +8120,8 @@ function cpPrev(){const w=+document.getElementById("cp-w").value,h=+document.get
 function submitCP(){
   const tipo=document.getElementById("cp-tipo").value.trim(),w=document.getElementById("cp-w").value,h=document.getElementById("cp-h").value,q=document.getElementById("cp-q").value,f=document.getElementById("cp-f").value,forn=document.getElementById("cp-forn").value;
   if(!tipo){showErr("cp-err","Scrivi o scegli il tipo di pannello.");return;}
-  const d={ArticoloID:tipo,Larghezza_mm:w,Altezza_mm:h,Quantita:q,PrimoID:f,Fornitore:forn,Note:document.getElementById("cp-note").value};
+  const d=Object.assign({ArticoloID:tipo,Larghezza_mm:w,Altezza_mm:h,Quantita:q,PrimoID:f,Fornitore:forn,
+    Note:document.getElementById("cp-note").value},leggiDdt('cp'));
   if(!w||!h||!q||!f){showErr("cp-err","Compila dimensioni, quantita e primo ID.");return;}
   call("caricaPannelli",d).then(r=>{
     if(!r.ok){showErr("cp-err",r.err||"Errore.");return;}
@@ -7781,6 +8150,7 @@ function openCaricoRefilo(){
     +'<div class="form-row"><div class="form-group"><label>Larghezza mm (facolt.)</label><input type="number" id="rf-w" oninput="rfPrev()"></div><div class="form-group"><label>Altezza mm (facolt.)</label><input type="number" id="rf-h" oninput="rfPrev()"></div></div>'
     +'<div class="form-group"><label>Oppure m2 a mano (se non hai le misure)</label><input type="number" step="any" id="rf-m2" placeholder="es. 0.5" oninput="rfPrev()"></div>'
     +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rf-forn"></div>'
+    +campiDdt('rf','','')
     +'<div class="form-group"><label>Commessa (opzionale)</label><select id="rf-comm" onchange="rfDestChange()">'+optCommesse()+'</select></div>'
     +'<div class="form-group" id="rf-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="rf-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note (facolt.)</label><input id="rf-note"></div>'
@@ -7796,7 +8166,7 @@ function rfPrev(){
 function submitRefilo(){
   const desc=document.getElementById("rf-desc").value.trim();
   if(!desc){showErr("rf-err","Inserisci una descrizione.");return;}
-  const d={Descrizione:desc,Larghezza_mm:document.getElementById("rf-w").value,Altezza_mm:document.getElementById("rf-h").value,M2:document.getElementById("rf-m2").value,Fornitore:document.getElementById("rf-forn").value,Note:document.getElementById("rf-note").value};
+  const d=Object.assign({Descrizione:desc,Larghezza_mm:document.getElementById("rf-w").value,Altezza_mm:document.getElementById("rf-h").value,M2:document.getElementById("rf-m2").value,Fornitore:document.getElementById("rf-forn").value,Note:document.getElementById("rf-note").value},leggiDdt('rf'));
   call("caricaRefilo",d).then(r=>{if(!r.ok){showErr("rf-err",r.err||"Errore.");return;}
     const c=document.getElementById("rf-comm").value;
     const dest=(document.getElementById("rf-dest")||{}).value||"destina";
@@ -7822,6 +8192,7 @@ function openCaricoRefiloMassiccio(){
     +'<div class="form-row-3"><div class="form-group"><label>Lungh. mm (facolt.)</label><input type="number" id="rfm-l" oninput="rfmPrev()"></div><div class="form-group"><label>Largh. mm (facolt.)</label><input type="number" id="rfm-w" oninput="rfmPrev()"></div><div class="form-group"><label>Spess. mm (facolt.)</label><input type="number" id="rfm-s" oninput="rfmPrev()"></div></div>'
     +'<div class="form-group"><label>Oppure m3 a mano (se non hai le misure)</label><input type="number" step="any" id="rfm-m3" placeholder="es. 0.02" oninput="rfmPrev()"></div>'
     +'<div class="form-group"><label>Fornitore (facolt.)</label><input id="rfm-forn"></div>'
+    +campiDdt('rfm','','')
     +'<div class="form-group"><label>Commessa (opzionale)</label><select id="rfm-comm" onchange="rfmDestChange()">'+optCommesse()+'</select></div>'
     +'<div class="form-group" id="rfm-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="rfm-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note (facolt.)</label><input id="rfm-note"></div>'
@@ -7837,7 +8208,7 @@ function rfmPrev(){
 function submitRefiloMassiccio(){
   const desc=document.getElementById("rfm-desc").value.trim();
   if(!desc){showErr("rfm-err","Inserisci una descrizione.");return;}
-  const d={Descrizione:desc,Lunghezza_mm:document.getElementById("rfm-l").value,Larghezza_mm:document.getElementById("rfm-w").value,Spessore_mm:document.getElementById("rfm-s").value,M3:document.getElementById("rfm-m3").value,Fornitore:document.getElementById("rfm-forn").value,Note:document.getElementById("rfm-note").value};
+  const d=Object.assign({Descrizione:desc,Lunghezza_mm:document.getElementById("rfm-l").value,Larghezza_mm:document.getElementById("rfm-w").value,Spessore_mm:document.getElementById("rfm-s").value,M3:document.getElementById("rfm-m3").value,Fornitore:document.getElementById("rfm-forn").value,Note:document.getElementById("rfm-note").value},leggiDdt('rfm'));
   call("caricaRefiloMassiccio",d).then(r=>{if(!r.ok){showErr("rfm-err",r.err||"Errore.");return;}
     const c=document.getElementById("rfm-comm").value;
     const dest=(document.getElementById("rfm-dest")||{}).value||"destina";
@@ -7892,6 +8263,7 @@ function openCaricoMassiccio(){
     +'<div id="cm-misure"><div class="form-row-3"><div class="form-group"><label>Lungh. mm *</label><input type="number" id="cm-l" placeholder="2500" oninput="cmPrev()"></div><div class="form-group"><label>Largh. mm *</label><input type="number" id="cm-w" placeholder="200" oninput="cmPrev()"></div><div class="form-group"><label>Spess. mm *</label><input type="number" id="cm-s" placeholder="50" oninput="cmPrev()"></div></div><div class="form-row"><div class="form-group"><label>N. pezzi *</label><input type="number" id="cm-q" min="1" value="1" oninput="cmPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cm-f" value="'+next+'" oninput="cmPrev()"></div></div></div>'
     +'<div id="cm-totale" style="display:none"><div class="form-row"><div class="form-group"><label>m3 totali *</label><input type="number" step="any" id="cm-m3" placeholder="0.025" oninput="cmPrev()"></div><div class="form-group"><label>Primo ID *</label><input type="number" id="cm-f2" value="'+next+'"></div></div></div>'
     +'<div class="form-group"><label>Fornitore</label><input id="cm-forn" placeholder="es. Falegnameria X"></div>'
+    +campiDdt('cm','',oggiISO())
     +'<div class="form-group"><label>Commessa (opzionale)</label><select id="cm-comm" onchange="cmDestChange()">'+optCommesse()+'</select></div>'
     +'<div class="form-group" id="cm-destwrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="cm-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note (sempre visibili sul massiccio)</label><input id="cm-note" placeholder="es. nodo, fessura..."></div>'
@@ -7919,7 +8291,7 @@ function cmPrev(){const p=document.getElementById("cm-prev");if(document.getElem
 function submitCM(){
   const tipo=document.getElementById("cm-tipo").value.trim(),modo=document.getElementById("cm-modo").value,forn=document.getElementById("cm-forn").value;
   if(!tipo){showErr("cm-err","Scrivi o scegli il tipo di legno.");return;}
-  const d={ArticoloID:tipo,modo:modo,Fornitore:forn,Note:document.getElementById("cm-note").value};
+  const d=Object.assign({ArticoloID:tipo,modo:modo,Fornitore:forn,Note:document.getElementById("cm-note").value},leggiDdt('cm'));
   if(modo==='misure'){d.Lunghezza_mm=document.getElementById("cm-l").value;d.Larghezza_mm=document.getElementById("cm-w").value;d.Spessore_mm=document.getElementById("cm-s").value;d.Quantita=document.getElementById("cm-q").value;d.PrimoID=document.getElementById("cm-f").value;if(!d.Lunghezza_mm||!d.Larghezza_mm||!d.Spessore_mm||!d.Quantita){showErr("cm-err","Compila misure e quantita.");return;}}
   else{d.M3totale=document.getElementById("cm-m3").value;d.PrimoID=document.getElementById("cm-f2").value;if(!d.M3totale){showErr("cm-err","Inserisci i m3 totali.");return;}}
   call("caricaMassicci",d).then(r=>{if(!r.ok){showErr("cm-err",r.err||"Errore.");return;}
