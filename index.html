@@ -200,6 +200,16 @@
     #ai-fab{bottom:74px;left:12px;height:42px;padding:0 13px;font-size:13px}
     #ai-pan{bottom:126px;left:12px;width:calc(100vw - 24px);max-height:calc(100vh - 190px)}
   }
+  /* Scrivi e trova: la casella al posto della tendina lunga */
+  .ac-wrap{position:relative;display:block}
+  .ac-inp{width:100%}
+  .ac-inp.ac-no{border-color:var(--red)!important;background:#fff6f6}
+  .ac-box{position:fixed;z-index:4000;background:var(--white);border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 28px rgba(0,0,0,.20);overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;font-size:13.5px}
+  .ac-r{padding:9px 11px;cursor:pointer;border-bottom:1px solid #f1ede6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ac-r:last-child{border-bottom:none}
+  .ac-r:hover,.ac-r.on{background:var(--accent-light);color:var(--ink)}
+  .ac-vuoto{padding:11px 12px;color:var(--gray)}
+  @media(max-width:700px){.ac-r{padding:13px 12px;font-size:15px}}
   #ver-badge{position:fixed;top:8px;right:54px;z-index:950;font-size:10px;color:var(--gray);background:var(--white);border:1px solid var(--border);padding:3px 9px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   #btn-refresh{position:fixed;top:6px;right:10px;z-index:952;width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:18px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center}
   #btn-backup{position:fixed;bottom:18px;right:18px;z-index:951;height:42px;padding:0 14px;border-radius:22px;background:#fff;color:var(--accent);border:1.5px solid var(--accent);cursor:pointer;font-size:14px;line-height:1;box-shadow:0 3px 12px rgba(0,0,0,.16);display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600}
@@ -299,7 +309,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v84 - Atelier</div>
+  <div id="ver-badge">v85 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -578,6 +588,7 @@ function renderPage(p){
   else if(p==="modelli")m.innerHTML=renderModelli();
   else if(p==="qr")m.innerHTML=renderQR();
   if(p==="articoli"||p==="pannelli"||p==="massicci")collassaFam();
+  acAttiva(m);
 }
 
 // ============================================================
@@ -4360,8 +4371,184 @@ function stampaQR(soloSel){
 }
 
 // -- MODALI base --
-function openModal(html){document.getElementById("modal-container").innerHTML='<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'+html+'</div>';}
-function closeModal(){document.getElementById("modal-container").innerHTML="";CURRENT_DETAIL=null;}
+// ==================================================================
+//  SCRIVI E TROVA
+//  Le tendine lunghe - le commesse, gli articoli, le persone - sul
+//  telefono sono una tortura: per arrivare alla commessa giusta
+//  bisogna scorrere cinquanta righe con il dito.
+//  Da qui in avanti ogni tendina con tante voci diventa una casella
+//  dove SCRIVI due lettere (del codice o del nome, anche in mezzo
+//  alla parola) e lui ti propone solo quelle che combaciano.
+//  La tendina vera resta li' sotto, nascosta: e' sempre lei che
+//  tiene il valore buono, quindi tutto il resto del programma
+//  (salvataggi, controlli, PDF) continua a funzionare identico.
+// ==================================================================
+const AC_MIN=12;        // sotto le 12 voci la tendina normale va benissimo
+let AC_APERTO=null;     // la casella che in questo momento ha la lista aperta
+
+// toglie accenti e maiuscole, cosi' "ca' zanardi" trova "Ca Zanardi"
+function acNorm(x){
+  return String(x==null?'':x).toLowerCase()
+    .replace(/[àáâä]/g,'a').replace(/[èéêë]/g,'e')
+    .replace(/[ìíîï]/g,'i').replace(/[òóôö]/g,'o')
+    .replace(/[ùúûü]/g,'u').replace(/['’`]/g,'').replace(/\s+/g,' ').trim();
+}
+function acVoci(sel){
+  const out=[];
+  Array.prototype.forEach.call(sel.options,function(o,i){
+    out.push({i:i,v:o.value,t:o.textContent,n:acNorm(o.textContent+' '+o.value)});
+  });
+  return out;
+}
+function acEtichetta(sel){
+  const o=sel.options[sel.selectedIndex];
+  return o?o.textContent:'';
+}
+// la lista che compare: una sola per tutta l'app, attaccata alla pagina
+function acBox(){
+  let b=document.getElementById('ac-box');
+  if(!b){
+    b=document.createElement('div'); b.id='ac-box'; b.className='ac-box';
+    // il dito che tocca la lista non deve togliere il fuoco alla casella
+    b.addEventListener('mousedown',function(e){e.preventDefault();});
+    document.body.appendChild(b);
+  }
+  return b;
+}
+function acPosiziona(inp,b){
+  const r=inp.getBoundingClientRect();
+  const sotto=window.innerHeight-r.bottom;
+  b.style.left=Math.max(6,Math.min(r.left,window.innerWidth-200))+'px';
+  b.style.width=Math.max(r.width,190)+'px';
+  if(sotto<190&&r.top>sotto){
+    b.style.top='auto'; b.style.bottom=(window.innerHeight-r.top+4)+'px';
+    b.style.maxHeight=Math.max(120,Math.min(r.top-12,340))+'px';
+  }else{
+    b.style.bottom='auto'; b.style.top=(r.bottom+4)+'px';
+    b.style.maxHeight=Math.max(120,Math.min(sotto-12,340))+'px';
+  }
+}
+function acApri(inp){
+  const sel=inp.__sel; if(!sel)return;
+  // appena entra dentro fa vedere tutta la lista, cosi' puo' anche solo
+  // scorrerla; da quando comincia a scrivere filtra
+  const q=inp.__tutto?'':acNorm(inp.value), b=acBox();
+  let voci=acVoci(sel);
+  if(q)voci=voci.filter(function(o){return o.n.indexOf(q)>=0;});
+  if(voci.length>80)voci=voci.slice(0,80);
+  AC_APERTO=inp; inp.__voci=voci; inp.__sc=-1;
+  if(!voci.length)b.innerHTML='<div class="ac-vuoto">Nessuna corrispondenza</div>';
+  else b.innerHTML=voci.map(function(o,k){
+    return '<div class="ac-r" data-k="'+k+'">'+att(o.t||'(vuoto)')+'</div>';}).join('');
+  Array.prototype.forEach.call(b.querySelectorAll('.ac-r'),function(el){
+    el.addEventListener('click',function(){acScegli(inp,+el.getAttribute('data-k'));});
+  });
+  acPosiziona(inp,b);
+  b.style.display='block';
+}
+function acChiudi(){
+  const b=document.getElementById('ac-box');
+  if(b)b.style.display='none';
+  AC_APERTO=null;
+}
+function acCambiata(sel){
+  try{sel.dispatchEvent(new Event('change',{bubbles:true}));}
+  catch(e){ if(typeof sel.onchange==='function')sel.onchange(); }
+}
+function acScegli(inp,k){
+  const o=(inp.__voci||[])[k]; if(!o)return;
+  const sel=inp.__sel;
+  sel.selectedIndex=o.i;
+  inp.value=o.t;
+  inp.classList.remove('ac-no');
+  acChiudi();
+  acCambiata(sel);
+}
+function acSbagliato(inp){
+  inp.classList.add('ac-no');
+  setTimeout(function(){inp.classList.remove('ac-no');},1400);
+}
+// quando lascia la casella: capisce cosa ha scritto e sistema la tendina
+function acFine(inp){
+  const sel=inp.__sel; if(!sel)return;
+  if(AC_APERTO===inp)acChiudi();
+  const q=acNorm(inp.value);
+  const voci=acVoci(sel);
+  if(!q){
+    const vuota=voci.filter(function(o){return !o.v;})[0];
+    if(vuota){ if(sel.selectedIndex!==vuota.i){sel.selectedIndex=vuota.i;acCambiata(sel);} inp.value=vuota.t; }
+    else inp.value=acEtichetta(sel);
+    return;
+  }
+  if(acNorm(acEtichetta(sel))===q)return;           // non ha cambiato niente
+  let m=voci.filter(function(o){return acNorm(o.t)===q||acNorm(o.v)===q;});
+  if(!m.length)m=voci.filter(function(o){return o.n.indexOf(q)>=0;});
+  if(m.length===1){ sel.selectedIndex=m[0].i; inp.value=m[0].t; acCambiata(sel); }
+  else { inp.value=acEtichetta(sel); acSbagliato(inp); }  // non e' chiaro: rimette quello di prima
+}
+function acEvid(b,sc){
+  Array.prototype.forEach.call(b.querySelectorAll('.ac-r'),function(el,k){
+    if(k===sc){el.classList.add('on'); if(el.scrollIntoView)el.scrollIntoView({block:'nearest'});}
+    else el.classList.remove('on');
+  });
+}
+function acTasto(e,inp){
+  if(e.key==='Escape'){ inp.value=acEtichetta(inp.__sel); acChiudi(); inp.blur(); return; }
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();
+    if(AC_APERTO!==inp){acApri(inp);return;}
+    const n=(inp.__voci||[]).length; if(!n)return;
+    inp.__sc=(e.key==='ArrowDown')?Math.min((inp.__sc<0?-1:inp.__sc)+1,n-1):Math.max(inp.__sc-1,0);
+    acEvid(acBox(),inp.__sc);
+    return;
+  }
+  if(e.key==='Enter'){
+    if(AC_APERTO!==inp)return;
+    if(inp.__sc>=0){e.preventDefault();acScegli(inp,inp.__sc);}
+    else if((inp.__voci||[]).length===1){e.preventDefault();acScegli(inp,0);}
+  }
+}
+// Trasforma le tendine lunghe dentro un pezzo di pagina.
+// Si puo' richiamare quante volte si vuole: quelle gia' fatte le salta.
+function acAttiva(root){
+  if(!root||!root.querySelectorAll)return;
+  Array.prototype.forEach.call(root.querySelectorAll('select'),function(sel){
+    if(sel.__ac||sel.disabled||sel.multiple)return;
+    if(sel.options.length<AC_MIN)return;
+    const w=document.createElement('div'); w.className='ac-wrap';
+    const inp=document.createElement('input');
+    inp.className='ac-inp'; inp.type='text';
+    const st=sel.getAttribute('style'); if(st)inp.setAttribute('style',st);
+    inp.setAttribute('autocomplete','off'); inp.setAttribute('autocorrect','off');
+    inp.setAttribute('autocapitalize','off'); inp.setAttribute('spellcheck','false');
+    inp.placeholder='scrivi per cercare...';
+    inp.value=acEtichetta(sel);
+    sel.parentNode.insertBefore(w,sel);
+    w.appendChild(sel); w.appendChild(inp);
+    sel.style.display='none';
+    sel.__ac=w; inp.__sel=sel; sel.__inp=inp;
+    inp.addEventListener('focus',function(){ try{inp.select();}catch(e){} inp.__tutto=true; acApri(inp); });
+    inp.addEventListener('input',function(){ inp.__tutto=false; acApri(inp); });
+    inp.addEventListener('keydown',function(e){ acTasto(e,inp); });
+    inp.addEventListener('blur',function(){ setTimeout(function(){acFine(inp);},180); });
+  });
+}
+// se il programma cambia la tendina da solo, la casella si adegua
+function acSincro(root){
+  if(!root||!root.querySelectorAll)return;
+  Array.prototype.forEach.call(root.querySelectorAll('select'),function(sel){
+    if(sel.__inp)sel.__inp.value=acEtichetta(sel);
+  });
+}
+try{
+  document.addEventListener('scroll',function(e){
+    if(AC_APERTO&&e.target!==document.getElementById('ac-box'))acPosiziona(AC_APERTO,acBox());
+  },true);
+  window.addEventListener('resize',function(){ if(AC_APERTO)acChiudi(); });
+}catch(e){}
+
+function openModal(html){document.getElementById("modal-container").innerHTML='<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'+html+'</div>';acAttiva(document.getElementById("modal-container"));}
+function closeModal(){acChiudi();document.getElementById("modal-container").innerHTML="";CURRENT_DETAIL=null;}
 function showErr(id,msg){const el=document.getElementById(id);if(el)el.innerHTML='<div class="err-box">'+msg+'</div>';}
 
 // -- SCELTA AZIONE --
@@ -6075,7 +6262,9 @@ function ftAddRiga(persId){
    +celle
    +'<td style="text-align:center;font-weight:600"><span class="ft-tr">0</span></td>'
    +'<td style="text-align:center"><span style="color:var(--red);cursor:pointer;font-size:18px" onclick="ftDelRiga('+n+')">&times;</span></td></tr>';
-  document.getElementById('ft-body').insertAdjacentHTML('beforeend',tr);
+  const corpoT=document.getElementById('ft-body');
+  corpoT.insertAdjacentHTML('beforeend',tr);
+  acAttiva(corpoT.lastElementChild);
   ftSomme();
 }
 function ftDelRiga(n){const tr=document.getElementById('ft-r'+n);if(tr)tr.parentNode.removeChild(tr);ftSomme();}
@@ -6084,7 +6273,7 @@ function ftTipo(sel){
   const v=tipoOraViaggio(sel.value);
   Array.prototype.forEach.call(tr.querySelectorAll('.ft-km'),el=>{el.style.display=v?'':'none';});
   const d=tr.querySelector('.ft-dest'); if(d)d.style.display=v?'':'none';
-  const c=tr.querySelector('.ft-comm'); if(c)c.style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
+  const c=tr.querySelector('.ft-comm'); if(c)(c.__ac||c).style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
 }
 function ftSomme(){
   const gg=[0,0,0,0,0,0,0]; let tot=0;
@@ -6147,7 +6336,9 @@ function fsAddRiga(){
    +celle
    +'<td style="text-align:center;font-weight:600"><span class="fs-tr">0</span></td>'
    +'<td style="text-align:center"><span style="color:var(--red);cursor:pointer;font-size:18px" onclick="fsDelRiga('+n+')">&times;</span></td></tr>';
-  document.getElementById('fs-body').insertAdjacentHTML('beforeend',tr);
+  const corpoS=document.getElementById('fs-body');
+  corpoS.insertAdjacentHTML('beforeend',tr);
+  acAttiva(corpoS.lastElementChild);
   fsSomme();
 }
 // Rifa i conti: le somme in fondo a ogni colonna (il giorno) e a fine riga.
@@ -6172,7 +6363,7 @@ function fsTipo(sel){
   const v=tipoOraViaggio(sel.value);
   Array.prototype.forEach.call(tr.querySelectorAll('.fs-km'),el=>{el.style.display=v?'':'none';});
   const d=tr.querySelector('.fs-dest'); if(d)d.style.display=v?'':'none';
-  const c=tr.querySelector('.fs-comm'); if(c)c.style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
+  const c=tr.querySelector('.fs-comm'); if(c)(c.__ac||c).style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
 }
 function fsSalva(){
   const pers=gv('fs-pers'),lun=gv('fs-lun');
