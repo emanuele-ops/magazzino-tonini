@@ -285,6 +285,7 @@
       <a data-page="commesse"><span class="nav-dot"></span>Commesse</a>
       <a data-page="offerte"><span class="nav-dot"></span>Offerte</a>
       <a data-page="modelli"><span class="nav-dot"></span>Modelli documenti</a>
+      <a data-page="etichette"><span class="nav-dot"></span>Etichette QR</a>
       <a data-page="qr"><span class="nav-dot"></span>QR Code</a>
     </nav>
     <div class="sidebar-footer">
@@ -309,7 +310,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v85 - Atelier</div>
+  <div id="ver-badge">v92 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -334,6 +335,13 @@
 <div id="print-area"></div>
 <div id="toast"></div>
 <div id="modal-container"></div>
+
+<script>
+/* QR Code Generator for JavaScript - (c) 2009 Kazuhiko Arase - licenza MIT
+   http://www.d-project.com/  -- serve a disegnare i QR delle etichette
+   senza dipendere da nessun sito esterno. */
+var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1})},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(o*r,n*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},function(t){"function"==typeof define&&define.amd?define([],t):"object"==typeof exports&&(module.exports=t())}(function(){return qrcode});
+</script>
 
 <script>
 window.onerror = function(msg, src, line, col){
@@ -482,7 +490,10 @@ function loadAll() {
     catch (e) { document.getElementById("main-content").innerHTML='<div class="card">Errore nel disegno: '+((e&&e.message)||e)+'</div>'; }
     try { document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===pagIniziale)); } catch(e){}
     if (errs.length) toast("Non caricati: "+errs.join(", ")+". Ripubblica il Code.gs.","err");
-    if (QR_TARGET) setTimeout(()=>openDettaglioById(QR_TARGET), 250);
+    caricaEtichette().then(function(){
+      // se sono entrato inquadrando un QR, vado dritto li'
+      if (QR_TARGET) setTimeout(function(){ apriDaCodice(QR_TARGET); }, 250);
+    });
   })
   .catch(e => {
     const m=document.getElementById("main-content");
@@ -507,7 +518,7 @@ function collassaFam(){document.querySelectorAll("#main-content .piece-grid").fo
 // Menu completo per mobile: rende raggiungibili tutte le sezioni
 function openMobileMenu(){
   const op = STATE.utente.Ruolo==="operator";
-  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["voci","Altre voci"],["ore","Ore e trasferte"],["dettatura","Dettatura vocale"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["qr","QR Code"]];
+  const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["voci","Altre voci"],["ore","Ore e trasferte"],["dettatura","Dettatura vocale"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["etichette","Etichette QR"],["qr","QR Code"]];
   const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr","voci"]:[];
   const items=pages.filter(p=>hide.indexOf(p[0])<0).map(p=>{const att=STATE.pagina===p[0];return '<button class="det-btn" style="margin-top:0;text-align:left;background:'+(att?'var(--accent-light)':'#faf8f4')+';color:'+(att?'var(--accent)':'var(--ink)')+'" onclick="closeModal();navTo(\''+p[0]+'\')">'+p[1]+'</button>';}).join("");
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Menu</h2><div style="display:flex;flex-direction:column;gap:8px">'+items+'</div></div>');
@@ -587,6 +598,7 @@ function renderPage(p){
   else if(p==="offerte")m.innerHTML=renderOfferte();
   else if(p==="modelli")m.innerHTML=renderModelli();
   else if(p==="qr")m.innerHTML=renderQR();
+  else if(p==="etichette")m.innerHTML=renderEtichette();
   if(p==="articoli"||p==="pannelli"||p==="massicci")collassaFam();
   acAttiva(m);
 }
@@ -706,7 +718,7 @@ async function call(fn, args) {
         ID: r.id, Data: r.data, Utente: r.utente, ArticoloID: r.articolo_id, NomeArticolo: r.nome_articolo,
         Tipo: r.tipo, Quantita: r.quantita, UnitaMisura: r.unita_misura, Commessa: r.commessa,
         PezzoID: r.pezzo_id || "", Note: r.note || "", Annullato: r.annullato ? "SI" : "NO", Fornitore: r.fornitore || "",
-        Ddt: r.ddt || "", DataDdt: r.data_ddt || ""
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || "", Etichetta: r.etichetta || ""
       }));
     }
     if (fn === "getCommesse") {
@@ -746,7 +758,7 @@ async function call(fn, args) {
       const rows = await sbGet("ordini", "select=*&order=data.desc");
       return rows.map(r => ({ ID: r.id, Data: r.data, Commessa: r.commessa, Fornitore: r.fornitore, Stato: r.stato, Righe: (typeof r.righe === "string" ? JSON.parse(r.righe || "[]") : (r.righe || [])), Note: r.note, Email: r.email, Ddt: r.ddt || "", DataDdt: r.data_ddt || "" }));
     }
-    if (fn === "getWebAppUrl") { return window.location.href; }
+    if (fn === "getWebAppUrl") { return window.location.origin + window.location.pathname; }
     if (fn === "getRiserve") {
       const rows = await sbGetTutto("riserve", "articolo_id.asc,commessa.asc");
       return rows.map(r => ({ ArticoloID: r.articolo_id, Commessa: r.commessa, Quantita: parseFloat(r.quantita) || 0 }));
@@ -770,10 +782,26 @@ async function call(fn, args) {
         quantita: d.Quantita === "" || d.Quantita == null ? null : parseFloat(d.Quantita),
         unita: d.Unita || "", importo: d.Importo === "" || d.Importo == null ? null : parseFloat(d.Importo),
         nr_fattura: d.NrFattura || "", stato: d.Stato || "da_ordinare",
-        in_ordine: !!d.InOrdine, note: d.Note || "" };
+        in_ordine: !!d.InOrdine, note: d.Note || "",
+        ddt: d.Ddt || "", data_ddt: d.DataDdt || null };
       if (d.ID) { await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(d.ID), row); return { ok: true, id: d.ID }; }
       const r = await sbPost("voci_commessa", row);
       return { ok: true, id: (r && r[0] && r[0].id) || "" };
+    }
+    if (fn === "salvaVociBulk") {
+      const righe = (args && args.righe) || [];
+      if (!righe.length) return { ok: true, n: 0 };
+      const num = v => (v === "" || v === null || v === undefined || isNaN(parseFloat(v))) ? null : parseFloat(v);
+      const rows = righe.map(d => ({ commessa: d.Commessa || "",
+        data: d.Data || new Date().toISOString().slice(0,10),
+        categoria: d.Categoria || "Altro", descrizione: d.Descrizione || "",
+        fornitore: d.Fornitore || "", quantita: num(d.Quantita), unita: d.Unita || "",
+        importo: num(d.Importo), nr_fattura: d.NrFattura || "", stato: d.Stato || "solo_costo",
+        in_ordine: !!d.InOrdine, note: d.Note || "",
+        ddt: d.Ddt || "", data_ddt: d.DataDdt || null }));
+      // a blocchi, per non far ingoiare a Supabase un boccone troppo grosso
+      for (let i = 0; i < rows.length; i += 200) await sbPost("voci_commessa", rows.slice(i, i + 200));
+      return { ok: true, n: rows.length };
     }
     if (fn === "eliminaVoce") {
       await sbDelete("voci_commessa", "id=eq." + encodeURIComponent(args.id));
@@ -855,6 +883,80 @@ async function call(fn, args) {
     }
     if (fn === "cambiaCommessaOre") {
       await sbPatch("ore", "id=eq." + encodeURIComponent(args.id), { commessa: args.commessa || "" });
+      return { ok: true };
+    }
+    // ============ ETICHETTE QR ============
+    if (fn === "getEtichette") {
+      const rows = await sbGetTutto("etichette", "codice.asc");
+      return rows.map(r => ({ Codice: r.codice, Stato: r.stato || "libera",
+        TipoTarget: r.tipo_target || "", TargetID: r.target_id || "",
+        Lotto: r.lotto || "", CreataIl: r.creata_il || "",
+        AssegnataIl: r.assegnata_il || "", AssegnataDa: r.assegnata_da || "",
+        DismessaIl: r.dismessa_il || "", Note: r.note || "",
+        Fornitore: r.fornitore || "", Ddt: r.ddt || "", DataDdt: r.data_ddt || "",
+        OrdineID: r.ordine_id || "", MovimentoID: r.movimento_id || "",
+        Contenuto: Array.isArray(r.contenuto) ? r.contenuto
+                 : (typeof r.contenuto === "string" ? (JSON.parse(r.contenuto || "[]")) : []) }));
+    }
+    if (fn === "creaEtichette") {
+      const n = parseInt(args.n) || 0;
+      if (n < 1 || n > 2000) return { ok: false, err: "Da 1 a 2000 etichette per volta." };
+      // I codici si prendono a caso fra 900.000 combinazioni, non in fila:
+      // cosi' non escono mai file di zeri da dettare, e due etichette non
+      // sono mai vicine di numero (una cifra letta male non ti apre quella
+      // accanto). Qui controllo che non ne esca una gia' usata.
+      const gia = await sbGetTutto("etichette", "codice.asc", "select=codice");
+      const usati = {};
+      gia.forEach(x => { usati[String(x.codice || "")] = 1; });
+      const lotto = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const rows = [], visti = {};
+      let tentativi = 0;
+      while (rows.length < n && tentativi < n * 200 + 2000) {
+        tentativi++;
+        const base = String(100000 + Math.floor(Math.random() * 900000));
+        const cod = base + etLuhn(base);
+        if (usati[cod] || visti[cod]) continue;
+        visti[cod] = 1;
+        rows.push({ codice: cod, stato: "libera", lotto: lotto });
+      }
+      if (rows.length < n) return { ok: false, err: "Non trovo abbastanza codici liberi: ne hai gia' create troppe." };
+      for (let i = 0; i < rows.length; i += 300) await sbPost("etichette", rows.slice(i, i + 300));
+      return { ok: true, n: n, lotto: lotto, codici: rows.map(r => r.codice) };
+    }
+    if (fn === "assegnaEtichetta") {
+      const cod = String(args.codice || "").trim();
+      if (!cod) return { ok: false, err: "Manca il codice dell'etichetta." };
+      const ex = await sbGet("etichette", "select=*&codice=eq." + encodeURIComponent(cod));
+      if (!ex.length) return { ok: false, err: "L'etichetta " + cod + " non esiste." };
+      if (ex[0].stato === "dismessa") return { ok: false, err: "L'etichetta " + cod + " e' stata dismessa: usane un'altra." };
+      // L'elenco di tutto quello che c'e' attaccato. Le due colonne vecchie
+      // continuano a tenere la PRIMA cosa, cosi' non si rompe niente di
+      // quello che gia' funziona.
+      let cont = Array.isArray(args.contenuto) ? args.contenuto.filter(x => x && x.tipo && x.id) : [];
+      if (!cont.length && args.tipo && args.id) cont = [{ tipo: args.tipo, id: args.id }];
+      const primo = cont[0] || { tipo: "", id: "" };
+      await sbPatch("etichette", "codice=eq." + encodeURIComponent(cod), {
+        contenuto: cont,
+        stato: "assegnata", tipo_target: primo.tipo || "", target_id: primo.id || "",
+        assegnata_il: new Date().toISOString(),
+        assegnata_da: (UTENTE_CORRENTE && (UTENTE_CORRENTE.Nome || UTENTE_CORRENTE.Email)) || "",
+        note: args.note || "",
+        // da dove arriva la roba: si scrive adesso e non cambia piu'
+        fornitore: args.fornitore || "", ddt: args.ddt || "",
+        data_ddt: args.dataDdt || null, ordine_id: args.ordineId || "",
+        movimento_id: args.movimentoId || "" });
+      return { ok: true };
+    }
+    if (fn === "liberaEtichetta") {
+      await sbPatch("etichette", "codice=eq." + encodeURIComponent(args.codice), {
+        stato: "libera", tipo_target: "", target_id: "", contenuto: [],
+        assegnata_il: null, dismessa_il: null,
+        fornitore: "", ddt: "", data_ddt: null, ordine_id: "", movimento_id: "" });
+      return { ok: true };
+    }
+    if (fn === "dismettiEtichetta") {
+      await sbPatch("etichette", "codice=eq." + encodeURIComponent(args.codice), {
+        stato: "dismessa", dismessa_il: new Date().toISOString() });
       return { ok: true };
     }
     // ============ DETTATURE VOCALI ============
@@ -1023,7 +1125,7 @@ async function call(fn, args) {
         articolo_id: d.ArticoloID, nome_articolo: art.nome, tipo: d.Tipo,
         quantita: qty, unita_misura: art.unita_misura, commessa: d.Commessa || "",
         pezzo_id: d.PezzoID || "", note: d.Note || "", annullato: false, fornitore: d.Fornitore || "",
-        ddt: d.Ddt || "", data_ddt: d.DataDdt || null
+        ddt: d.Ddt || "", data_ddt: d.DataDdt || null, etichetta: d.Etichetta || ""
       });
       return { ok: true, id, nuovoStock: Math.max(0, nuovoStock) };
     }
@@ -1692,6 +1794,7 @@ async function call(fn, args) {
       const commessa = rows[0].commessa || "", forn = rows[0].fornitore || "";
       // la bolla del fornitore: la stessa su tutte le righe di questo ordine
       const ddt = args.Ddt || "", dataDdt = args.DataDdt || null;
+      const creati = [];   // i pezzi nati da questo carico: servono per le etichette
       for (const r of righe) {
         const num = parseInt(r.numPezzi) || 1, d1 = parseInt(r.dim1) || 0, d2 = parseInt(r.dim2) || 0, d3 = parseInt(r.dim3) || 0, qta = parseFloat(r.quantita) || 0;
         if (r.tipo === "generico") {
@@ -1701,16 +1804,18 @@ async function call(fn, args) {
             await call("registraMovimento", { ArticoloID: r.artId, Tipo: "carico", Quantita: qta, Fornitore: forn, Commessa: commessa, Note: "Ricezione ordine commessa " + commessa, Ddt: ddt, DataDdt: dataDdt });
             if (commessa) { await aggiornaImpegnato(r.artId, qta, "add"); await setRiserva(r.artId, commessa, qta); }
           } else if (r.tipo === "pannello" && d1 && d2) {
-            await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
+            const es = await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
+            (es && es.ids || []).forEach(x => creati.push({ tipo: "pannello", id: x, nome: (r.nome || r.artId) + " " + d1 + "x" + d2 }));
           } else if (r.tipo === "massiccio" && d1 && d2 && d3) {
-            await call("caricaMassicci", { ArticoloID: r.artId, modo: "misure", Lunghezza_mm: d1, Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
+            const es = await call("caricaMassicci", { ArticoloID: r.artId, modo: "misure", Lunghezza_mm: d1, Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
+            (es && es.ids || []).forEach(x => creati.push({ tipo: "massiccio", id: x, nome: (r.nome || r.artId) + " " + d1 + "x" + d2 + "x" + d3 }));
           }
         }
         if (r.fabId) await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(r.fabId), { stato: "ricevuto" }).catch(()=>{});
         if (r.voceId) await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(r.voceId), { stato: "ricevuto", ddt: ddt, data_ddt: dataDdt }).catch(()=>{});
       }
       await sbPatch("ordini", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto", ddt: ddt, data_ddt: dataDdt });
-      return { ok: true };
+      return { ok: true, creati: creati };
     }
     if (fn === "eliminaOrdine") {
       await sbDelete("ordini", "id=eq." + encodeURIComponent(args.id));
@@ -1763,6 +1868,15 @@ function doLogout(){
 // Aggiorna: ricarica i dati dal foglio senza cambiare pagina.
 // Reload completo della pagina con doppio click o pressione prolungata (utile dopo una nuova pubblicazione).
 let _refreshTimer=null;
+// Un codice letto da un QR: puo' essere un'etichetta oppure il codice
+// di un pezzo. Qui si decide dove portare l'utente.
+function apriDaCodice(cod){
+  cod=String(cod||'').trim().toUpperCase();
+  if(!cod)return;
+  const e=(typeof etichetta==='function')?etichetta(cod):null;
+  if(e){ scanUsa(cod,{}); return; }
+  openDettaglioById(cod);
+}
 function refreshApp(){
   const btn=document.getElementById("btn-refresh"); if(btn)btn.classList.add("spin-on");
   const cur=STATE.pagina||"dashboard";
@@ -1771,6 +1885,7 @@ function refreshApp(){
   .then(([a,p,m,mv,c,f,fb,md,im,or,ri,vc,pe,oe,de])=>{
     STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];
     STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.voci=vc||[];STATE.personale=pe||[];STATE.ore=oe||[];STATE.dettature=de||[];
+    caricaEtichette().then(function(){renderPage(cur);});
     renderPage(cur);toast("Dati aggiornati");
   })
   .catch(()=>toast("Errore durante l'aggiornamento da Supabase","err"))
@@ -1878,30 +1993,31 @@ function scaricaCsv(nome,righe){
 function csvReportScarico(anno,mese){
   const pref=mese?(anno+'-'+mese):anno;
   const out=[['Commessa','Tipo riga','Data','Materiale o voce','Categoria / cod. fornitore',
-    'Codici pezzo','Quantita','Unita','% del caricato','Importo EUR','Fornitore','N. fattura','Stato','Note','Operatore']];
+    'Codici pezzo','Codice etichetta','Quantita','Unita','% del caricato','Importo EUR','Fornitore','Bolla DDT','N. fattura','Stato','Note','Operatore']];
   STATE.movimenti.filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&String(m.Data).startsWith(pref))
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
     .forEach(function(m){
       let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);
       if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);
+      const bo=bollaDi(m);
       out.push([m.Commessa||'(senza commessa)','Materiale',String(m.Data||'').slice(0,16),
-        m.NomeArticolo||'',(art&&art.CodiceFornitore)||'',m.PezzoID||'',
+        m.NomeArticolo||'',(art&&art.CodiceFornitore)||'',m.PezzoID||'',etichetteDiMovimento(m),
         csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
-        csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',m.Fornitore||'','','',m.Note||'',m.Utente||'']);
+        csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);
     });
   (STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref))
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
     .forEach(function(v){
       out.push([v.Commessa||'(senza commessa)','Altra voce',String(v.Data||'').slice(0,10),
-        v.Descrizione||'',v.Categoria||'','',csvNum(v.Quantita,3),v.Unita||'','',
-        csvNum(v.Importo,2),v.Fornitore||'',v.NrFattura||'',v.Stato||'',v.Note||'','']);
+        v.Descrizione||'',v.Categoria||'','',etichetteDiVoce(v.ID),csvNum(v.Quantita,3),v.Unita||'','',
+        csvNum(v.Importo,2),v.Fornitore||'',v.Ddt||'',v.NrFattura||'',v.Stato||'',v.Note||'','']);
     });
   (STATE.ore||[]).filter(r=>String(r.Data||'').startsWith(pref))
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
     .forEach(function(r){
       out.push([r.Commessa||'(senza commessa)','Manodopera',dataIt(r.Data),
-        r.Persona||'',tipoOraLabel(r.Tipo),'',csvNum(r.Ore,2),'ore','',
-        csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','',
+        r.Persona||'',tipoOraLabel(r.Tipo),'','',csvNum(r.Ore,2),'ore','',
+        csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','','',
         (r.Descrizione||'')+(r.Destinazione?(' - '+r.Destinazione):'')+((+r.Km)?(' - '+nOre(r.Km)+' km'):'')+(r.Note?(' - '+r.Note):''),
         r.InseritoDa||'']);
     });
@@ -1972,7 +2088,7 @@ function csvRiepilogo(anno,mese){
 
 // ---- CSV: report di una commessa ----
 function csvReportCommessa(comm){
-  const out=[['Sezione','Data','Materiale o voce','Categoria / cod. fornitore','Codici pezzo',
+  const out=[['Sezione','Data','Materiale o voce','Categoria / cod. fornitore','Codici pezzo','Codice etichetta',
     'Quantita','Unita','% del caricato','Importo EUR','Fornitore','Bolla DDT','N. fattura','Stato','Note','Operatore']];
   const movs=movCommessa(comm).filter(m=>m.Tipo==='scarico');
   const cfDi=function(m){let a=(STATE.articoli||[]).find(x=>x.ID===m.ArticoloID);
@@ -1981,33 +2097,34 @@ function csvReportCommessa(comm){
   // totali per materiale
   const tot={};
   movs.forEach(function(m){const k=m.NomeArticolo+'||'+m.UnitaMisura;
-    tot[k]=tot[k]||{nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cfDi(m),q:0,n:0,pezzi:[]};
+    tot[k]=tot[k]||{nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cfDi(m),q:0,n:0,pezzi:[],cod:[]};
     tot[k].q+=(+m.Quantita||0);tot[k].n++;
-    if(m.PezzoID)String(m.PezzoID).split(',').map(x=>x.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
+    if(m.PezzoID)String(m.PezzoID).split(',').map(x=>x.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});
+    etichetteDiMovimento(m).split(' ').filter(Boolean).forEach(c=>{if(tot[k].cod.indexOf(c)<0)tot[k].cod.push(c);});});
   Object.keys(tot).forEach(function(k){const t=tot[k];
     t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
-    out.push(['Consumo totale','',t.nome,t.cf,t.pezzi.join(' '),
+    out.push(['Consumo totale','',t.nome,t.cf,t.pezzi.join(' '),t.cod.join(' '),
       csvNum(t.q,(t.unita==='pz')?0:3),t.unita||'',csvPct(t.q,t.nome,t.unita),'','','','','',''+t.n+' movimenti','']);});
   // altre voci
   (STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
-    .forEach(v=>out.push(['Altra voce',String(v.Data||'').slice(0,10),v.Descrizione||'',v.Categoria||'','',
+    .forEach(v=>out.push(['Altra voce',String(v.Data||'').slice(0,10),v.Descrizione||'',v.Categoria||'','',etichetteDiVoce(v.ID),
       csvNum(v.Quantita,3),v.Unita||'','',csvNum(v.Importo,2),v.Fornitore||'',v.Ddt||'',v.NrFattura||'',v.Stato||'',v.Note||'','']));
   // dettaglio movimenti
   movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(m){
     const bo=bollaDi(m);
-    out.push(['Movimento',String(m.Data||'').slice(0,16),m.NomeArticolo||'',cfDi(m),m.PezzoID||'',
+    out.push(['Movimento',String(m.Data||'').slice(0,16),m.NomeArticolo||'',cfDi(m),m.PezzoID||'',etichetteDiMovimento(m),
       csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
       csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);});
   // manodopera e trasferte
   oreDiCommessa(comm).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(r){
-    out.push(['Manodopera',dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),'',
+    out.push(['Manodopera',dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),'','',
       csvNum(r.Ore,2),'ore','',csvNum((+r.Costo||0)+(+r.Rimborso||0),2),'','','','',
       (r.Descrizione||'')+(r.Destinazione?(' - '+r.Destinazione):'')+((+r.Km)?(' - '+nOre(r.Km)+' km'):'')+(r.Note?(' - '+r.Note):''),
       r.InseritoDa||'']);});
   // rettifiche
   (STATE.rettifiche||[]).filter(r=>r.Commessa===comm)
-    .forEach(r=>out.push(['Rettifica manuale','',r.Voce||'','','','','','','','','','','',(r.Valore||'')+' '+(r.Note||''),'']));
+    .forEach(r=>out.push(['Rettifica manuale','',r.Voce||'','','','','','','','','','','','',(r.Valore||'')+' '+(r.Note||''),'']));
   scaricaCsv('commessa_'+String(comm).replace(/[^A-Za-z0-9._-]/g,'-')+'.csv',out);
 }
 
@@ -2538,7 +2655,7 @@ function ripristinaBackup(input){
     try{ data=JSON.parse(e.target.result); }
     catch(err){ toast("File non valido: non è un backup JSON","err"); return; }
     if(!data.articoli&&!data.movimenti){ toast("Il file non sembra un backup del magazzino","err"); return; }
-    const conteggi=['articoli','pannelli','massicci','movimenti','commesse','fornitori','voci','personale','ore','dettature','ordini','offerte','fabbisogni','riserve','rettifiche','immagini','modelli','utenti','config']
+    const conteggi=['articoli','pannelli','massicci','movimenti','commesse','fornitori','voci','personale','ore','dettature','ordini','offerte','fabbisogni','riserve','rettifiche','immagini','modelli','utenti','config','etichette']
       .filter(k=>(data[k]||[]).length).map(k=>(data[k]||[]).length+' '+k).join(', ');
     openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Conferma ripristino</h2>'
      +'<div class="info-box">Backup del <strong>'+(data._data?new Date(data._data).toLocaleString('it-IT'):'data sconosciuta')+'</strong><br><br>Contiene: '+conteggi+'</div>'
@@ -2561,6 +2678,7 @@ async function eseguiRipristino(){
     setP("Ripristino "+label+" ("+rows.length+")...");
     for(const c of chunk(rows,100)){ await sbUpsert(table,c); }
   }
+  const avvisiRipristino=[];
   try{
     // ARTICOLI
     await up("articoli",(data.articoli||[]).map(a=>({id:a.ID,nome:a.Nome,categoria:a.Categoria,unita_misura:a.UnitaMisura,stock:parseFloat(a.Stock)||0,soglia_riordino:parseFloat(a.SogliaRiordino)||0,tipo_riordino:a.TipoRiordino||'manuale',urgenza:a.Urgenza||'media',fornitore:a.Fornitore||'',codice_fornitore:a.CodiceFornitore||'',is_pannello:(a.IsPannello===true||a.IsPannello==='SI'),note:a.Note||'',impegnato:parseFloat(a.Impegnato)||0})),"articoli");
@@ -2593,6 +2711,17 @@ async function eseguiRipristino(){
     // PERSONALE E ORE
     await up("personale",(data.personale||[]).map(p=>({id:p.ID,nome:p.Nome,mansione:p.Mansione||'',email:p.Email||'',costo_orario:p.CostoOrario||0,euro_km:p.EuroKm||0,ore_giorno:p.OreGiorno||8,attivo:p.Attivo!==false,note:p.Note||''})),"personale");
     await up("ore",(data.ore||[]).map(o=>({id:o.ID,data:o.Data||null,persona_id:o.PersonaID,persona:o.Persona||'',commessa:o.Commessa||'',tipo:o.Tipo||'lavoro',ore:o.Ore||0,km:o.Km||0,destinazione:o.Destinazione||'',descrizione:o.Descrizione||'',costo_orario:o.CostoOrario||0,euro_km:o.EuroKm||0,costo:o.Costo||0,rimborso:o.Rimborso||0,inserito_da:o.InseritoDa||'',note:o.Note||''})),"ore");
+    // ETICHETTE QR
+    // Se il database e' vecchio e la tabella non c'e' ancora, non voglio che
+    // salti tutto il ripristino: lo segnalo e vado avanti con il resto.
+    try{
+      await up("etichette",(data.etichette||[]).map(e=>({codice:e.Codice,stato:e.Stato||'libera',
+        tipo_target:e.TipoTarget||'',target_id:e.TargetID||'',contenuto:e.Contenuto||[],
+        fornitore:e.Fornitore||'',ddt:e.Ddt||'',data_ddt:e.DataDdt||null,
+        ordine_id:e.OrdineID||'',movimento_id:e.MovimentoID||'',lotto:e.Lotto||'',
+        creata_il:e.CreataIl||null,assegnata_il:e.AssegnataIl||null,assegnata_da:e.AssegnataDa||'',
+        dismessa_il:e.DismessaIl||null,note:e.Note||''})),"etichette");
+    }catch(errEt){ avvisiRipristino.push("etichette (lancia 46_etichette.sql su Supabase)"); }
     // DETTATURE VOCALI
     const numD=v=>(v===''||v===null||v===undefined||isNaN(parseFloat(v)))?null:parseFloat(v);
     await up("dettature",(data.dettature||[]).map(d=>({id:d.ID,data:d.Data||null,utente:d.Utente||'',
@@ -2622,7 +2751,8 @@ async function eseguiRipristino(){
     }
     window._ripUtentiNuovi=utentiNuovi;
     const nu=window._ripUtentiNuovi||0;
-    setP("Ripristino completato!"+(nu?(" ATTENZIONE: "+nu+" utenti sono stati ricreati SENZA password: vanno rimesse a mano da Supabase (tabella utenti) prima che possano entrare."):""));
+    setP("Ripristino completato!"+(nu?(" ATTENZIONE: "+nu+" utenti sono stati ricreati SENZA password: vanno rimesse a mano da Supabase (tabella utenti) prima che possano entrare."):"")
+      +(avvisiRipristino.length?(" Non ripristinato: "+avvisiRipristino.join(", ")+"."):""));
     toast("Ripristino completato. Ricarico i dati...");
     setTimeout(()=>location.reload(),nu?9000:1400);
   }catch(e){ setP("Errore: "+e.message); toast("Errore durante il ripristino: "+e.message,"err"); }
@@ -2633,15 +2763,15 @@ function scaricaBackup(){
     call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),
     call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
     call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci"),call("getPersonale"),call("getOre"),call("getDettature"),
-    call("getUtentiElenco"),call("getConfig")
-  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config])=>{
+    call("getUtentiElenco"),call("getConfig"),call("getEtichette")
+  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config,etichette])=>{
     const d=new Date();
     const pad=n=>String(n).padStart(2,"0");
     const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
     // 1) JSON completo (per il ripristino nell'app)
     const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),
-      _tabelle:19,_nota:"Degli utenti sono salvati nome, email e ruolo ma NON le password: dopo un ripristino su un database vuoto le password vanno rimesse a mano.",
-      articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config};
+      _tabelle:20,_nota:"Degli utenti sono salvati nome, email e ruolo ma NON le password: dopo un ripristino su un database vuoto le password vanno rimesse a mano.",
+      articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config,etichette};
     scaricaFile(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),"backup-magazzino_"+stamp+".json");
     // 2) Excel con un foglio per ogni tabella
     try{
@@ -2653,7 +2783,7 @@ function scaricaBackup(){
       aggiungi("Offerte",offerte.map(o=>Object.assign({},o,{Dati:JSON.stringify(o.Dati||{})})));
       aggiungi("Riserve",riserve); aggiungi("Rettifiche",rettifiche); aggiungi("Immagini",immagini); aggiungi("Modelli",modelli); aggiungi("Altre voci",voci);
       aggiungi("Personale",personale); aggiungi("Ore",ore); aggiungi("Dettature",dettature);
-      aggiungi("Utenti",utenti); aggiungi("Config",config);
+      aggiungi("Utenti",utenti); aggiungi("Config",config); aggiungi("Etichette",etichette);
       const xbuf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
       scaricaFile(new Blob([xbuf],{type:"application/octet-stream"}),"magazzino_"+stamp+".xlsx");
     }catch(e){console.error("Excel non generato:",e);}
@@ -2804,7 +2934,24 @@ function renderArticoli(){
   const cats=Array.from(new Set(CATS.concat(STATE.articoli.map(a=>a.Categoria)).filter(c=>c&&c!=='Pannelli'&&c!=='Massello')));
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Articoli</h1><div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:6px"><button class="btn '+(ART_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'fam\')">Famiglie</button><button class="btn '+(ART_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'<button class="btn btn-accent" onclick="openNuovoArticolo()">+ Nuovo articolo</button></div></div>'
   +'<div class="filters"><input id="flt-art" placeholder="Cerca nome, codice, fornitore..." oninput="filterArticoli()"><select id="flt-cat" onchange="filterArticoli()"><option value="">Tutte le categorie</option>'+cats.map(c=>'<option>'+c+'</option>').join("")+'</select>'+ctrlDispon()+'</div>'
+  +avvisoSenzaEtichetta()
   +'<div id="art-cont">'+articoliCont("","")+'</div>';
+}
+// Il richiamo per gli articoli rimasti senza etichetta: quelli creati al volo
+// da un ordine, o quelli su cui hai detto "lo faccio dopo". Senza questo
+// l'obbligo sarebbe finto.
+function avvisoSenzaEtichetta(){
+  const senza=(typeof articoliSenzaEtichetta==='function')?articoliSenzaEtichetta():[];
+  if(!senza.length)return '';
+  return '<div class="alert alert-amber" style="margin-bottom:12px">'
+   +'<strong>'+senza.length+' articoli senza etichetta QR.</strong> '
+   +'Finche\' non gliene attacchi una, in officina non si trovano inquadrando o dettando il codice, '
+   +'e nei report non escono con il codice per la contabilita\'.<br>'
+   +senza.slice(0,12).map(a=>'<span onclick="etAttaccaA(\'articolo\',\''+esc(a.ID)+'\')" '
+     +'style="display:inline-block;margin:4px 6px 0 0;padding:2px 8px;border-radius:6px;background:#fff;'
+     +'border:1px solid var(--border);cursor:pointer;font-size:12px">'+att(a.Nome)+' &rsaquo;</span>').join('')
+   +(senza.length>12?('<div style="font-size:12px;margin-top:6px">...e altri '+(senza.length-12)+'.</div>'):'')
+   +'</div>';
 }
 let VISTA_DEF=(function(){try{return localStorage.getItem("at_vista")||"griglia";}catch(e){return "griglia";}})();
 
@@ -3279,16 +3426,19 @@ function buildReportCommessa(comm){
   const movs=movCommessa(comm).filter(m=>m.Tipo==="scarico");
   const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'';};
   const codeDi=(m)=>{if(m.PezzoID)return m.PezzoID;let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);return (art&&/^ART-/.test(art.ID))?art.ID:'-';};
-  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0,pezzi:[]}; tot[k].q+=(+m.Quantita||0); tot[k].n++; if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
+  // il codice etichetta, quello che legge il gestionale di contabilita'
+  const etDi=(m)=>{const c=etichetteDiMovimento(m);return c?c.split(' ').map(etFmt).join(', '):'';};
+  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0,pezzi:[],cod:[]}; etDi(m).split(', ').filter(Boolean).forEach(c=>{if(tot[k].cod.indexOf(c)<0)tot[k].cod.push(c);}); tot[k].q+=(+m.Quantita||0); tot[k].n++; if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
   const righeTot=Object.keys(tot).map(k=>{const t=tot[k];
     // Ordina i codici pezzo (P1014, P1015...) in ordine
     t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
     const nPezzi=t.pezzi.length;
     const codiciCell=nPezzi?('<div style="font-size:11px;color:#555;font-family:monospace">'+t.pezzi.join(', ')+'</div>'):'-';
     return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+pctUsoTxt(t.q,t.nome,t.unita)+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
-      +(nPezzi?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'');
+      +(nPezzi?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'')
+      +((t.cod&&t.cod.length)?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici etichetta: </span><span style="font-size:11px;color:#555;font-family:monospace">'+t.cod.join(', ')+'</span></td></tr>':'');
   }).join("")||'<tr><td colspan="6" style="color:#888">Nessun consumo registrato</td></tr>';
-  const righeMov=movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctUsoTxt(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
+  const righeMov=movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+(etDi(m)?('<div style="font-size:10px;color:#777;font-family:monospace">'+etDi(m)+'</div>'):'')+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctUsoTxt(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
   // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
   const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(b.Data).localeCompare(String(a.Data)));
@@ -4216,7 +4366,8 @@ function submitCaricoOrdine(id,btn,senza){
       STATE.ordini=or||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];STATE.fabbisogni=fb||[];STATE.voci=vc||[];
       closeModal();
       toast("Ordine caricato a magazzino"+(b.Ddt?(" con la bolla "+b.Ddt):" (senza bolla)"));
-      renderPage(STATE.pagina);});
+      renderPage(STATE.pagina);
+      if(r.creati&&r.creati.length)setTimeout(function(){etDopoCarico(r.creati);},400);});
   }).catch(e=>{showErr('ro-err',String((e&&e.message)||e));if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}});
 }
 function openEliminaOrdine(id){
@@ -4557,7 +4708,8 @@ function openSceltaAzione(){
   const bc=(label,fn)=>'<button class="det-btn" style="margin-top:0;background:var(--green-light);color:var(--green)" onclick="'+fn+'">'+label+'</button>';
   const bs=(label,fn)=>'<button class="det-btn" style="margin-top:0;background:var(--red-light);color:var(--red)" onclick="'+fn+'">'+label+'</button>';
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova operazione</h2>'
-    +'<div style="margin-bottom:16px"><button class="det-btn" style="margin-top:0;background:var(--accent);color:#fff;font-size:15px;padding:14px" onclick="closeModal();navTo(\'dettatura\')">&#127908;&nbsp; Detta a voce</button></div>'
+    +'<div style="margin-bottom:10px"><button class="det-btn" style="margin-top:0;background:var(--accent);color:#fff;font-size:15px;padding:14px" onclick="scanApri()">&#128247;&nbsp; Inquadra un&#39;etichetta</button></div>'
+    +'<div style="margin-bottom:16px"><button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent);font-size:15px;padding:14px" onclick="closeModal();navTo(\'dettatura\')">&#127908;&nbsp; Detta a voce</button></div>'
     +blocco("Articolo", bc("Carica","closeModal();openMovimento('','carico')"), bs("Scarica","closeModal();openMovimento('','scarico')"))
     +blocco("Pannelli", bc("Carica","closeModal();openCaricoPannelli()"), bs("Scarica","closeModal();openScegliPezzo('pannello')"))
     +'<div style="margin:-8px 0 16px"><button class="det-btn" style="margin-top:0;background:var(--accent-light);color:var(--accent)" onclick="closeModal();openCaricoRefilo()">Nuovo pezzo di refilo (pannello)</button></div>'
@@ -4972,6 +5124,36 @@ function ddtTxt(m){
   const b=bollaDi(m);
   if(!b.ddt&&!b.forn)return '';
   return (b.forn||'')+(b.ddt?((b.forn?' &middot; ':'')+'bolla '+b.ddt):'');
+}
+// ------------------------------------------------------------------
+//  IL CODICE ETICHETTA DI UN MOVIMENTO
+//  Prima quello scritto sul movimento (l'hai dato tu allo scarico).
+//  Se manca, lo ricavo: le etichette attaccate ai pezzi consumati,
+//  oppure quelle attaccate all'articolo.
+//  E' la colonna che il gestionale di contabilita' legge per agganciare
+//  la riga di fattura al consumo in commessa.
+// ------------------------------------------------------------------
+function etichetteDiMovimento(m){
+  if(!m)return '';
+  if(m.Etichetta)return m.Etichetta;
+  const out=[];
+  const ids=String(m.PezzoID||'').split(',').map(x=>x.trim()).filter(Boolean);
+  ids.forEach(function(pid){
+    (STATE.etichette||[]).forEach(function(e){
+      if(e.Stato==='libera')return;
+      if(e.TargetID===pid&&out.indexOf(e.Codice)<0)out.push(e.Codice);
+    });
+  });
+  if(!out.length&&m.ArticoloID){
+    const sue=(STATE.etichette||[]).filter(function(e){
+      return e.Stato==='assegnata'&&e.TipoTarget==='articolo'&&e.TargetID===m.ArticoloID;
+    });
+    // una sola etichetta: non ci sono dubbi, il codice e' quello.
+    // due o piu': non so da quale scatola sono uscite queste viti, e
+    // scriverle tutte e due sarebbe una bugia. Lascio vuoto.
+    if(sue.length===1)out.push(sue[0].Codice);
+  }
+  return out.join(' ');
 }
 function nomeCommessa(id){
   const c=(STATE.commesse||[]).filter(x=>x.ID===id)[0];
@@ -6103,8 +6285,10 @@ function oreTabPersonale(){
 }
 
 // ---------- modale: una registrazione ----------
+var ORE_MOD_ID='';   // se sto correggendo una riga esistente, il suo codice
 function openNuovaOra(id,pre){
   if(!(STATE.personale||[]).length){toast('Prima devi inserire le persone','err');navTo('ore');return;}
+  ORE_MOD_ID=id||'';
   const r=id?(STATE.ore||[]).filter(x=>x.ID===id)[0]:null;
   const admin=oreAdmin(),mia=personaMia();
   const persone=(STATE.personale||[]).filter(p=>p.Attivo||(r&&r.PersonaID===p.ID));
@@ -6124,8 +6308,15 @@ function openNuovaOra(id,pre){
    +'<div class="form-group"><label>Persona *</label><select id="no-pers"'+(admin?'':' disabled')+'>'+optP+'</select></div></div>'
    +'<div class="form-group"><label>Che ore sono *</label><select id="no-tipo" onchange="oreFormTipo()">'+optT+'</select></div>'
    +'<div id="no-box-comm" class="form-group"><label>Commessa *</label><select id="no-comm"><option value="">- Scegli -</option>'+optC+'</select></div>'
-   +'<div class="form-row"><div class="form-group"><label>Ore *</label><input type="number" step="0.25" min="0" id="no-ore" value="'+att(d.Ore)+'" placeholder="es. 7,5"></div>'
+   +'<div class="form-row"><div class="form-group"><label id="no-lab-ore">Ore *</label><input type="number" step="0.25" min="0" id="no-ore" value="'+att(d.Ore)+'" placeholder="es. 7,5"></div>'
    +'<div class="form-group" id="no-box-km"><label>Chilometri</label><input type="number" step="any" min="0" id="no-km" value="'+att(d.Km)+'"></div></div>'
+   +'<div class="form-group" id="no-box-lav" style="display:none">'
+   +'<label>Ore di lavoro in cantiere</label>'
+   +'<input type="number" step="0.25" min="0" id="no-lav" placeholder="es. 6">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">'
+   +'Quando vai in trasferta le ore sono due cose diverse: quelle passate in furgone e quelle '
+   +'passate a lavorare. Scrivile separate e l&#39;app registra <strong>due righe</strong>, '
+   +'cos&igrave; nei mastrini il viaggio non si confonde con il lavoro. Se lasci vuoto, registra solo il viaggio.</div></div>'
    +'<div class="form-group" id="no-box-dest"><label>Destinazione</label><input id="no-dest" value="'+att(d.Destinazione)+'" placeholder="es. cantiere Venezia"></div>'
    +'<div class="form-group"><label>Cosa hai fatto</label><input id="no-desc" value="'+att(d.Descrizione)+'" placeholder="es. montaggio ante cucina"></div>'
    +'<div class="form-group"><label>Note</label><input id="no-note" value="'+att(d.Note)+'"></div>'
@@ -6138,6 +6329,13 @@ function oreFormTipo(){
   const bc=document.getElementById('no-box-comm'); if(bc)bc.style.display=tipoOraCommessa(t)?'':'none';
   const bk=document.getElementById('no-box-km'); if(bk)bk.style.display=tipoOraViaggio(t)?'':'none';
   const bd=document.getElementById('no-box-dest'); if(bd)bd.style.display=tipoOraViaggio(t)?'':'none';
+  // la divisione viaggio/cantiere ha senso solo quando registri una trasferta
+  // nuova: se stai correggendo una riga gia' salvata, quella riga e' una sola
+  const bl=document.getElementById('no-box-lav');
+  const nuova=!(ORE_MOD_ID||'');
+  if(bl)bl.style.display=(tipoOraViaggio(t)&&nuova)?'':'none';
+  const lab=document.getElementById('no-lab-ore');
+  if(lab)lab.textContent=(tipoOraViaggio(t)&&nuova)?'Ore di viaggio *':'Ore *';
 }
 function submitOra(id){
   const tipo=gv('no-tipo');
@@ -6150,10 +6348,29 @@ function submitOra(id){
   if(!d.PersonaID){showErr('no-err','Scegli la persona.');return;}
   if(tipoOraCommessa(tipo)&&!d.Commessa){showErr('no-err','Per "'+tipoOraLabel(tipo)+'" serve la commessa: è quella che riceve il costo.');return;}
   const h=parseFloat(d.Ore)||0,km=parseFloat(d.Km)||0;
-  if(h<=0&&km<=0){showErr('no-err','Metti almeno le ore.');return;}
-  if(h>24){showErr('no-err','Più di 24 ore in un giorno: controlla il numero.');return;}
+  // le ore passate a lavorare in cantiere: si compilano solo per le trasferte nuove
+  const lav=(!id&&tipoOraViaggio(tipo))?(parseFloat(gv('no-lav'))||0):0;
+  if(h<=0&&km<=0&&lav<=0){showErr('no-err','Metti almeno le ore.');return;}
+  if(h+lav>24){showErr('no-err','Più di 24 ore in un giorno: controlla i numeri.');return;}
   if(id){const v=(STATE.ore||[]).filter(x=>x.ID===id)[0];
     if(v&&v.PersonaID===d.PersonaID){d.CostoOrario=v.CostoOrario;d.EuroKm=v.EuroKm;}}
+
+  // TRASFERTA DIVISA: una compilazione sola, ma due registrazioni.
+  // Cosi' nei mastrini, nei report e nel costo della commessa il viaggio
+  // resta viaggio e il lavoro resta lavoro, senza dover scrivere due volte.
+  if(lav>0){
+    const righe=[];
+    if(h>0||km>0)righe.push(Object.assign({},d,{Tipo:'viaggio',Ore:h,Km:km}));
+    righe.push(Object.assign({},d,{Tipo:'lavoro',Ore:lav,Km:0,
+      Descrizione:d.Descrizione||('lavoro in cantiere'+(d.Destinazione?(' '+d.Destinazione):''))}));
+    call('salvaOreBulk',{righe:righe}).then(function(r){
+      if(!r||!r.ok){showErr('no-err',(r&&r.err)||'Errore');return;}
+      call('getOre').then(function(o){STATE.ore=o||[];closeModal();
+        toast(nOre(h)+' h di viaggio e '+nOre(lav)+' h di lavoro registrate');oreDopoModifica();});
+    }).catch(e=>showErr('no-err',String((e&&e.message)||e)));
+    return;
+  }
+
   call('salvaOra',d).then(function(r){
     if(!r||!r.ok){showErr('no-err',(r&&r.err)||'Errore');return;}
     call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(id?'Registrazione aggiornata':'Ore registrate');oreDopoModifica();});
@@ -6184,7 +6401,9 @@ function openFoglioSettimana(persId,lun){
   const th=GIORNI_S.map((g,i)=>'<th style="padding:4px;font-size:11px;color:var(--gray);text-align:center;min-width:62px">'+g+'<div style="font-weight:400">'+dataIt(piuGiorni(l,i)).slice(0,5)+'</div></th>').join('');
   openModal('<div class="modal" style="width:min(940px,96vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Foglio settimanale</h2>'
-   +'<div class="info-box" style="margin-bottom:10px">Una riga per ogni commessa (o tipo di ora) e le ore giorno per giorno. Le caselle vuote non vengono salvate.</div>'
+   +'<div class="info-box" style="margin-bottom:10px">Una riga per ogni commessa (o tipo di ora) e le ore giorno per giorno. Le caselle vuote non vengono salvate.'
+   +'<br>Sulle righe di <strong>trasferta</strong> compaiono tre caselle per giorno: le <strong>ore di viaggio</strong>, '
+   +'le <strong>ore di lavoro in cantiere</strong> (quella verdina) e i <strong>chilometri</strong>.</div>'
    +'<div class="form-row"><div class="form-group"><label>Persona *</label><select id="fs-pers" onchange="fsRicarica()">'+optP+'</select></div>'
    +'<div class="form-group"><label>Settimana dal (lunedi) *</label><input type="date" id="fs-lun" value="'+att(l)+'" onchange="fsRicarica()"></div></div>'
    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
@@ -6219,7 +6438,9 @@ function openFoglioTutti(lun){
    +'<h2>Foglio settimanale &mdash; tutta la squadra</h2>'
    +'<div class="info-box" style="margin-bottom:10px">Una riga per ogni persona: scegli la commessa e scrivi le ore giorno per giorno. '
    +'Se una persona ha lavorato su piu&#39; commesse nella stessa settimana, aggiungi una seconda riga per lei col pulsante in fondo. '
-   +'Le caselle vuote non vengono salvate.</div>'
+   +'Le caselle vuote non vengono salvate.'
+   +'<br>Sulle righe di <strong>trasferta</strong> compaiono tre caselle per giorno: ore di viaggio, '
+   +'<strong>ore di lavoro in cantiere</strong> (quella verdina) e chilometri.</div>'
    +'<div class="form-group" style="max-width:260px"><label>Settimana dal (lunedi) *</label><input type="date" id="ft-lun" value="'+att(l)+'" onchange="ftRicarica()"></div>'
    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
    +'<thead><tr><th style="text-align:left;padding:4px;font-size:11px;color:var(--gray);min-width:130px">Persona</th>'
@@ -6250,6 +6471,7 @@ function ftAddRiga(persId){
   for(let i=0;i<7;i++){
     celle+='<td style="padding:2px;text-align:center">'
      +'<input class="ft-h" type="number" step="0.25" min="0" style="width:52px;padding:5px;text-align:center" placeholder="h" oninput="ftSomme()">'
+     +'<input class="ft-hl" type="number" step="0.25" min="0" style="width:52px;padding:5px;text-align:center;margin-top:3px;display:none;background:#f3f8f3" placeholder="h cant." title="ore di lavoro in cantiere" oninput="ftSomme()">'
      +'<input class="ft-km" type="number" step="any" min="0" style="width:52px;padding:5px;text-align:center;margin-top:3px;display:none" placeholder="km">'
      +'</td>';
   }
@@ -6272,14 +6494,15 @@ function ftTipo(sel){
   const tr=sel.closest('tr');
   const v=tipoOraViaggio(sel.value);
   Array.prototype.forEach.call(tr.querySelectorAll('.ft-km'),el=>{el.style.display=v?'':'none';});
+  Array.prototype.forEach.call(tr.querySelectorAll('.ft-hl'),el=>{el.style.display=v?'':'none';if(!v)el.value='';});
   const d=tr.querySelector('.ft-dest'); if(d)d.style.display=v?'':'none';
   const c=tr.querySelector('.ft-comm'); if(c)(c.__ac||c).style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
 }
 function ftSomme(){
   const gg=[0,0,0,0,0,0,0]; let tot=0;
   Array.prototype.forEach.call(document.querySelectorAll('#ft-body tr.ft-riga'),function(tr){
-    const hs=tr.querySelectorAll('.ft-h'); let r=0;
-    for(let i=0;i<7;i++){const v=parseFloat(hs[i].value)||0;gg[i]+=v;r+=v;}
+    const hs=tr.querySelectorAll('.ft-h'),hls=tr.querySelectorAll('.ft-hl'); let r=0;
+    for(let i=0;i<7;i++){const v=(parseFloat(hs[i].value)||0)+(parseFloat(hls[i].value)||0);gg[i]+=v;r+=v;}
     const c=tr.querySelector('.ft-tr'); if(c)c.textContent=r?nOre(r):'';
     tot+=r;
   });
@@ -6297,15 +6520,19 @@ function ftSalva(){
     const desc=tr.querySelector('.ft-desc').value.trim();
     const destEl=tr.querySelector('.ft-dest');
     const dest=destEl?destEl.value.trim():'';
-    const hs=tr.querySelectorAll('.ft-h'),ks=tr.querySelectorAll('.ft-km');
+    const hs=tr.querySelectorAll('.ft-h'),ks=tr.querySelectorAll('.ft-km'),hls=tr.querySelectorAll('.ft-hl');
     for(let i=0;i<7;i++){
       const h=parseFloat(hs[i].value)||0;
       const km=tipoOraViaggio(tipo)?(parseFloat(ks[i].value)||0):0;
-      if(h<=0&&km<=0)continue;
+      const lav=tipoOraViaggio(tipo)?(parseFloat(hls[i].value)||0):0;
+      if(h<=0&&km<=0&&lav<=0)continue;
       if(!pers){mancaP=true;continue;}
       if(tipoOraCommessa(tipo)&&!comm){manca=true;continue;}
-      righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:tipo,
+      if(h>0||km>0)righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:tipo,
         Commessa:tipoOraCommessa(tipo)?comm:'',Ore:h,Km:km,Destinazione:dest,Descrizione:desc});
+      if(lav>0)righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:'lavoro',
+        Commessa:comm,Ore:lav,Km:0,Destinazione:dest,
+        Descrizione:desc||('lavoro in cantiere'+(dest?(' '+dest):''))});
     }
   });
   if(mancaP){showErr('ft-err','C&#39;e&#39; una riga con le ore ma senza persona.');return;}
@@ -6325,6 +6552,7 @@ function fsAddRiga(){
   for(let i=0;i<7;i++){
     celle+='<td style="padding:2px;text-align:center">'
      +'<input class="fs-h" type="number" step="0.25" min="0" style="width:56px;padding:5px;text-align:center" placeholder="h" oninput="fsSomme()">'
+     +'<input class="fs-hl" type="number" step="0.25" min="0" style="width:56px;padding:5px;text-align:center;margin-top:3px;display:none;background:#f3f8f3" placeholder="h cant." title="ore di lavoro in cantiere" oninput="fsSomme()">'
      +'<input class="fs-km" type="number" step="any" min="0" style="width:56px;padding:5px;text-align:center;margin-top:3px;display:none" placeholder="km">'
      +'</td>';
   }
@@ -6345,8 +6573,8 @@ function fsAddRiga(){
 function fsSomme(){
   const gg=[0,0,0,0,0,0,0]; let tot=0;
   Array.prototype.forEach.call(document.querySelectorAll('#fs-body tr.fs-riga'),function(tr){
-    const hs=tr.querySelectorAll('.fs-h'); let r=0;
-    for(let i=0;i<7;i++){const v=parseFloat(hs[i].value)||0;gg[i]+=v;r+=v;}
+    const hs=tr.querySelectorAll('.fs-h'),hls=tr.querySelectorAll('.fs-hl'); let r=0;
+    for(let i=0;i<7;i++){const v=(parseFloat(hs[i].value)||0)+(parseFloat(hls[i].value)||0);gg[i]+=v;r+=v;}
     const c=tr.querySelector('.fs-tr'); if(c)c.textContent=r?nOre(r):'';
     tot+=r;
   });
@@ -6362,6 +6590,7 @@ function fsTipo(sel){
   const tr=sel.closest('tr');
   const v=tipoOraViaggio(sel.value);
   Array.prototype.forEach.call(tr.querySelectorAll('.fs-km'),el=>{el.style.display=v?'':'none';});
+  Array.prototype.forEach.call(tr.querySelectorAll('.fs-hl'),el=>{el.style.display=v?'':'none';if(!v)el.value='';});
   const d=tr.querySelector('.fs-dest'); if(d)d.style.display=v?'':'none';
   const c=tr.querySelector('.fs-comm'); if(c)(c.__ac||c).style.opacity=tipoOraCommessa(sel.value)?'1':'.4';
 }
@@ -6376,14 +6605,19 @@ function fsSalva(){
     const desc=tr.querySelector('.fs-desc').value.trim();
     const destEl=tr.querySelector('.fs-dest');
     const dest=destEl?destEl.value.trim():'';
-    const hs=tr.querySelectorAll('.fs-h'),ks=tr.querySelectorAll('.fs-km');
+    const hs=tr.querySelectorAll('.fs-h'),ks=tr.querySelectorAll('.fs-km'),hls=tr.querySelectorAll('.fs-hl');
     for(let i=0;i<7;i++){
       const h=parseFloat(hs[i].value)||0;
       const km=tipoOraViaggio(tipo)?(parseFloat(ks[i].value)||0):0;
-      if(h<=0&&km<=0)continue;
+      const lav=tipoOraViaggio(tipo)?(parseFloat(hls[i].value)||0):0;
+      if(h<=0&&km<=0&&lav<=0)continue;
       if(tipoOraCommessa(tipo)&&!comm){manca=true;continue;}
-      righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:tipo,
+      if(h>0||km>0)righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:tipo,
         Commessa:tipoOraCommessa(tipo)?comm:'',Ore:h,Km:km,Destinazione:dest,Descrizione:desc});
+      // le ore passate a lavorare in cantiere diventano una riga di lavoro
+      if(lav>0)righe.push({Data:piuGiorni(lun,i),PersonaID:pers,Tipo:'lavoro',
+        Commessa:comm,Ore:lav,Km:0,Destinazione:dest,
+        Descrizione:desc||('lavoro in cantiere'+(dest?(' '+dest):''))});
     }
   });
   if(manca){showErr('fs-err','C\'è una riga con le ore compilate ma senza commessa.');return;}
@@ -6886,6 +7120,1117 @@ function oreDopoModifica(){
   if(ORE_DETT)setTimeout(oreDettDisegna,60);
 }
 
+
+// ==================================================================
+//  ETICHETTE QR PRESTAMPATE
+//
+//  L'idea: stampi un blocco di etichette vuote, le attacchi alla
+//  scatola di viti o al pannello, e SOLO DOPO le assegni a quello
+//  che sono. Inquadri l'etichetta col telefono e l'app ti porta
+//  dritto a quella roba li'.
+//
+//  Una etichetta puo' essere libera, assegnata o dismessa. Non si
+//  cancella mai: cosi' se ne ritrovi una vecchia in giro, l'app ti
+//  sa dire cos'era invece di fare finta di niente.
+//  Piu' etichette possono puntare alla stessa cosa (la scatola che
+//  diventa due scatole, il pacco che si divide).
+// ==================================================================
+// ------------------------------------------------------------------
+//  IL CODICE DELL'ETICHETTA
+//  Sette cifre e basta: niente lettere, perche' al telefono o a voce
+//  "B" e "D" si confondono, i numeri no. Sei cifre sono il codice
+//  vero (900.000 combinazioni, prese a caso, mai due uguali) e la
+//  settima e' una cifra di controllo: se detti o scrivi una cifra
+//  sbagliata, l'app se ne accorge subito invece di aprirti la roba
+//  di qualcun altro.
+//  Si scrive raggruppato - 4729 158 - solo per leggerlo meglio.
+// ------------------------------------------------------------------
+function etLuhn(num){
+  let s=0, alt=true;
+  for(let i=String(num).length-1;i>=0;i--){
+    let d=+String(num)[i];
+    if(alt){ d*=2; if(d>9)d-=9; }
+    s+=d; alt=!alt;
+  }
+  return (10-(s%10))%10;
+}
+function etNuovoCodice(base){ const b=String(base); return b+etLuhn(b); }
+function etCodiceValido(c){
+  c=String(c||'').replace(/\D/g,'');
+  if(c.length!==7)return false;
+  return etLuhn(c.slice(0,6))===+c[6];
+}
+// come si legge a schermo e sull'etichetta
+function etFmt(c){
+  c=String(c||'');
+  return /^\d{7}$/.test(c) ? (c.slice(0,4)+' '+c.slice(4)) : c;
+}
+// da quello che scrivi, detti o inquadri al codice vero
+function etNorm(x){
+  let t=String(x||'').trim();
+  const m=t.match(/[?&]qr=([^&#]+)/i);
+  if(m)t=decodeURIComponent(m[1]);
+  t=t.trim();
+  if(/[A-Za-z]/.test(t))return t.toUpperCase().replace(/\s+/g,'');   // le vecchie AT-000123
+  return t.replace(/\D/g,'');
+}
+// pesca un codice dentro a una frase dettata:
+// "usate 40 viti del codice 4729 158" -> 4729158
+function etDalTesto(testo){
+  const t=String(testo||'');
+  const cand=[];
+  // prima cerco dopo la parola "codice", poi ovunque
+  const dopo=t.match(/codice[^0-9]{0,6}((?:\d[\s.\-]?){7,9})/i);
+  if(dopo)cand.push(dopo[1]);
+  const tutti=t.match(/(?:\d[\s.\-]?){7,9}/g)||[];
+  tutti.forEach(x=>cand.push(x));
+  for(let i=0;i<cand.length;i++){
+    const c=String(cand[i]).replace(/\D/g,'');
+    // provo anche le finestre di 7 cifre dentro a un numero piu' lungo
+    for(let j=0;j+7<=c.length;j++){
+      const p=c.slice(j,j+7);
+      if(!etCodiceValido(p))continue;
+      const e=etichetta(p);
+      if(e)return e;
+    }
+  }
+  return null;
+}
+
+let ET_STATO='', ET_Q='', ET_LOTTO='', ET_SEL={};
+let ET_DOPO=(function(){try{return localStorage.getItem('at_etdopo')||'scheda';}catch(e){return 'scheda';}})();
+let ET_CORTO=(function(){try{return localStorage.getItem('at_etcorto')!=='0';}catch(e){return true;}})();
+
+function setEtDopo(v){
+  ET_DOPO=v; try{localStorage.setItem('at_etdopo',v);}catch(e){}
+  if(STATE.pagina==='etichette')renderPage('etichette');
+}
+function setEtCorto(v){
+  ET_CORTO=!!v; try{localStorage.setItem('at_etcorto',ET_CORTO?'1':'0');}catch(e){}
+  if(STATE.pagina==='etichette')renderPage('etichette');
+}
+
+// ------------------------------------------------------------------
+//  IL DISEGNO DEL QR
+//  Lo fa l'app da sola, non un sito esterno: cosi' la stampa esce
+//  anche se internet fa i capricci, e non c'e' niente da aspettare.
+// ------------------------------------------------------------------
+// Cosa ci scrivo dentro. Corto = solo il codice: meno puntini, quadretti
+// piu' grossi, si legge molto meglio su un'etichetta da 25 mm. Lungo =
+// l'indirizzo dell'app, cosi' si apre anche con la fotocamera normale
+// del telefono, senza entrare nell'app.
+function qrDato(codice){
+  if(ET_CORTO)return codice;
+  const base=(APP_URL||'').split('?')[0];
+  return base?(base+'?qr='+encodeURIComponent(codice)):codice;
+}
+function qrSvg(codice,lato){
+  try{
+    const q=qrcode(0,'M');
+    q.addData(qrDato(codice));
+    q.make();
+    return q.createSvgTag({cellSize:4,margin:3,scalable:true})
+      .replace('<svg ','<svg width="'+lato+'" height="'+lato+'" ');
+  }catch(e){
+    return '<div style="font-size:9px;color:#a00">QR non generato</div>';
+  }
+}
+// quanti quadretti ha il QR: serve per avvisare se l'etichetta e' troppo
+// piccola per quello che ci vogliamo scrivere dentro
+function qrModuli(codice){
+  try{const q=qrcode(0,'M');q.addData(qrDato(codice));q.make();return q.getModuleCount();}
+  catch(e){return 0;}
+}
+
+// ------------------------------------------------------------------
+//  I DATI
+// ------------------------------------------------------------------
+function caricaEtichette(){
+  return call('getEtichette').then(function(e){STATE.etichette=e||[];return STATE.etichette;})
+    .catch(function(){STATE.etichette=STATE.etichette||[];return STATE.etichette;});
+}
+function etichetta(codice){
+  const c=String(codice||'').trim().toUpperCase();
+  return (STATE.etichette||[]).filter(x=>String(x.Codice).toUpperCase()===c)[0]||null;
+}
+// ------------------------------------------------------------------
+//  COSA C'E' ATTACCATO A UN'ETICHETTA
+//  Puo' essere una cosa sola (il caso normale) oppure molte: lo
+//  scatolone che arriva dal fornitore con dentro sei articoli, tutti
+//  della stessa bolla, e a cui metti una etichetta sola.
+//  Le etichette vecchie, quelle con una cosa sola, continuano a
+//  funzionare identiche: se l'elenco e' vuoto lo ricavo da li'.
+// ------------------------------------------------------------------
+function etCose(e){
+  if(!e)return [];
+  const c=e.Contenuto;
+  if(c&&c.length)return c.filter(x=>x&&x.tipo&&x.id);
+  if(e.TargetID)return [{tipo:e.TipoTarget,id:e.TargetID}];
+  return [];
+}
+// le etichette attaccate a una certa cosa (anche dentro a un elenco)
+function etichetteDi(tipo,id){
+  return (STATE.etichette||[]).filter(function(x){
+    if(x.Stato!=='assegnata')return false;
+    return etCose(x).some(c=>c.tipo===tipo&&c.id===id);
+  });
+}
+// come si chiama una singola cosa
+function etNomeCosa(tipo,id){
+  if(tipo==='articolo'){const a=(STATE.articoli||[]).filter(x=>x.ID===id)[0];return a?a.Nome:id;}
+  if(tipo==='pannello'){const p=(STATE.pannelli||[]).filter(x=>x.ID===id)[0];
+    const a=p?(STATE.articoli||[]).filter(x=>x.ID===p.ArticoloID)[0]:null;
+    return p?((a?a.Nome:p.ArticoloID)+' '+p.Larghezza_mm+'x'+p.Altezza_mm):id;}
+  if(tipo==='massiccio'){const p=(STATE.massicci||[]).filter(x=>x.ID===id)[0];
+    const a=p?(STATE.articoli||[]).filter(x=>x.ID===p.ArticoloID)[0]:null;
+    return p?(a?a.Nome:p.ArticoloID):id;}
+  if(tipo==='voce'){const v=(STATE.voci||[]).filter(x=>x.ID===id)[0];
+    return v?(v.Descrizione+(v.Commessa?(' - '+v.Commessa):'')):id;}
+  return id;
+}
+// come si chiama quello a cui e' attaccata, in una riga
+function etTargetNome(e){
+  if(!e||e.Stato!=='assegnata')return '';
+  const cose=etCose(e);
+  if(!cose.length)return '';
+  if(cose.length===1)return etNomeCosa(cose[0].tipo,cose[0].id);
+  const nomi=cose.slice(0,2).map(c=>etNomeCosa(c.tipo,c.id));
+  return cose.length+' cose: '+nomi.join(', ')+(cose.length>2?(' e altre '+(cose.length-2)):'');
+}
+function etBadge(e){
+  if(e.Stato==='assegnata')return '<span class="badge badge-green">in uso</span>';
+  if(e.Stato==='dismessa')return '<span class="badge badge-gray">dismessa</span>';
+  return '<span class="badge" style="background:var(--accent-light);color:var(--accent)">libera</span>';
+}
+// I tre stati non si mescolano mai: hanno ognuno il suo blocco, sempre
+// nello stesso ordine. Libere in cima perche' sono quelle che servono
+// quando hai in mano un'etichetta da attaccare.
+const ET_GRUPPI=[
+  ['libera','Libere','stampate e pronte, non ancora attaccate a niente','var(--accent)'],
+  ['assegnata','In uso','attaccate a un articolo o a un pezzo','var(--green)'],
+  ['dismessa','Dismesse','fuori dal giro: restano solo nello storico','var(--gray)']
+];
+// le dismesse partono chiuse: sono ingombro, non lavoro di tutti i giorni
+let ET_APERTI=(function(){try{return JSON.parse(localStorage.getItem('at_etaperti'))||{libera:1,assegnata:1,dismessa:0};}
+  catch(e){return {libera:1,assegnata:1,dismessa:0};}})();
+function etApriChiudi(k){
+  ET_APERTI[k]=ET_APERTI[k]?0:1;
+  try{localStorage.setItem('at_etaperti',JSON.stringify(ET_APERTI));}catch(e){}
+  etRefresh();
+}
+
+// ------------------------------------------------------------------
+//  LA PAGINA
+// ------------------------------------------------------------------
+function renderEtichette(){
+  const admin=oreAdmin();
+  const tutte=(STATE.etichette||[]);
+  const libere=tutte.filter(x=>x.Stato==='libera').length;
+  const ass=tutte.filter(x=>x.Stato==='assegnata').length;
+  const dis=tutte.filter(x=>x.Stato==='dismessa').length;
+
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">'
+   +'<h1 class="page-title" style="margin:0">Etichette QR</h1>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+   +'<button class="btn btn-accent" onclick="scanApri()">&#128247; Scansiona</button>'
+   +(admin?'<button class="btn btn-ghost" onclick="etNuove()">+ Crea etichette</button>':'')
+   +(admin?'<button class="btn btn-ghost" onclick="etStampa()">Stampa</button>':'')
+   +'</div></div>';
+
+  if(!tutte.length){
+    return h+'<div class="card"><div class="card-title">Come funzionano</div>'
+     +'<div class="info-box">Sono etichette <strong>vuote</strong>: le stampi in blocco, le attacchi alla scatola di viti o al pannello, '
+     +'e le assegni <strong>dopo</strong>, quando inquadri il QR col telefono.<br><br>'
+     +'Da quel momento basta inquadrare l&#39;etichetta per aprire quella roba: quanta ce n&#39;e&#39;, da che bolla e&#39; arrivata, tutto lo storico.<br><br>'
+     +'Una cosa puo&#39; avere <strong>piu&#39; etichette</strong>: la scatola che diventa due scatole, il pacco di pannelli che si divide.</div>'
+     +(admin?'<button class="btn btn-accent" onclick="etNuove()">+ Crea il primo blocco di etichette</button>'
+            :'<div style="color:var(--gray);font-size:13px">Chiedi all&#39;ufficio di stampare le etichette.</div>')
+     +'</div>';
+  }
+
+  h+='<div class="card"><div style="display:flex;gap:10px;flex-wrap:wrap">'
+   +'<div style="flex:1;min-width:120px"><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Libere</div>'
+   +'<div style="font-size:19px;font-weight:700">'+libere+'</div></div>'
+   +'<div style="flex:1;min-width:120px"><div style="font-size:11px;color:var(--gray);text-transform:uppercase">In uso</div>'
+   +'<div style="font-size:19px;font-weight:700">'+ass+'</div></div>'
+   +'<div style="flex:1;min-width:120px"><div style="font-size:11px;color:var(--gray);text-transform:uppercase">Dismesse</div>'
+   +'<div style="font-size:19px;font-weight:700;color:var(--gray)">'+dis+'</div></div>'
+   +'</div></div>';
+
+  // le due preferenze, salvate sul browser come la vista a griglia
+  h+='<div class="card" style="margin-top:12px"><div class="card-title">Come mi comporto</div>'
+   +'<div class="filters" style="gap:10px">'
+   +'<div><div style="font-size:11.5px;color:var(--gray);margin-bottom:3px">Quando inquadro un&#39;etichetta gia&#39; assegnata</div>'
+   +'<select onchange="setEtDopo(this.value)">'
+   +'<option value="scheda"'+(ET_DOPO==='scheda'?' selected':'')+'>Apri la scheda dell&#39;oggetto</option>'
+   +'<option value="operazione"'+(ET_DOPO==='operazione'?' selected':'')+'>Chiedi subito: carico o scarico</option>'
+   +'</select></div>'
+   +'<div><div style="font-size:11.5px;color:var(--gray);margin-bottom:3px">Cosa scrivo dentro al QR</div>'
+   +'<select onchange="setEtCorto(this.value===\'1\')">'
+   +'<option value="1"'+(ET_CORTO?' selected':'')+'>Solo il codice &mdash; quadretti piu&#39; grossi, si legge meglio</option>'
+   +'<option value="0"'+(ET_CORTO?'':' selected')+'>Anche l&#39;indirizzo dell&#39;app &mdash; si apre con la fotocamera normale</option>'
+   +'</select></div>'
+   +'</div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:6px">Su un&#39;etichetta da 25 mm il codice corto e&#39; molto piu&#39; facile da leggere. '
+   +'Le etichette gia&#39; stampate continuano a funzionare in tutti e due i modi: il lettore dell&#39;app li capisce entrambi.</div>'
+   +'</div>';
+
+  h+='<div class="filters" style="margin-top:12px">'
+   +'<input id="et-q" value="'+att(ET_Q)+'" placeholder="Cerca un codice o cosa c&#39;e&#39; attaccato..." oninput="etCerca(this.value)" style="flex:1;min-width:220px">'
+   +'<select onchange="ET_STATO=this.value;etRefresh()">'
+   +'<option value=""'+(ET_STATO?'':' selected')+'>Tutte</option>'
+   +'<option value="libera"'+(ET_STATO==='libera'?' selected':'')+'>Solo le libere</option>'
+   +'<option value="assegnata"'+(ET_STATO==='assegnata'?' selected':'')+'>Solo quelle in uso</option>'
+   +'<option value="dismessa"'+(ET_STATO==='dismessa'?' selected':'')+'>Solo le dismesse</option>'
+   +'</select>'
+   +etLottoSelect()
+   +'</div><div id="et-cont">'+etCont()+'</div>';
+  return h;
+}
+function etLottoSelect(){
+  const l={}; (STATE.etichette||[]).forEach(x=>{if(x.Lotto)l[x.Lotto]=1;});
+  const ks=Object.keys(l).sort().reverse();
+  if(!ks.length)return '';
+  return '<select onchange="ET_LOTTO=this.value;etRefresh()"><option value="">Tutte le stampe</option>'
+   +ks.map(k=>'<option value="'+att(k)+'"'+(k===ET_LOTTO?' selected':'')+'>stampa del '+att(k)+'</option>').join('')+'</select>';
+}
+function etCerca(v){
+  ET_Q=v; etRefresh();
+  const e=document.getElementById('et-q');
+  if(e){e.focus();try{e.setSelectionRange(e.value.length,e.value.length);}catch(x){}}
+}
+function etRefresh(){
+  const c=document.getElementById('et-cont');
+  if(c)c.innerHTML=etCont(); else renderPage('etichette');
+}
+function etFiltrate(){
+  const q=String(ET_Q||'').toLowerCase().trim();
+  return (STATE.etichette||[]).filter(function(e){
+    if(ET_STATO&&e.Stato!==ET_STATO)return false;
+    if(ET_LOTTO&&e.Lotto!==ET_LOTTO)return false;
+    if(q){
+      const paglia=(e.Codice+' '+e.TargetID+' '+etTargetNome(e)+' '+e.Note+' '+e.Stato).toLowerCase();
+      if(paglia.indexOf(q)<0)return false;
+    }
+    return true;
+  });
+}
+function etCont(){
+  const list=etFiltrate(), admin=oreAdmin();
+  const nSel=Object.keys(ET_SEL).length;
+  let h='<div style="font-size:12.5px;color:var(--gray);margin:8px 0">'+list.length+' etichette'
+   +(nSel?(' &middot; <strong style="color:var(--accent)">'+nSel+' scelte per la stampa</strong> '
+      +'<span onclick="ET_SEL={};etRefresh()" style="color:var(--accent);text-decoration:underline;cursor:pointer">togli la scelta</span>'):'')
+   +(list.length?' &middot; <span onclick="etSelTutte()" style="color:var(--accent);text-decoration:underline;cursor:pointer">scegli tutte queste</span>':'')
+   +'</div>';
+  if(!list.length)return h+'<div class="card" style="color:var(--gray)">Nessuna etichetta con questi filtri.</div>';
+
+  ET_GRUPPI.forEach(function(g){
+    const mie=list.filter(x=>x.Stato===g[0]);
+    if(!mie.length)return;
+    const aperto=!!ET_APERTI[g[0]];
+    h+='<div class="card" style="margin-bottom:14px;border-left:3px solid '+g[3]+'">'
+     +'<div onclick="etApriChiudi(\''+g[0]+'\')" style="display:flex;justify-content:space-between;'
+     +'align-items:baseline;gap:10px;flex-wrap:wrap;cursor:pointer">'
+     +'<div><div style="font-family:Georgia,serif;font-size:17px;font-weight:600">'
+     +(aperto?'&#9662;':'&#9656;')+' '+g[1]+' <span style="color:'+g[3]+'">'+mie.length+'</span></div>'
+     +'<div style="font-size:12px;color:var(--gray)">'+g[2]+'</div></div>'
+     +(admin?('<button class="btn btn-ghost" onclick="event.stopPropagation();etSelGruppo(\''+g[0]+'\')">Scegli queste per la stampa</button>'):'')
+     +'</div>';
+    if(aperto){
+      h+='<div class="piece-grid" style="margin-top:12px">'
+        +mie.slice(0,300).map(etCard).join('')+'</div>';
+      if(mie.length>300)h+='<div style="font-size:12px;color:var(--amber);margin-top:10px">'
+        +'Ne mostro 300 di '+mie.length+'. Stringi la ricerca, oppure usa "Scegli queste per la stampa".</div>';
+    }
+    h+='</div>';
+  });
+  return h;
+}
+function etSelGruppo(stato){
+  etFiltrate().filter(x=>x.Stato===stato).forEach(e=>{ET_SEL[e.Codice]=true;});
+  etRefresh();
+}
+function etCard(e){
+  const admin=oreAdmin(), nome=etTargetNome(e);
+  return '<div class="piece" style="position:relative">'
+   +(admin?('<input type="checkbox" '+(ET_SEL[e.Codice]?'checked':'')+' onclick="etToggle(event,\''+esc(e.Codice)+'\')" '
+      +'style="position:absolute;top:8px;left:8px;width:18px;height:18px;accent-color:var(--accent);z-index:2">'):'')
+   +'<div style="text-align:center;padding:10px 6px 0">'+qrSvg(e.Codice,86)+'</div>'
+   +'<div class="piece-body" style="padding-top:6px">'
+   +'<div style="font-family:monospace;font-weight:700;font-size:14px;text-align:center;letter-spacing:.5px">'+att(etFmt(e.Codice))+'</div>'
+   +'<div style="text-align:center;margin:5px 0">'+etBadge(e)+'</div>'
+   +etProvTxt(e)
+   +(nome?((etCose(e).length>1
+        ?('<div style="font-size:12px;text-align:center;font-weight:600">'+etCose(e).length+' cose attaccate</div>'+etCoseTxt(e))
+        :('<div style="font-size:12px;text-align:center;line-height:1.4">'+att(nome)+'</div>'
+          +'<div style="font-size:11px;color:var(--gray);text-align:center;font-family:monospace">'+att(e.TargetID)+'</div>'))):'')
+   +(e.Note?('<div style="font-size:11px;color:var(--gray);font-style:italic;text-align:center;margin-top:4px">'+att(e.Note)+'</div>'):'')
+   +'<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">'
+   +(e.Stato==='assegnata'
+      ?('<button class="btn btn-accent" style="flex:1" onclick="openDettaglio(\''+esc(e.TipoTarget)+'\',\''+esc(e.TargetID)+'\')">Apri</button>'
+        +(admin?'<button class="btn btn-ghost" onclick="etLibera(\''+esc(e.Codice)+'\')">Stacca</button>':''))
+      :(e.Stato==='libera'
+        ?'<button class="btn btn-accent" style="flex:1" onclick="etAssegnaApri(\''+esc(e.Codice)+'\')">Assegna</button>'
+        :(admin?'<button class="btn btn-ghost" style="flex:1" onclick="etLibera(\''+esc(e.Codice)+'\')">Rimetti libera</button>':'')))
+   +(admin&&e.Stato!=='dismessa'?'<button class="btn btn-red" onclick="etDismetti(\''+esc(e.Codice)+'\')">Dismetti</button>':'')
+   +'</div></div></div>';
+}
+function etToggle(ev,cod){
+  ev.stopPropagation();
+  if(ET_SEL[cod])delete ET_SEL[cod]; else ET_SEL[cod]=true;
+  etRefresh();
+}
+function etSelTutte(){ etFiltrate().forEach(e=>{ET_SEL[e.Codice]=true;}); etRefresh(); }
+
+// ------------------------------------------------------------------
+//  CREARE UN BLOCCO NUOVO
+// ------------------------------------------------------------------
+function etNuove(){
+  openModal('<div class="modal" style="width:480px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Crea etichette vuote</h2>'
+   +'<div class="info-box">Genera i codici e basta. Le etichette nascono <strong>libere</strong>: le stampi, le attacchi, '
+   +'e le assegni dopo inquadrandole col telefono.</div>'
+   +'<div class="form-group" style="max-width:200px"><label>Quante *</label>'
+   +'<input type="number" id="en-n" value="50" min="1" max="2000" oninput="etNuovePreview()"></div>'
+   +'<div id="en-prev" style="font-size:12.5px;color:var(--gray);margin-bottom:10px"></div>'
+   +'<div id="en-err"></div>'
+   +'<button class="btn-primary" onclick="etNuoveSalva(this)">Crea le etichette</button></div>');
+  etNuovePreview();
+}
+function etNuovePreview(){
+  const el=document.getElementById('en-prev'); if(!el)return;
+  const n=parseInt(gv('en-n'))||0;
+  if(n<1||n>2000){el.textContent='Da 1 a 2000 etichette per volta.';return;}
+  const fatte=(STATE.etichette||[]).length;
+  el.innerHTML='Ogni etichetta prende un codice di <strong>sette cifre</strong>, del tipo '
+   +'<strong style="font-family:monospace">'+etFmt(etNuovoCodice(String(100000+Math.floor(Math.random()*900000))))+'</strong>: '
+   +'corto da dettare e da scrivere, e impossibile da confondere con un altro.'
+   +'<br>Ne hai gia\' '+fatte+'; ne restano libere piu\' di '+(900000-fatte).toLocaleString('it-IT')+'.';
+}
+function etNuoveSalva(btn){
+  const n=parseInt(gv('en-n'))||0;
+  if(n<1||n>2000){showErr('en-err','Scrivi un numero da 1 a 2000.');return;}
+  if(btn){btn.disabled=true;btn.textContent='Creo...';}
+  call('creaEtichette',{n:n}).then(function(r){
+    if(!r||!r.ok){showErr('en-err',(r&&r.err)||'Errore');if(btn){btn.disabled=false;btn.textContent='Crea le etichette';}return;}
+    caricaEtichette().then(function(){
+      ET_SEL={}; (r.codici||[]).forEach(c=>{ET_SEL[c]=true;});
+      closeModal(); toast(r.n+' etichette create: ora stampale');
+      renderPage('etichette');
+      setTimeout(etStampa,300);
+    });
+  }).catch(function(e){
+    showErr('en-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Crea le etichette';}
+  });
+}
+
+// ------------------------------------------------------------------
+//  LA STAMPA
+//  Una etichetta per pagina: e' cosi' che vogliono le stampanti a
+//  rotolo tipo Dymo. La misura si sceglie qui e resta salvata.
+// ------------------------------------------------------------------
+const ET_MISURE=[
+  ['25x25','25 x 25 mm quadrata (Dymo)',25,25],
+  ['57x32','57 x 32 mm (Dymo 11354)',57,32],
+  ['54x25','54 x 25 mm (Dymo 11352)',54,25],
+  ['70x37','70 x 37 mm (foglio A4, 24 per foglio)',70,37],
+  ['a4','Foglio A4 fitto, da ritagliare',0,0]
+];
+let ET_MIS=(function(){try{return localStorage.getItem('at_etmis')||'25x25';}catch(e){return '25x25';}})();
+function etSetMisura(v){ ET_MIS=v; try{localStorage.setItem('at_etmis',v);}catch(e){} etStampaPreview(); }
+function etMisura(){ return ET_MISURE.filter(x=>x[0]===ET_MIS)[0]||ET_MISURE[0]; }
+
+function etStampa(){
+  const scelte=Object.keys(ET_SEL);
+  const list=scelte.length?scelte.map(c=>etichetta(c)).filter(Boolean):etFiltrate();
+  if(!list.length){toast('Nessuna etichetta da stampare','err');return;}
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Stampa etichette</h2>'
+   +'<div class="info-box">Sto per stampare <strong>'+list.length+' etichette</strong>'
+   +(scelte.length?' (quelle che hai scelto)':' (tutte quelle che vedi con i filtri di adesso)')+'.</div>'
+   +'<div class="form-group"><label>Misura dell&#39;etichetta</label><select id="es-mis" onchange="etSetMisura(this.value)">'
+   +ET_MISURE.map(m=>'<option value="'+m[0]+'"'+(m[0]===ET_MIS?' selected':'')+'>'+m[1]+'</option>').join('')
+   +'</select></div>'
+   +'<div id="es-prev" style="margin-bottom:10px"></div>'
+   +'<div class="info-box" style="font-size:12px">Nella finestra di stampa del browser metti i <strong>margini a zero</strong> '
+   +'e togli intestazione e pie&#39; di pagina, altrimenti la Dymo rimpicciolisce tutto.</div>'
+   +'<button class="btn-primary" onclick="etStampaVai()">Stampa</button></div>');
+  etStampaPreview();
+}
+function etStampaPreview(){
+  const el=document.getElementById('es-prev'); if(!el)return;
+  const m=etMisura();
+  const cod=(Object.keys(ET_SEL)[0])||(etFiltrate()[0]||{}).Codice||'AT-000001';
+  const mod=qrModuli(cod);
+  if(m[0]==='a4'){
+    el.innerHTML='<div style="font-size:12.5px;color:var(--gray)">Su A4 entrano 24 etichette per foglio, con le linee di taglio.</div>';
+    return;
+  }
+  const latoQr=Math.min(m[2],m[3])-4;        // il QR, meno un po' di bordo
+  const mm=mod?(latoQr/mod):0;               // quanto e' grande un quadretto
+  // provato davvero: su 25 mm il codice corto si legge sempre, anche con la
+  // stampante vecchia e la foto mossa; l'indirizzo dell'app no.
+  const stretta=Math.min(m[2],m[3])<=30;
+  let avviso, colore;
+  if(stretta&&!ET_CORTO){
+    colore='var(--amber)';
+    avviso='Etichetta piccola con l&#39;indirizzo dell&#39;app dentro: i quadretti diventano minuscoli e '
+      +'con una stampante a 203 dpi il telefono fa fatica. Meglio <strong>solo il codice</strong> '
+      +'(lo cambi qui sopra, nella pagina Etichette), oppure un&#39;etichetta piu&#39; grande.';
+  }else if(mm>=0.55){ colore='var(--green)'; avviso='Si legge bene col telefono, anche un po&#39; sporca.'; }
+  else { colore='var(--amber)'; avviso='Quadretti molto piccoli: metti &#34;solo il codice&#34; dentro al QR, oppure un&#39;etichetta piu&#39; grande.'; }
+  el.innerHTML='<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
+   +'<div style="border:1px dashed var(--border);padding:6px;border-radius:6px">'+qrSvg(cod,74)+'</div>'
+   +'<div style="font-size:12.5px;line-height:1.7">'
+   +'Etichetta <strong>'+m[2]+' x '+m[3]+' mm</strong><br>'
+   +'QR di circa '+latoQr.toFixed(0)+' mm, '+mod+' quadretti<br>'
+   +'<span style="color:'+colore+'">'+avviso+'</span></div></div>';
+}
+function etStampaVai(){
+  const scelte=Object.keys(ET_SEL);
+  const list=scelte.length?scelte.map(c=>etichetta(c)).filter(Boolean):etFiltrate();
+  if(!list.length){toast('Niente da stampare','err');return;}
+  const m=etMisura();
+  let css='',corpo='';
+  if(m[0]==='a4'){
+    css='@page{size:A4;margin:8mm} .et{display:inline-block;width:31%;box-sizing:border-box;'
+      +'border:1px dashed #bbb;padding:4mm 2mm;margin:1mm;text-align:center;vertical-align:top}';
+    corpo=list.map(e=>'<div class="et">'+qrSvg(e.Codice,'24mm')
+      +'<div style="font-family:monospace;font-size:10pt;font-weight:700;margin-top:1mm;letter-spacing:.5px">'+att(etFmt(e.Codice))+'</div></div>').join('');
+  }else{
+    const lato=(Math.min(m[2],m[3])-5)+'mm';
+    css='@page{size:'+m[2]+'mm '+m[3]+'mm;margin:0}'
+      +'.et{width:'+m[2]+'mm;height:'+m[3]+'mm;box-sizing:border-box;padding:1mm;'
+      +'display:flex;align-items:center;justify-content:center;gap:1.5mm;'
+      +'page-break-after:always;break-after:page;overflow:hidden}'
+      +'.et:last-child{page-break-after:auto;break-after:auto}'
+      +'.etcod{font-family:monospace;font-weight:700;letter-spacing:.3px;white-space:nowrap;'
+      +(m[2]>m[3]+10?'font-size:9pt':'font-size:6.5pt;')+'}';
+    const orizzontale=m[2]>m[3]+10;   // etichetta lunga: QR a sinistra, codice a destra
+    corpo=list.map(function(e){
+      return '<div class="et" style="flex-direction:'+(orizzontale?'row':'column')+'">'
+        +qrSvg(e.Codice,lato)
+        +'<div class="etcod">'+att(etFmt(e.Codice))+'</div></div>';
+    }).join('');
+  }
+  stampaHTML('<style>'+css+' body{margin:0} svg{display:block}</style>'+corpo);
+}
+
+// ------------------------------------------------------------------
+//  ASSEGNARE UN'ETICHETTA A QUALCOSA
+// ------------------------------------------------------------------
+function etVoci(){
+  const out=[];
+  (STATE.articoli||[]).forEach(a=>out.push({tipo:'articolo',id:a.ID,
+    testo:a.Nome+' ('+a.ID+')'+(a.Categoria?(' - '+a.Categoria):'')}));
+  (STATE.pannelli||[]).forEach(p=>{
+    const a=(STATE.articoli||[]).filter(x=>x.ID===p.ArticoloID)[0];
+    out.push({tipo:'pannello',id:p.ID,testo:p.ID+' - '+(a?a.Nome:p.ArticoloID)+' '+p.Larghezza_mm+'x'+p.Altezza_mm});
+  });
+  (STATE.massicci||[]).forEach(p=>{
+    const a=(STATE.articoli||[]).filter(x=>x.ID===p.ArticoloID)[0];
+    out.push({tipo:'massiccio',id:p.ID,testo:p.ID+' - '+(a?a.Nome:p.ArticoloID)});
+  });
+  // le altre voci: solo quelle a cui ha senso attaccare qualcosa, cioe' quelle
+  // che sono roba, non lavorazioni. Le metto tutte e decidi tu.
+  (STATE.voci||[]).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
+    .forEach(v=>out.push({tipo:'voce',id:v.ID,
+      testo:'Voce: '+(v.Descrizione||'')+(v.Commessa?(' ('+v.Commessa+')'):'')
+        +(v.Fornitore?(' - '+v.Fornitore):'')}));
+  return out;
+}
+var EA_SCELTE=[];   // le cose scelte in questo momento nella finestra
+function etAssegnaApri(codice,dopo){
+  const e=etichetta(codice);
+  const voci=etVoci();
+  const opt=voci.map(v=>'<option value="'+att(v.tipo+'|'+v.id)+'">'+att(v.testo)+'</option>').join('');
+  EA_SCELTE=(e&&e.Stato==='assegnata')?etCose(e).slice():[];
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Assegna l&#39;etichetta '+att(etFmt(codice))+'</h2>'
+   +'<div style="text-align:center;margin-bottom:10px">'+qrSvg(codice,96)+'</div>'
+   +(e&&e.Stato==='assegnata'
+      ?('<div class="alert alert-amber">Questa etichetta e&#39; gia&#39; attaccata a <strong>'+att(etTargetNome(e))+'</strong>. '
+        +'Se scegli qualcos&#39;altro, la stacchi da li&#39;.</div>'):'')
+   +'<div class="form-group"><label>A che cosa la attacco? *</label>'
+   +'<select id="ea-t" onchange="etAssegnaCambia()"><option value="">- scegli -</option>'+opt+'</select>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:4px">Scrivi due lettere del nome o del codice per trovarlo. '
+   +'Se sullo stesso collo ci sono piu&#39; cose della stessa bolla, aggiungile una dopo l&#39;altra.</div>'
+   +'<button class="btn btn-ghost" style="margin-top:8px" onclick="etAggiungiCosa()">+ Aggiungi anche questa</button></div>'
+   +'<div id="ea-elenco"></div>'
+   +'<div id="ea-box-prov"></div>'
+   +'<div class="form-group"><label>Nota (facoltativa)</label>'
+   +'<input id="ea-n" value="'+att(e?e.Note:'')+'" placeholder="es. scatola grande, scaffale B"></div>'
+   +'<div id="ea-err"></div>'
+   +'<button class="btn-primary" onclick="etAssegnaSalva(\''+esc(codice)+'\',this,'+(dopo?'true':'false')+')">Attacca l&#39;etichetta</button>'
+   +'</div>');
+}
+// aggiungo all'elenco la cosa scelta adesso nel menu
+function etAggiungiCosa(){
+  const v=gv('ea-t');
+  if(!v){showErr('ea-err','Scegli prima una cosa dal menu qui sopra.');return;}
+  const p=v.split('|');
+  if(EA_SCELTE.some(c=>c.tipo===p[0]&&c.id===p[1])){showErr('ea-err','Quella c&#39;e&#39; gia&#39; nell&#39;elenco.');return;}
+  EA_SCELTE.push({tipo:p[0],id:p[1]});
+  showErr('ea-err','');
+  etAssegnaCambia();
+}
+function etTogliCosa(i){
+  EA_SCELTE.splice(i,1);
+  etAssegnaCambia();
+}
+// l'elenco di quello che finira' su questa etichetta
+function etElencoHTML(){
+  if(!EA_SCELTE.length)return '';
+  return '<div class="card" style="margin-bottom:10px;padding:10px 12px">'
+   +'<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Su questa etichetta ci vanno <strong>'
+   +EA_SCELTE.length+(EA_SCELTE.length===1?' cosa':' cose')+'</strong>:</div>'
+   +EA_SCELTE.map(function(c,i){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;'
+       +'padding:5px 0;border-top:1px solid #f2efe9;font-size:13px">'
+       +'<span>'+att(etNomeCosa(c.tipo,c.id))+' <span style="color:var(--gray);font-size:11px">('+c.tipo+')</span></span>'
+       +'<span onclick="etTogliCosa('+i+')" style="color:var(--red);cursor:pointer;font-size:17px;line-height:1">&times;</span>'
+       +'</div>';
+    }).join('')
+   +'</div>';
+}
+// quando scelgo la roba, compare il menu delle bolle giusto
+function etAssegnaCambia(){
+  const elenco=document.getElementById('ea-elenco');
+  if(elenco)elenco.innerHTML=etElencoHTML();
+  const box=document.getElementById('ea-box-prov'); if(!box)return;
+
+  // piu' di una cosa: vengono tutte dalla stessa bolla, quindi la bolla
+  // la scrivo una volta sola a mano (precompilata da quello che so gia')
+  if(EA_SCELTE.length>1){
+    let pre={fornitore:'',ddt:'',dataDdt:''};
+    for(let i=0;i<EA_SCELTE.length;i++){
+      const pr=etProvenienzaDi(EA_SCELTE[i].tipo,EA_SCELTE[i].id);
+      if(pr.ddt||pr.fornitore){pre=pr;break;}
+    }
+    box.innerHTML='<div class="form-row">'
+     +'<div class="form-group"><label>Fornitore</label>'
+     +'<input id="ea-forn" list="ea-fornl" autocomplete="off" value="'+att(pre.fornitore||'')+'">'
+     +'<datalist id="ea-fornl">'+(STATE.fornitori||[]).map(f=>'<option value="'+att(f.Nome)+'">').join('')+'</datalist></div>'
+     +'<div class="form-group"><label>N. DDT / bolla</label>'
+     +'<input id="ea-ddt" list="ddt-dl" autocomplete="off" value="'+att(pre.ddt||'')+'">'+datalistDdt()+'</div>'
+     +'</div>'
+     +'<div class="form-group" style="max-width:220px"><label>Data della bolla</label>'
+     +'<input type="date" id="ea-ddtdata" value="'+att(String(pre.dataDdt||'').slice(0,10))+'"></div>'
+     +'<div style="font-size:11.5px;color:var(--gray);margin:-4px 0 10px">Vale per tutte le cose dell&#39;elenco: '
+     +'sono arrivate insieme, con la stessa bolla.</div>';
+    return;
+  }
+
+  const v=gv('ea-t');
+  const solo=EA_SCELTE.length===1?EA_SCELTE[0]:(v?{tipo:v.split('|')[0],id:v.split('|')[1]}:null);
+  if(!solo){box.innerHTML='';return;}
+  if(solo.tipo==='articolo'){ box.innerHTML=etBolleHTML('articolo',solo.id); acAttiva(box); }
+  else{
+    const pr=etProvenienzaDi(solo.tipo,solo.id);
+    box.innerHTML=(pr.ddt||pr.fornitore)
+      ?('<div class="info-box" style="font-size:12.5px">Arriva da: <strong>'+att(pr.fornitore||'-')+'</strong>'
+        +(pr.ddt?(' &middot; bolla <strong>'+att(pr.ddt)+'</strong>'):'')
+        +(pr.dataDdt?(' del '+dataIt(pr.dataDdt)):'')
+        +'<br><span style="color:var(--gray)">Lo prendo dal pezzo, non devi dirmi niente.</span></div>')
+      :'<div style="font-size:12px;color:var(--gray);margin-bottom:8px">Questo pezzo non ha una bolla registrata.</div>';
+  }
+}
+function etAssegnaSalva(codice,btn,riapri){
+  // quello che sta nel menu ma non e' ancora stato aggiunto lo prendo lo stesso
+  const v=gv('ea-t');
+  if(v){
+    const p=v.split('|');
+    if(!EA_SCELTE.some(c=>c.tipo===p[0]&&c.id===p[1]))EA_SCELTE.push({tipo:p[0],id:p[1]});
+  }
+  if(!EA_SCELTE.length){showErr('ea-err','Scegli a cosa attaccarla.');return;}
+  const cose=EA_SCELTE.slice();
+  let pr;
+  if(cose.length>1){
+    pr={fornitore:gv('ea-forn').trim(),ddt:gv('ea-ddt').trim(),
+        dataDdt:gv('ea-ddtdata')||null,movimentoId:''};
+  }else{
+    pr=etProvDaForm(cose[0].tipo,cose[0].id);
+  }
+  if(btn){btn.disabled=true;btn.textContent='Salvo...';}
+  call('assegnaEtichetta',{codice:codice,tipo:cose[0].tipo,id:cose[0].id,contenuto:cose,note:gv('ea-n').trim(),
+    fornitore:pr.fornitore,ddt:pr.ddt,dataDdt:pr.dataDdt,movimentoId:pr.movimentoId}).then(function(r){
+    if(!r||!r.ok){showErr('ea-err',(r&&r.err)||'Errore');if(btn){btn.disabled=false;btn.textContent='Attacca l\'etichetta';}return;}
+    caricaEtichette().then(function(){
+      closeModal();
+      toast('Etichetta '+codice+' attaccata');
+      if(riapri)scanApri(); else renderPage(STATE.pagina);
+    });
+  }).catch(function(e){
+    showErr('ea-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Attacca l\'etichetta';}
+  });
+}
+function etLibera(codice){
+  call('liberaEtichetta',{codice:codice}).then(function(){
+    caricaEtichette().then(function(){toast('Etichetta '+codice+' di nuovo libera');renderPage(STATE.pagina);});
+  });
+}
+function etDismetti(codice){
+  const e=etichetta(codice)||{};
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Dismetti '+att(codice)+'</h2>'
+   +'<div class="alert alert-amber">L&#39;etichetta esce dal giro e non si riusa piu&#39;. Resta pero&#39; nello storico: '
+   +'se un domani la ritrovi attaccata a qualcosa, l&#39;app ti dira&#39; che era '
+   +'<strong>'+att(etTargetNome(e)||'libera')+'</strong>.</div>'
+   +'<div id="ed-err"></div>'
+   +'<button class="btn-primary" style="background:var(--red)" onclick="etDismettiVai(\''+esc(codice)+'\')">Dismetti</button></div>');
+}
+function etDismettiVai(codice){
+  call('dismettiEtichetta',{codice:codice}).then(function(){
+    caricaEtichette().then(function(){closeModal();toast('Etichetta dismessa');renderPage(STATE.pagina);});
+  }).catch(e=>showErr('ed-err',String((e&&e.message)||e)));
+}
+
+// l'elenco di cosa c'e' attaccato, quando e' piu' di una cosa
+function etCoseTxt(e){
+  const cose=etCose(e);
+  if(cose.length<2)return '';
+  return '<div style="font-size:11px;color:var(--gray);text-align:left;margin:4px 0;line-height:1.6">'
+   +cose.map(c=>'&bull; '+att(etNomeCosa(c.tipo,c.id))).join('<br>')+'</div>';
+}
+// la riga "da dove arriva", sotto al codice dell'etichetta
+function etProvTxt(e){
+  if(!e||e.Stato!=='assegnata')return '';
+  const p=[];
+  if(e.Fornitore)p.push(att(e.Fornitore));
+  if(e.Ddt)p.push('bolla '+att(e.Ddt));
+  if(e.DataDdt)p.push('del '+dataIt(e.DataDdt));
+  if(!p.length)return '';
+  return '<div style="font-size:11px;color:var(--gray);text-align:center;margin:3px 0">'+p.join(' &middot; ')+'</div>';
+}
+// I carichi di un articolo, dal piu' recente: sono le bolle da cui puo'
+// essere arrivata quella scatola. Per i pannelli e i massicci non serve
+// chiedere niente: la bolla ce l'ha gia' il pezzo.
+function etCarichiDi(artId){
+  return (STATE.movimenti||[])
+    .filter(m=>m.Tipo==='carico'&&m.ArticoloID===artId&&m.Annullato!=='SI'&&m.Annullato!==true)
+    .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
+    .slice(0,25);
+}
+function etProvenienzaDi(tipo,id){
+  if(tipo==='pannello'||tipo==='massiccio'){
+    const p=((tipo==='pannello'?STATE.pannelli:STATE.massicci)||[]).filter(x=>x.ID===id)[0];
+    if(p)return {fornitore:p.Fornitore||'',ddt:p.Ddt||'',dataDdt:p.DataDdt||null,movimentoId:''};
+  }
+  if(tipo==='voce'){
+    const v=(STATE.voci||[]).filter(x=>x.ID===id)[0];
+    if(v)return {fornitore:v.Fornitore||'',ddt:v.Ddt||'',dataDdt:v.DataDdt||null,movimentoId:''};
+  }
+  return {fornitore:'',ddt:'',dataDdt:null,movimentoId:''};
+}
+// le etichette attaccate a una voce di commessa
+function etichetteDiVoce(id){
+  return etichetteDi('voce',id).map(e=>e.Codice).join(' ');
+}
+// il menu delle bolle, che compare solo quando attacchi a un articolo
+function etBolleHTML(tipo,id){
+  if(tipo!=='articolo')return '';
+  const car=etCarichiDi(id);
+  if(!car.length)return '<input type="hidden" id="ea-mov" value="">';
+  return '<div class="form-group"><label>Da che bolla arriva?</label>'
+   +'<select id="ea-mov">'
+   +car.map(function(m,i){
+      const b=bollaDi(m);
+      const et=(b.ddt?('bolla '+b.ddt):'senza bolla')+(b.forn?(' - '+b.forn):'')
+        +' - '+dataIt(m.Data)+' - '+m.Quantita+' '+(m.UnitaMisura||'');
+      return '<option value="'+att(m.ID)+'"'+(i===0?' selected':'')+'>'+att(et)+'</option>';
+    }).join('')
+   +'<option value="">Non lo so</option></select>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Resta scritto sull&#39;etichetta e finisce nei report: '
+   +'e&#39; il filo che lega questa scatola alla fattura del fornitore.</div></div>';
+}
+function etProvDaForm(tipo,id){
+  const base=etProvenienzaDi(tipo,id);
+  if(tipo!=='articolo')return base;
+  const movId=gv('ea-mov');
+  if(!movId)return base;
+  const m=(STATE.movimenti||[]).filter(x=>x.ID===movId)[0];
+  if(!m)return base;
+  const b=bollaDi(m);
+  return {fornitore:b.forn||m.Fornitore||'',ddt:b.ddt||'',dataDdt:b.data||null,movimentoId:m.ID};
+}
+// il blocchetto che compare nella scheda di un articolo o di un pezzo
+function etichetteBlocco(tipo,id){
+  if(tipo!=='articolo'&&tipo!=='pannello'&&tipo!=='massiccio'&&tipo!=='voce')return '';
+  const mie=etichetteDi(tipo,id);
+  let h='<div class="det-row" style="align-items:flex-start"><span>Etichette QR</span><span style="text-align:right">';
+  if(!mie.length)h+='<span style="color:var(--gray)">nessuna</span>';
+  else h+=mie.map(function(e){
+    const n=etCose(e).length;
+    return '<span style="font-family:monospace;background:var(--accent-light);color:var(--accent);'
+      +'padding:2px 6px;border-radius:5px;margin-left:4px;display:inline-block;margin-bottom:3px">'+att(etFmt(e.Codice))
+      +(n>1?('<span style="font-size:10px;font-family:inherit"> +'+(n-1)+' altre cose</span>'):'')+'</span>';
+  }).join('');
+  h+='</span></div>'
+   +'<button class="det-btn" style="background:var(--accent-light);color:var(--accent)" '
+   +'onclick="etAttaccaA(\''+esc(tipo)+'\',\''+esc(id)+'\')">Attacca un&#39;etichetta</button>';
+  return h;
+}
+// dal lato opposto: sto guardando la roba e voglio darle un'etichetta
+function etAttaccaA(tipo,id){
+  const libere=(STATE.etichette||[]).filter(x=>x.Stato==='libera');
+  const gia=etichetteDi(tipo,id);
+  openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Attacca un&#39;etichetta</h2>'
+   +(gia.length?('<div class="info-box" style="margin-bottom:10px">Ne ha gia&#39; '+gia.length+': '
+      +gia.map(e=>'<strong style="font-family:monospace">'+att(etFmt(e.Codice))+'</strong>').join(', ')
+      +'.<br>Puoi aggiungerne altre: una per ogni scatolone, bancale o collo.</div>'):'')
+   +'<div class="info-box">Prendi un&#39;etichetta stampata, attaccala fisicamente, e poi <strong>inquadrala</strong>. '
+   +'Se preferisci, scrivi il codice a mano.</div>'
+   +'<button class="btn-primary" style="margin-bottom:10px" onclick="scanApri({attaccaA:{tipo:\''+esc(tipo)+'\',id:\''+esc(id)+'\'}})">&#128247; Inquadra l&#39;etichetta</button>'
+   +'<div class="form-group"><label>Oppure scegli fra le libere ('+libere.length+')</label>'
+   +'<select id="et-lib"><option value="">- scegli -</option>'
+   +libere.map(e=>'<option value="'+att(e.Codice)+'">'+att(etFmt(e.Codice))+'</option>').join('')+'</select></div>'
+   +'<div id="et-err"></div>'
+   +'<button class="btn btn-accent" style="width:100%" onclick="etAttaccaVai(\''+esc(tipo)+'\',\''+esc(id)+'\')">Attacca questa</button>'
+   +(libere.length>1
+      ?('<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="etAttaccaTante(\''+esc(tipo)+'\',\''+esc(id)+'\')">'
+        +'Ne devo attaccare piu&#39; di una</button>')
+      :'')
+   +'</div>');
+}
+// ------------------------------------------------------------------
+//  PIU' ETICHETTE ALLA VOLTA
+//  Capita quasi sempre: la riga della bolla dice "500 viti" ma in
+//  furgone arrivano due scatoloni. Ogni scatolone vuole la sua
+//  etichetta, e tutte e due vengono da quella riga li'.
+// ------------------------------------------------------------------
+function etAttaccaTante(tipo,id){
+  const libere=(STATE.etichette||[]).filter(x=>x.Stato==='libera');
+  const nome=(function(){
+    if(tipo==='articolo'){const a=(STATE.articoli||[]).filter(x=>x.ID===id)[0];return a?a.Nome:id;}
+    if(tipo==='voce'){const v=(STATE.voci||[]).filter(x=>x.ID===id)[0];return v?v.Descrizione:id;}
+    return id;
+  })();
+  openModal('<div class="modal" style="width:min(620px,96vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Quante etichette servono?</h2>'
+   +'<div class="info-box">Per <strong>'+att(nome)+'</strong>. '
+   +'Spunta un&#39;etichetta per ogni collo: se dalla bolla sono arrivati due scatoloni, ne spunti due. '
+   +'Prendono <strong>tutte la stessa provenienza</strong>, perche&#39; vengono dalla stessa riga di bolla.</div>'
+   +(tipo==='articolo'?('<div id="ea-box-prov">'+etBolleHTML('articolo',id)+'</div>'):'')
+   +'<div style="font-size:12.5px;color:var(--gray);margin-bottom:6px">'
+   +'<span onclick="etTanteTutte(true)" style="color:var(--accent);text-decoration:underline;cursor:pointer">spunta le prime 5</span>'
+   +' &middot; <span onclick="etTanteTutte(false)" style="color:var(--accent);text-decoration:underline;cursor:pointer">togli tutto</span>'
+   +' &middot; <span id="et-tante-n">0 scelte</span></div>'
+   +'<div style="max-height:42vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px">'
+   +libere.map(function(e,i){
+      return '<label style="display:flex;align-items:center;gap:9px;padding:7px 6px;border-bottom:1px solid #f2efe9;cursor:pointer">'
+       +'<input type="checkbox" class="et-tante" value="'+att(e.Codice)+'" onchange="etTanteConta()" '
+       +'style="width:18px;height:18px;accent-color:var(--accent)">'
+       +'<span style="font-family:monospace;font-weight:600">'+att(etFmt(e.Codice))+'</span></label>';
+    }).join('')
+   +'</div>'
+   +'<div id="ett-err"></div>'
+   +'<button class="btn-primary" onclick="etTanteSalva(\''+esc(tipo)+'\',\''+esc(id)+'\',this)">Attacca le etichette scelte</button></div>');
+  etTanteConta();
+  const box=document.getElementById('ea-box-prov'); if(box)acAttiva(box);
+}
+function etTanteScelte(){
+  return Array.prototype.slice.call(document.querySelectorAll('.et-tante'))
+    .filter(x=>x.checked).map(x=>x.value);
+}
+function etTanteConta(){
+  const n=etTanteScelte().length;
+  const el=document.getElementById('et-tante-n');
+  if(el)el.textContent=n?(n+(n===1?' scelta':' scelte')):'0 scelte';
+}
+function etTanteTutte(si){
+  const box=document.querySelectorAll('.et-tante');
+  Array.prototype.forEach.call(box,function(x,i){ x.checked=si?(i<5):false; });
+  etTanteConta();
+}
+function etTanteSalva(tipo,id,btn){
+  const scelte=etTanteScelte();
+  if(!scelte.length){showErr('ett-err','Spunta almeno un&#39;etichetta.');return;}
+  const pr=etProvDaForm(tipo,id);
+  if(btn){btn.disabled=true;btn.textContent='Attacco...';}
+  const uno=function(i){
+    if(i>=scelte.length){
+      caricaEtichette().then(function(){
+        closeModal();
+        toast(scelte.length+' etichette attaccate'+(pr.ddt?(' - bolla '+pr.ddt):''));
+        renderPage(STATE.pagina);
+      });
+      return;
+    }
+    call('assegnaEtichetta',{codice:scelte[i],tipo:tipo,id:id,note:'',
+      fornitore:pr.fornitore,ddt:pr.ddt,dataDdt:pr.dataDdt,movimentoId:pr.movimentoId})
+      .then(function(){ uno(i+1); })
+      .catch(function(e){
+        showErr('ett-err',String((e&&e.message)||e));
+        if(btn){btn.disabled=false;btn.textContent='Attacca le etichette scelte';}
+      });
+  };
+  uno(0);
+}
+function etAttaccaVai(tipo,id){
+  const cod=gv('et-lib');
+  if(!cod){showErr('et-err','Scegli un&#39;etichetta libera.');return;}
+  const pr=etProvDaForm(tipo,id);
+  call('assegnaEtichetta',{codice:cod,tipo:tipo,id:id,note:'',
+    fornitore:pr.fornitore,ddt:pr.ddt,dataDdt:pr.dataDdt,movimentoId:pr.movimentoId}).then(function(r){
+    if(!r||!r.ok){showErr('et-err',(r&&r.err)||'Errore');return;}
+    caricaEtichette().then(function(){closeModal();toast('Etichetta '+cod+' attaccata');openDettaglio(tipo,id);});
+  }).catch(e=>showErr('et-err',String((e&&e.message)||e)));
+}
+
+// ------------------------------------------------------------------
+//  DOPO UN CARICO: attacca le etichette a quello che e' appena entrato
+// ------------------------------------------------------------------
+function etDopoCarico(creati){
+  if(!creati||!creati.length)return;
+  const libere=(STATE.etichette||[]).filter(x=>x.Stato==='libera').length;
+  openModal('<div class="modal" style="width:560px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Etichette per quello che e&#39; appena entrato</h2>'
+   +'<div class="info-box">Sono entrati <strong>'+creati.length+'</strong> pezzi. Attacca l&#39;etichetta di carta '
+   +'su ognuno e inquadrala: da quel momento basta un colpo di telefono per sapere cos&#39;e&#39;.<br>'
+   +'Puoi anche saltare e farlo dopo, dalla scheda del pezzo.</div>'
+   +(libere?'':'<div class="alert alert-amber">Non hai etichette libere: creane un blocco dalla pagina Etichette QR.</div>')
+   +'<div style="max-height:46vh;overflow:auto">'
+   +creati.map(function(c){
+      return '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);flex-wrap:wrap">'
+       +'<div style="flex:1;min-width:170px"><div style="font-family:monospace;font-weight:600">'+att(c.id)+'</div>'
+       +'<div style="font-size:12px;color:var(--gray)">'+att(c.nome||c.tipo)+'</div></div>'
+       +'<button class="btn btn-accent" onclick="etAttaccaA(\''+esc(c.tipo)+'\',\''+esc(c.id)+'\')">Etichetta</button>'
+       +'</div>';
+    }).join('')
+   +'</div>'
+   +'<button class="btn-primary" onclick="closeModal()">Ho finito</button></div>');
+}
+
+// ------------------------------------------------------------------
+//  IL LETTORE: la fotocamera del telefono
+//  Prima prova il lettore di serie del browser (veloce, su Android).
+//  Se non c'e' (iPhone) usa il lettore scritto a mano qui sotto, che
+//  guarda i fotogrammi uno per uno.
+// ------------------------------------------------------------------
+var SCAN_STREAM=null, SCAN_TIMER=null, SCAN_DET=null, SCAN_OPZ=null, SCAN_ULTIMO='';
+
+function scanApri(opz){
+  SCAN_OPZ=opz||{};
+  const manuale='<div class="form-group" style="margin-top:12px"><label>Oppure scrivi il codice a mano</label>'
+   +'<div style="display:flex;gap:8px"><input id="sc-man" placeholder="es. AT-000123" style="flex:1" '
+   +'onkeydown="if(event.key===\'Enter\'){scanManuale();}">'
+   +'<button class="btn btn-accent" onclick="scanManuale()">Vai</button></div></div>';
+  openModal('<div class="modal" style="width:min(520px,96vw)"><button class="modal-close" onclick="scanChiudi()">&times;</button>'
+   +'<h2>Inquadra l&#39;etichetta</h2>'
+   +'<div id="sc-msg" class="info-box" style="margin-bottom:10px">Accendo la fotocamera...</div>'
+   +'<div style="position:relative;background:#000;border-radius:10px;overflow:hidden">'
+   +'<video id="sc-video" playsinline muted style="width:100%;display:block;max-height:52vh;object-fit:cover"></video>'
+   +'<div style="position:absolute;inset:14%;border:3px solid rgba(255,255,255,.85);border-radius:12px;pointer-events:none"></div>'
+   +'</div>'
+   +'<canvas id="sc-canvas" style="display:none"></canvas>'
+   +manuale
+   +'<div id="sc-err"></div></div>');
+  scanAvvia();
+}
+function scanMsg(t,colore){
+  const e=document.getElementById('sc-msg');
+  if(e){e.innerHTML=t; e.style.borderColor=colore||''; }
+}
+function scanChiudi(){
+  if(SCAN_TIMER){clearInterval(SCAN_TIMER);SCAN_TIMER=null;}
+  if(SCAN_STREAM){try{SCAN_STREAM.getTracks().forEach(t=>t.stop());}catch(e){}SCAN_STREAM=null;}
+  SCAN_DET=null; SCAN_ULTIMO='';
+  closeModal();
+}
+function scanAvvia(){
+  const v=document.getElementById('sc-video');
+  if(!v)return;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    scanMsg('Questo telefono non mi lascia usare la fotocamera da qui. Scrivi il codice a mano qui sotto.');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}})
+  .then(function(s){
+    SCAN_STREAM=s; v.srcObject=s; v.play();
+    if(typeof BarcodeDetector!=='undefined'){
+      try{ SCAN_DET=new BarcodeDetector({formats:['qr_code']}); }catch(e){ SCAN_DET=null; }
+    }
+    scanMsg('Metti il QR dentro al riquadro.');
+    SCAN_TIMER=setInterval(scanFrame,220);
+  })
+  .catch(function(e){
+    const m=String((e&&e.name)||e);
+    if(m.indexOf('NotAllowed')>=0)
+      scanMsg('Non mi hai dato il permesso di usare la fotocamera. Puoi darlo dalle impostazioni del browser, oppure scrivere il codice a mano.');
+    else
+      scanMsg('Fotocamera non disponibile ('+m+'). Scrivi il codice a mano qui sotto.');
+  });
+}
+function scanFrame(){
+  const v=document.getElementById('sc-video');
+  if(!v||!v.videoWidth)return;
+  if(SCAN_DET){
+    SCAN_DET.detect(v).then(function(res){
+      if(res&&res.length)scanTrovato(res[0].rawValue);
+    }).catch(function(){});
+    return;
+  }
+  // niente lettore di serie (tipico dell'iPhone): uso il lettore in
+  // prestito, che guarda i pixel del fotogramma
+  if(typeof jsQR!=='function'){ scanCaricaJsQR(); return; }
+  const c=document.getElementById('sc-canvas'); if(!c)return;
+  const lato=Math.min(v.videoWidth,v.videoHeight);
+  c.width=380; c.height=380;
+  const ctx=c.getContext('2d');
+  ctx.drawImage(v,(v.videoWidth-lato)/2,(v.videoHeight-lato)/2,lato,lato,0,0,380,380);
+  try{
+    const img=ctx.getImageData(0,0,380,380);
+    const r=jsQR(img.data,380,380,{inversionAttempts:'dontInvert'});
+    if(r&&r.data)scanTrovato(r.data);
+  }catch(e){}
+}
+// Il lettore in prestito lo scarico solo quando serve davvero, e solo
+// una volta: se lo mettessi dentro l'app peserebbe su ogni apertura.
+var JSQR_STATO='';
+function scanCaricaJsQR(){
+  if(JSQR_STATO)return;
+  JSQR_STATO='carico';
+  scanMsg('Preparo il lettore, un attimo...');
+  const fonti=['https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js',
+               'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js'];
+  let i=0;
+  const prova=function(){
+    if(i>=fonti.length){
+      JSQR_STATO='no';
+      scanMsg('Su questo telefono non riesco a leggere il QR da solo. Inquadralo con la fotocamera normale, oppure scrivi il codice a mano qui sotto.');
+      return;
+    }
+    const s=document.createElement('script');
+    s.src=fonti[i++];
+    s.onload=function(){
+      if(typeof jsQR==='function'){JSQR_STATO='ok';scanMsg('Metti il QR dentro al riquadro.');}
+      else prova();
+    };
+    s.onerror=prova;
+    document.head.appendChild(s);
+  };
+  prova();
+}
+// dal testo letto al codice: accetta sia "AT-000123" sia l'indirizzo
+// completo dell'app con dentro ?qr=AT-000123
+function scanCodice(testo){ return etNorm(testo); }
+function scanTrovato(testo){
+  const cod=scanCodice(testo);
+  if(!cod||cod===SCAN_ULTIMO)return;
+  SCAN_ULTIMO=cod;
+  if(navigator.vibrate)try{navigator.vibrate(60);}catch(e){}
+  const opz=SCAN_OPZ||{};
+  if(SCAN_TIMER){clearInterval(SCAN_TIMER);SCAN_TIMER=null;}
+  if(SCAN_STREAM){try{SCAN_STREAM.getTracks().forEach(t=>t.stop());}catch(e){}SCAN_STREAM=null;}
+  scanUsa(cod,opz);
+}
+function scanManuale(){
+  const cod=scanCodice(gv('sc-man'));
+  if(!cod){showErr('sc-err','Scrivi un codice.');return;}
+  const opz=SCAN_OPZ||{};
+  if(SCAN_TIMER){clearInterval(SCAN_TIMER);SCAN_TIMER=null;}
+  if(SCAN_STREAM){try{SCAN_STREAM.getTracks().forEach(t=>t.stop());}catch(e){}SCAN_STREAM=null;}
+  scanUsa(cod,opz);
+}
+// Cosa faccio con il codice che ho letto.
+function scanUsa(cod,opz){
+  opz=opz||{};
+  // 0) sto scaricando e mi serve solo il codice dentro alla casella
+  if(opz.perMovimento){
+    closeModal();
+    setTimeout(function(){
+      const el=document.getElementById('mov-cod');
+      if(el){ el.value=etFmt(cod); movDaCodice(); }
+    },80);
+    return;
+  }
+  // 1) sto attaccando un'etichetta a una cosa precisa
+  if(opz.attaccaA){
+    const e=etichetta(cod);
+    if(!e){ closeModal(); toast('Codice '+cod+' non e\' una etichetta conosciuta','err'); return; }
+    if(e.Stato==='dismessa'){ closeModal(); toast('Quella etichetta e\' stata dismessa: usane un\'altra','err'); return; }
+    const pr=etProvenienzaDi(opz.attaccaA.tipo,opz.attaccaA.id);
+    call('assegnaEtichetta',{codice:cod,tipo:opz.attaccaA.tipo,id:opz.attaccaA.id,note:'',
+      fornitore:pr.fornitore,ddt:pr.ddt,dataDdt:pr.dataDdt,movimentoId:''}).then(function(){
+      caricaEtichette().then(function(){
+        closeModal(); toast('Etichetta '+cod+' attaccata');
+        openDettaglio(opz.attaccaA.tipo,opz.attaccaA.id);
+      });
+    });
+    return;
+  }
+  // 2) e' il codice di un pezzo o di un articolo: apro quello
+  const eObj=etichetta(cod);
+  if(!eObj){
+    closeModal();
+    if((STATE.pannelli||[]).filter(p=>p.ID===cod).length
+     ||(STATE.massicci||[]).filter(p=>p.ID===cod).length
+     ||(STATE.articoli||[]).filter(a=>a.ID===cod).length){ openDettaglioById(cod); return; }
+    toast('Codice '+cod+' sconosciuto','err');
+    return;
+  }
+  // 3) etichetta libera: chiedo a cosa attaccarla
+  if(eObj.Stato==='libera'){ etAssegnaApri(cod); return; }
+  // 4) etichetta dismessa: lo dico e basta
+  if(eObj.Stato==='dismessa'){
+    closeModal();
+    toast('Etichetta '+cod+' dismessa'+(eObj.TargetID?(' (era '+eObj.TargetID+')'):''),'err');
+    return;
+  }
+  // 5) etichetta assegnata. Se ci sono piu' cose attaccate devo per forza
+  //    chiedere quale, non posso aprirne una a caso.
+  const cose=etCose(eObj);
+  if(cose.length>1){ etScegliCosa(eObj); return; }
+  closeModal();
+  if(ET_DOPO==='operazione')scanOperazione(eObj);
+  else openDettaglio(eObj.TipoTarget,eObj.TargetID);
+}
+// L'etichetta e' su un collo con dentro piu' cose: mostro l'elenco e
+// lascio scegliere. Con la bolla scritta in cima, che vale per tutte.
+function etScegliCosa(e){
+  const cose=etCose(e);
+  const b=[];
+  if(e.Fornitore)b.push(att(e.Fornitore));
+  if(e.Ddt)b.push('bolla '+att(e.Ddt));
+  if(e.DataDdt)b.push('del '+dataIt(e.DataDdt));
+  openModal('<div class="modal" style="width:min(560px,96vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<div class="det-tag">'+att(etFmt(e.Codice))+'</div>'
+   +'<h2 style="margin-bottom:4px">'+cose.length+' cose su questa etichetta</h2>'
+   +(b.length?('<div style="font-size:12.5px;color:var(--gray);margin-bottom:10px">'+b.join(' &middot; ')+'</div>'):'')
+   +'<div style="max-height:52vh;overflow:auto">'
+   +cose.map(function(c){
+      return '<div onclick="closeModal();'
+       +(c.tipo==='voce'?('navTo(\'voci\')'):('openDettaglio(\''+esc(c.tipo)+'\',\''+esc(c.id)+'\')'))
+       +'" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 4px;'
+       +'border-top:1px solid var(--border);cursor:pointer">'
+       +'<div><div style="font-weight:600">'+att(etNomeCosa(c.tipo,c.id))+'</div>'
+       +'<div style="font-size:11.5px;color:var(--gray)">'+c.tipo+' &middot; '+att(c.id)+'</div></div>'
+       +'<span style="color:var(--accent);font-size:18px">&rsaquo;</span></div>';
+    }).join('')
+   +'</div></div>');
+}
+// la scorciatoia carico/scarico, per chi ha le mani occupate
+function scanOperazione(e){
+  const nome=etTargetNome(e);
+  let bottoni='';
+  if(e.TipoTarget==='articolo'){
+    bottoni='<button class="det-btn" style="background:var(--green-light);color:var(--green);font-size:16px;padding:16px" onclick="closeModal();openMovimento(\''+esc(e.TargetID)+'\',\'carico\')">Carico</button>'
+      +'<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openMovimento(\''+esc(e.TargetID)+'\',\'scarico\')">Scarico</button>';
+  }else if(e.TipoTarget==='pannello'){
+    bottoni='<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openScaricoPannello(\''+esc(e.TargetID)+'\')">Scarico pannello</button>';
+  }else{
+    bottoni='<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openScaricoMassiccio(\''+esc(e.TargetID)+'\')">Scarico massiccio</button>';
+  }
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<div class="det-tag">'+att(etFmt(e.Codice))+'</div><h2 style="margin-bottom:12px">'+att(nome)+'</h2>'
+   +bottoni
+   +'<button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openDettaglio(\''+esc(e.TipoTarget)+'\',\''+esc(e.TargetID)+'\')">Apri la scheda completa</button>'
+   +'</div>');
+}
+
 // ==================================================================
 //  REPORT BOLLE (DDT)
 //  Tutto quello che e' entrato, raggruppato per bolla o per fornitore,
@@ -6903,7 +8248,7 @@ function ddtRighe(){
     out.push({tipo:'magazzino',data:String(m.Data||'').slice(0,10),
       ddt:b.ddt,dataDdt:b.data||'',forn:b.forn,
       cosa:m.NomeArticolo||m.ArticoloID||'',q:(+m.Quantita||0),unita:m.UnitaMisura||'',
-      commessa:m.Commessa||'',pezzi:m.PezzoID||'',importo:0,
+      commessa:m.Commessa||'',pezzi:m.PezzoID||'',importo:0,codice:etichetteDiMovimento(m),
       note:m.Note||'',chi:m.Utente||'',rif:m.ID});
   });
   (STATE.voci||[]).forEach(function(v){
@@ -6911,7 +8256,7 @@ function ddtRighe(){
     out.push({tipo:'altra voce',data:String(v.Data||'').slice(0,10),
       ddt:v.Ddt||'',dataDdt:v.DataDdt||'',forn:v.Fornitore||'',
       cosa:v.Descrizione||'',q:(+v.Quantita||0),unita:v.Unita||'',
-      commessa:v.Commessa||'',pezzi:'',importo:(+v.Importo||0),
+      commessa:v.Commessa||'',pezzi:'',importo:(+v.Importo||0),codice:etichetteDiVoce(v.ID),
       note:(v.NrFattura?('fattura '+v.NrFattura+' '):'')+(v.Note||''),chi:'',rif:v.ID});
   });
   return out.filter(function(r){
@@ -6920,7 +8265,7 @@ function ddtRighe(){
     if(DDT_FORN&&(r.forn||'')!==DDT_FORN)return false;
     if(DDT_Q){
       const q=DDT_Q.toLowerCase();
-      const paglia=[r.ddt,r.forn,r.cosa,r.commessa,r.pezzi,r.note,r.chi].join(' ').toLowerCase();
+      const paglia=[r.ddt,r.forn,r.cosa,r.commessa,r.pezzi,r.codice,r.note,r.chi].join(' ').toLowerCase();
       if(paglia.indexOf(q)<0)return false;
     }
     return true;
@@ -7025,12 +8370,12 @@ function csvBolle(){
   const gg=ddtGruppi();
   if(!gg.length){toast('Niente da esportare','err');return;}
   const righe=[[(DDT_GRUPPO==='fornitore'?'Fornitore':'Bolla'),'Data','N. DDT','Data DDT','Fornitore',
-    'Tipo','Materiale','Quantita','Unita','Importo EUR','Commessa','Codici pezzo','Note','Registrato da']];
+    'Tipo','Materiale','Quantita','Unita','Importo EUR','Commessa','Codici pezzo','Codice etichetta','Note','Registrato da']];
   gg.forEach(function(g){
     g.righe.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).forEach(function(r){
       righe.push([g.chiave,dataIt(r.data),r.ddt||'',r.dataDdt?dataIt(r.dataDdt):'',r.forn||'',
         r.tipo,r.cosa,r.q?csvNum(r.q,3):'',r.unita||'',r.importo?csvNum(r.importo,2):'',
-        r.commessa||'',r.pezzi||'',r.note||'',r.chi||'']);
+        r.commessa||'',r.pezzi||'',r.codice||'',r.note||'',r.chi||'']);
     });
   });
   righe.push([]);
@@ -8097,6 +9442,19 @@ function vocTabAttesa(){
 }
 function vocSchedaConferma(d){
   const i=d.ID;
+  // se nella frase c'e' un codice etichetta ("usate 40 viti del codice
+  // 4729 158") capisco da solo di che roba si tratta e la preseleziono
+  let daCodice=null;
+  try{ daCodice=etDalTesto(d.Testo); }catch(e){}
+  if(daCodice&&!d.ArticoloID&&!d.PezzoID){
+    d=Object.assign({},d);
+    if(daCodice.TipoTarget==='articolo')d.ArticoloID=daCodice.TargetID;
+    else{
+      const pz=((daCodice.TipoTarget==='pannello'?STATE.pannelli:STATE.massicci)||[])
+        .filter(x=>x.ID===daCodice.TargetID)[0];
+      if(pz){ d.Articolo=pz.ArticoloID; d.PezzoID=daCodice.TargetID; }
+    }
+  }
   const optTipo=[['materiale','Materiale consumato'],['ore','Ore'],['voce','Altra voce di commessa']]
     .map(t=>'<option value="'+t[0]+'"'+(t[0]===d.Tipo?' selected':'')+'>'+t[1]+'</option>').join('');
   const optC='<option value="">- scegli la commessa -</option>'+(STATE.commesse||[]).slice()
@@ -8126,6 +9484,8 @@ function vocSchedaConferma(d){
    +'<div style="font-style:italic;font-size:14px;line-height:1.5">&laquo; '+(d.Testo||'')+' &raquo;</div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-top:3px">'+(d.Utente||'')+' &middot; '+dataIt(d.Data)+' '+String(d.Data||'').slice(11,16)+'</div>'
    +(d.Dubbi?('<div style="font-size:12px;color:var(--amber);margin-top:4px">'+d.Dubbi+'</div>'):'')
+   +(daCodice?('<div style="font-size:12px;color:var(--green);margin-top:4px">Riconosciuto il codice <strong style="font-family:monospace">'
+      +att(etFmt(daCodice.Codice))+'</strong>: '+att(etTargetNome(daCodice))+'</div>'):'')
    +'</div></div>'
    +'<div class="form-row" style="margin-top:10px"><div class="form-group"><label>Che cosa è</label>'
    +'<select id="vd-tipo-'+att(i)+'" onchange="vocCambiaTipo(\''+esc(i)+'\')">'+optTipo+'</select></div>'
@@ -8241,7 +9601,9 @@ function renderVoci(){
   const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
   const optC='<option value="">Tutte le commesse</option>'+comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===VOCI_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
   const optK='<option value="">Tutte le categorie</option>'+categorieVoci().map(k=>'<option'+(k===VOCI_CAT?' selected':'')+'>'+k+'</option>').join("");
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Altre voci</h1><button class="btn btn-accent" onclick="openNuovaVoce()">+ Nuova voce</button></div>'
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Altre voci</h1><div style="display:flex;gap:8px;flex-wrap:wrap">'
+   +'<button class="btn btn-ghost" onclick="openVociMulti()">+ Piu\' voci (stessa bolla)</button>'
+   +'<button class="btn btn-accent" onclick="openNuovaVoce()">+ Nuova voce</button></div></div>'
    +'<div class="info-box">Qui imputi alle commesse tutto quello che non passa dal magazzino: conto lavorazione, forniture di terzi, componenti, trasporti, manutenzioni, pasti e trasferte. Compare nel report della commessa insieme ai materiali.</div>'
    +'<div class="filters"><select id="vc-comm" onchange="vociFiltro()">'+optC+'</select><select id="vc-cat" onchange="vociFiltro()">'+optK+'</select></div>'
    +'<div id="vc-cont">'+vociCont()+'</div>';
@@ -8250,6 +9612,14 @@ function vociFiltro(){
   VOCI_COMM=document.getElementById("vc-comm").value;
   VOCI_CAT=document.getElementById("vc-cat").value;
   document.getElementById("vc-cont").innerHTML=vociCont();
+}
+// il codice etichetta scritto nella riga della voce, con il tasto per attaccarne una
+function vociEtichettaTxt(v){
+  const cod=etichetteDi('voce',v.ID);
+  if(cod.length)return '<span style="font-family:monospace;background:var(--accent-light);color:var(--accent);'
+    +'padding:1px 6px;border-radius:5px;margin-left:6px;font-size:11px">'+cod.map(e=>att(etFmt(e.Codice))).join(' ')+'</span>';
+  return '<span onclick="event.stopPropagation();etAttaccaA(\'voce\',\''+esc(v.ID)+'\')" '
+    +'style="margin-left:6px;font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer">+ etichetta</span>';
 }
 function badgeStatoVoce(s){
   const m={da_ordinare:['badge-amber','da ordinare'],ordinato:['badge-accent','ordinato'],ricevuto:['badge-green','ricevuto'],solo_costo:['badge-gray','solo costo']};
@@ -8273,7 +9643,7 @@ function vociCont(){
       return '<div style="padding:11px 0;border-top:1px solid var(--border)">'
        +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:200px">'
        +'<div style="font-weight:600">'+v.Descrizione+' '+badgeStatoVoce(v.Stato)+(v.InOrdine?' <span class="badge badge-accent">negli ordini</span>':'')+'</div>'
-       +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+v.Categoria+(v.Fornitore?(' &middot; '+v.Fornitore):'')+(q?(' &middot; '+q):'')+' &middot; '+String(v.Data||'').slice(0,10)+(v.NrFattura?(' &middot; ft. '+v.NrFattura):'')+'</div>'
+       +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+v.Categoria+(v.Fornitore?(' &middot; '+v.Fornitore):'')+(q?(' &middot; '+q):'')+' &middot; '+String(v.Data||'').slice(0,10)+(v.NrFattura?(' &middot; ft. '+v.NrFattura):'')+(v.Ddt?(' &middot; bolla '+v.Ddt):'')+vociEtichettaTxt(v)+'</div>'
        +(v.Note?'<div style="font-size:12px;color:var(--gray);font-style:italic;margin-top:2px">'+v.Note+'</div>':'')
        +'</div><div style="text-align:right;white-space:nowrap"><div style="font-weight:700">'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</div>'
        +'<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end"><button class="btn btn-accent" onclick="openNuovaVoce(\''+esc(v.ID)+'\')">Modifica</button><button class="btn btn-red" onclick="confEliminaVoce(\''+esc(v.ID)+'\')">Elimina</button></div>'
@@ -8288,6 +9658,11 @@ function openNuovaVoce(id){
   const v=id?(STATE.voci||[]).find(x=>x.ID===id):null;
   const d=v||{Commessa:VOCI_COMM,Data:new Date().toISOString().slice(0,10),Categoria:"",Stato:"solo_costo"};
   const optC=(STATE.commesse||[]).map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===d.Commessa?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
+  // il prezzo unitario non e' una colonna del database: quando riapro una voce
+  // lo ricavo dividendo il totale per la quantita', cosi' non ho dovuto
+  // cambiare niente su Supabase
+  const qIni=parseFloat(d.Quantita), impIni=parseFloat(d.Importo);
+  const puIniziale=(qIni>0&&impIni>0)?(Math.round(impIni/qIni*10000)/10000):'';
   const optS=[["solo_costo","Solo costo (gia sostenuto)"],["da_ordinare","Da ordinare"],["ordinato","Ordinato"],["ricevuto","Ricevuto"]]
     .map(s=>'<option value="'+s[0]+'"'+(s[0]===d.Stato?' selected':'')+'>'+s[1]+'</option>').join("");
   openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button><h2>'+(v?'Modifica voce':'Nuova voce di commessa')+'</h2>'
@@ -8298,26 +9673,182 @@ function openNuovaVoce(id){
    +'<div class="form-group"><label>Descrizione *</label><input id="nv-desc" value="'+att(d.Descrizione)+'" placeholder="es. Verniciatura ante cucina"></div>'
    +'<div class="form-group"><label>Fornitore</label><input id="nv-forn" list="nv-fornl" autocomplete="off" value="'+att(d.Fornitore)+'">'
    +'<datalist id="nv-fornl">'+(STATE.fornitori||[]).map(f=>'<option value="'+att(f.Nome)+'">').join("")+'</datalist></div>'
-   +'<div class="form-row-3"><div class="form-group"><label>Quantita</label><input type="number" step="any" id="nv-q" value="'+att(d.Quantita)+'"></div>'
-   +'<div class="form-group"><label>Unita</label><input id="nv-u" value="'+att(d.Unita)+'" placeholder="pz, ore, mq"></div>'
-   +'<div class="form-group"><label>Importo &euro;</label><input type="number" step="any" id="nv-imp" value="'+att(d.Importo)+'"></div></div>'
+   +'<div class="form-row-3"><div class="form-group"><label>Quantita</label><input type="number" step="any" id="nv-q" value="'+att(d.Quantita)+'" oninput="vocePrezzo()"></div>'
+   +'<div class="form-group"><label>Unita</label><input id="nv-u" value="'+att(d.Unita)+'" placeholder="pz, ore, mq, m, kg, corpo" oninput="voceCalcScritta()"></div>'
+   +'<div class="form-group"><label>Prezzo unitario &euro;</label><input type="number" step="any" id="nv-pu" value="'+att(puIniziale)+'" placeholder="al pz, all&#39;ora, al mq..." oninput="vocePrezzo()"></div></div>'
+   +'<div class="form-group"><label>Importo totale &euro; <span style="font-weight:400;color:var(--gray)">(facoltativo)</span></label>'
+   +'<input type="number" step="any" id="nv-imp" value="'+att(d.Importo)+'" oninput="voceImpAMano()">'
+   +'<div id="nv-calc" style="font-size:11.5px;color:var(--gray);margin-top:4px"></div></div>'
    +'<div class="form-row"><div class="form-group"><label>N. fattura</label><input id="nv-ft" value="'+att(d.NrFattura)+'"></div>'
    +'<div class="form-group"><label>Stato</label><select id="nv-stato">'+optS+'</select></div></div>'
+   +campiDdt('nv',d.Ddt||'',d.DataDdt||'')
    +'<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="nv-ord" '+(d.InOrdine?'checked':'')+' style="width:17px;height:17px;accent-color:var(--accent)"> Includi negli ordini al fornitore</label></div>'
+   +(v?'':('<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">'
+     +'<input type="checkbox" id="nv-et" style="width:17px;height:17px;accent-color:var(--accent)"> '
+     +'Questa voce e&#39; roba fisica: voglio attaccarci un&#39;etichetta</label>'
+     +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Spuntalo per i componenti, i vetri, la ferramenta di terzi. '
+     +'Lascialo vuoto per le lavorazioni, i trasporti, i pasti: non c&#39;e&#39; niente su cui attaccarla.</div></div>'))
    +'<div class="form-group"><label>Note</label><input id="nv-note" value="'+att(d.Note)+'"></div>'
    +'<div id="nv-err"></div><button class="btn-primary" onclick="submitVoce(\''+esc(id||"")+'\')">'+(v?'Salva modifiche':'Aggiungi voce')+'</button></div>');
+  VOCE_IMP_A_MANO=false;
+  voceCalcScritta();
+}
+// ==================================================================
+//  IL CONTO DELLA VOCE
+//  Non tutte le voci si scrivono in euro tondi: certe sono 3 mq di
+//  vetro, certe 12 ore di conto lavorazione, certe un corpo solo.
+//  Quindi: scrivi quanto e a che prezzo, e il totale se lo fa lui.
+//  Se invece il totale ce l'hai gia' (sulla fattura), lo scrivi
+//  direttamente li' e lui non te lo tocca piu'.
+// ==================================================================
+let VOCE_IMP_A_MANO=false;
+function voceImpAMano(){ VOCE_IMP_A_MANO=true; voceCalcScritta(); }
+function vocePrezzo(){
+  VOCE_IMP_A_MANO=false;                       // ha rimesso mano a quantita' o prezzo
+  const q=parseFloat(gv('nv-q')), pu=parseFloat(gv('nv-pu'));
+  const imp=document.getElementById('nv-imp');
+  if(imp&&!isNaN(q)&&!isNaN(pu))imp.value=Math.round(q*pu*100)/100;
+  voceCalcScritta();
+}
+function voceCalcScritta(){
+  const el=document.getElementById('nv-calc'); if(!el)return;
+  const q=parseFloat(gv('nv-q')), pu=parseFloat(gv('nv-pu')), tot=parseFloat(gv('nv-imp'));
+  const u=gv('nv-u').trim();
+  if(!isNaN(q)&&!isNaN(pu)&&!VOCE_IMP_A_MANO){
+    el.innerHTML='<span style="color:var(--green)">'+nOre(q)+(u?(' '+u):'')+' &times; &euro; '
+      +euro(pu)+' = <strong>&euro; '+euro(Math.round(q*pu*100)/100)+'</strong></span>';
+  } else if(!isNaN(tot)&&VOCE_IMP_A_MANO){
+    el.textContent='Totale scritto a mano: non lo ricalcolo.';
+  } else if(!isNaN(q)&&isNaN(tot)){
+    el.textContent='Voce senza importo: resta registrata come '+nOre(q)+(u?(' '+u):'')+', senza costo.';
+  } else el.textContent='';
 }
 function submitVoce(id){
   const d={ID:id||"",Commessa:gv("nv-comm"),Data:gv("nv-data"),Categoria:gv("nv-cat").trim(),
     Descrizione:gv("nv-desc").trim(),Fornitore:gv("nv-forn").trim(),Quantita:gv("nv-q"),
     Unita:gv("nv-u").trim(),Importo:gv("nv-imp"),NrFattura:gv("nv-ft").trim(),
     Stato:gv("nv-stato"),InOrdine:document.getElementById("nv-ord").checked,Note:gv("nv-note").trim()};
+  const bolla=leggiDdt('nv'); d.Ddt=bolla.Ddt; d.DataDdt=bolla.DataDdt;
   if(!d.Commessa){showErr("nv-err","Scegli la commessa.");return;}
   if(!d.Descrizione){showErr("nv-err","Scrivi la descrizione.");return;}
   if(!d.Categoria)d.Categoria="Altro";
+  const vuoleEt=!id&&!!(document.getElementById("nv-et")||{}).checked;
   call("salvaVoce",d).then(r=>{
     if(!r.ok){showErr("nv-err",r.err||"Errore");return;}
-    call("getVoci").then(v=>{STATE.voci=v||[];closeModal();toast(id?"Voce aggiornata":"Voce aggiunta");renderPage(STATE.pagina);});
+    call("getVoci").then(v=>{STATE.voci=v||[];closeModal();toast(id?"Voce aggiornata":"Voce aggiunta");renderPage(STATE.pagina);
+      if(vuoleEt&&r.id)setTimeout(function(){etAttaccaA('voce',r.id);},350);});
+  });
+}
+// ==================================================================
+//  TANTE VOCI IN UN COLPO SOLO
+//  Quando arriva una bolla del fornitore con dentro sei cose diverse,
+//  aprire sei volte la finestrella e riscrivere sei volte lo stesso
+//  numero di bolla e' tempo buttato. Qui la bolla, il fornitore, la
+//  commessa e la data si scrivono UNA volta sola, in alto, e sotto si
+//  mettono le righe una sotto l'altra.
+// ==================================================================
+let VM_N=0;
+function openVociMulti(){
+  const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
+  const optC='<option value="">- Scegli -</option>'+comms.map(c=>'<option value="'+att(c.ID)+'"'
+    +(c.ID===VOCI_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('');
+  const optS=[["solo_costo","Solo costo (gia sostenuto)"],["da_ordinare","Da ordinare"],
+              ["ordinato","Ordinato"],["ricevuto","Ricevuto"]]
+    .map(x=>'<option value="'+x[0]+'">'+x[1]+'</option>').join('');
+  VM_N=0;
+  openModal('<div class="modal" style="width:min(1050px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Piu\' voci con la stessa bolla</h2>'
+   +'<div class="info-box" style="margin-bottom:10px">Commessa, fornitore, bolla e data si scrivono qui sopra una volta sola. '
+   +'Poi aggiungi tutte le righe che vuoi: ognuna diventa una voce della commessa.</div>'
+   +'<div class="form-row"><div class="form-group"><label>Commessa *</label><select id="vm-comm">'+optC+'</select></div>'
+   +'<div class="form-group"><label>Data</label><input type="date" id="vm-data" value="'+att(oggiISO())+'"></div></div>'
+   +'<div class="form-row"><div class="form-group"><label>Fornitore</label>'
+   +'<input id="vm-forn" list="vm-fornl" autocomplete="off">'
+   +'<datalist id="vm-fornl">'+(STATE.fornitori||[]).map(f=>'<option value="'+att(f.Nome)+'">').join('')+'</datalist></div>'
+   +'<div class="form-group"><label>N. fattura</label><input id="vm-ft"></div></div>'
+   +campiDdt('vm','',oggiISO())
+   +'<div class="form-group"><label>Stato di tutte le righe</label><select id="vm-stato">'+optS+'</select></div>'
+   +'<div style="overflow-x:auto;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:820px">'
+   +'<thead><tr style="background:#faf8f4;text-align:left">'
+   +'<th style="padding:6px">Categoria</th><th style="padding:6px">Descrizione</th>'
+   +'<th style="padding:6px;width:90px">Quantita</th><th style="padding:6px;width:80px">Unita</th>'
+   +'<th style="padding:6px;width:100px">Prezzo &euro;</th><th style="padding:6px;width:105px">Totale &euro;</th>'
+   +'<th style="width:32px"></th></tr></thead><tbody id="vm-body"></tbody>'
+   +'<tfoot><tr style="border-top:2px solid var(--border);font-weight:600">'
+   +'<td colspan="5" style="padding:8px;text-align:right">Totale della bolla</td>'
+   +'<td style="padding:8px" id="vm-tot">&euro; 0,00</td><td></td></tr></tfoot></table></div>'
+   +datalistHTML('vm-catl','categoria')
+   +'<button class="btn btn-ghost" style="margin-top:8px" onclick="vmAddRiga()">+ Aggiungi riga</button>'
+   +'<div id="vm-err"></div>'
+   +'<button class="btn-primary" onclick="vmSalva(this)">Salva tutte le voci</button></div>');
+  for(let i=0;i<4;i++)vmAddRiga();
+}
+function vmAddRiga(){
+  const n=++VM_N;
+  const tr='<tr class="vm-riga" id="vm-r'+n+'" style="border-top:1px solid var(--border)">'
+   +'<td style="padding:3px"><input class="vm-cat" list="vm-catl" autocomplete="off" style="width:100%;padding:5px" placeholder="es. Vetri"></td>'
+   +'<td style="padding:3px"><input class="vm-desc" style="width:100%;padding:5px" placeholder="cosa e\'"></td>'
+   +'<td style="padding:3px"><input class="vm-q" type="number" step="any" style="width:100%;padding:5px" oninput="vmCalc(this)"></td>'
+   +'<td style="padding:3px"><input class="vm-u" style="width:100%;padding:5px" placeholder="pz"></td>'
+   +'<td style="padding:3px"><input class="vm-pu" type="number" step="any" style="width:100%;padding:5px" oninput="vmCalc(this)"></td>'
+   +'<td style="padding:3px"><input class="vm-imp" type="number" step="any" style="width:100%;padding:5px" oninput="vmSomme()"></td>'
+   +'<td style="text-align:center"><span style="color:var(--red);cursor:pointer;font-size:18px" onclick="vmDelRiga('+n+')">&times;</span></td></tr>';
+  const corpo=document.getElementById('vm-body');
+  corpo.insertAdjacentHTML('beforeend',tr);
+  acAttiva(corpo.lastElementChild);
+  vmSomme();
+}
+function vmDelRiga(n){
+  const tr=document.getElementById('vm-r'+n);
+  if(tr&&document.querySelectorAll('#vm-body tr.vm-riga').length>1){tr.parentNode.removeChild(tr);vmSomme();}
+}
+// quantita' x prezzo = totale della riga (se il totale non l'hai scritto a mano)
+function vmCalc(el){
+  const tr=el.closest('tr');
+  const q=parseFloat(tr.querySelector('.vm-q').value), pu=parseFloat(tr.querySelector('.vm-pu').value);
+  const imp=tr.querySelector('.vm-imp');
+  if(!isNaN(q)&&!isNaN(pu))imp.value=Math.round(q*pu*100)/100;
+  vmSomme();
+}
+function vmSomme(){
+  let t=0;
+  Array.prototype.forEach.call(document.querySelectorAll('#vm-body tr.vm-riga'),function(tr){
+    t+=parseFloat(tr.querySelector('.vm-imp').value)||0;
+  });
+  const el=document.getElementById('vm-tot'); if(el)el.innerHTML='&euro; '+euro(t);
+}
+function vmSalva(btn){
+  const comm=gv('vm-comm');
+  if(!comm){showErr('vm-err','Scegli la commessa.');return;}
+  const b=leggiDdt('vm');
+  const base={Commessa:comm,Data:gv('vm-data')||oggiISO(),Fornitore:gv('vm-forn').trim(),
+    NrFattura:gv('vm-ft').trim(),Stato:gv('vm-stato'),Ddt:b.Ddt,DataDdt:b.DataDdt};
+  const righe=[];
+  let senzaDesc=false;
+  Array.prototype.forEach.call(document.querySelectorAll('#vm-body tr.vm-riga'),function(tr){
+    const desc=tr.querySelector('.vm-desc').value.trim();
+    const q=tr.querySelector('.vm-q').value, imp=tr.querySelector('.vm-imp').value;
+    const cat=tr.querySelector('.vm-cat').value.trim();
+    const u=tr.querySelector('.vm-u').value.trim();
+    // una riga tutta vuota la salto senza dire niente
+    if(!desc&&!q&&!imp&&!cat&&!u)return;
+    if(!desc){senzaDesc=true;return;}
+    righe.push(Object.assign({},base,{Categoria:cat||'Altro',Descrizione:desc,
+      Quantita:q,Unita:u,Importo:imp,InOrdine:false,Note:''}));
+  });
+  if(senzaDesc){showErr('vm-err','C&#39;e&#39; una riga compilata senza descrizione: scrivi cos&#39;e&#39; o svuotala.');return;}
+  if(!righe.length){showErr('vm-err','Non hai compilato nessuna riga.');return;}
+  if(btn){btn.disabled=true;btn.textContent='Salvo...';}
+  call('salvaVociBulk',{righe:righe}).then(function(r){
+    if(!r||!r.ok){showErr('vm-err',(r&&r.err)||'Errore');if(btn){btn.disabled=false;btn.textContent='Salva tutte le voci';}return;}
+    call('getVoci').then(function(v){
+      STATE.voci=v||[];closeModal();
+      toast(r.n+' voci aggiunte'+(base.Ddt?(' con la bolla '+base.Ddt):''));
+      renderPage(STATE.pagina);
+    });
+  }).catch(function(e){
+    showErr('vm-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Salva tutte le voci';}
   });
 }
 function confEliminaVoce(id){
@@ -8362,10 +9893,16 @@ function leggiDdt(pre){
 function openMovimento(artId,tipo){
   artId=artId||"";tipo=tipo||"carico";
   const art=STATE.articoli.find(a=>a.ID===artId);
-  comboInit('mov',STATE.articoli.map(a=>({id:a.ID,label:a.Nome+' ('+a.ID+')'})),updStock);
+  comboInit('mov',STATE.articoli.map(a=>({id:a.ID,label:a.Nome+' ('+a.ID+')'})),
+    function(){ if(typeof updStock==='function')updStock(); movAvvisoEtichette(); });
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Movimento articolo</h2>'
     +'<div class="toggle"><button id="t-c" class="'+(tipo==='carico'?'on-green':'')+'" onclick="setTipo(\'carico\')">Carico</button><button id="t-s" class="'+(tipo==='scarico'?'on-red':'')+'" onclick="setTipo(\'scarico\')">Scarico</button></div>'
     +'<input type="hidden" id="mov-tipo" value="'+tipo+'">'
+    +'<div class="form-group"><label>Codice etichetta <span style="font-weight:400;color:var(--gray)">(se ce l&#39;hai davanti)</span></label>'
+    +'<div style="display:flex;gap:8px"><input id="mov-cod" placeholder="es. 4729 158" inputmode="numeric" autocomplete="off" '
+    +'style="flex:1" onchange="movDaCodice()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();movDaCodice();}">'
+    +'<button class="btn btn-accent" onclick="scanApri({perMovimento:true})">&#128247;</button></div>'
+    +'<div id="mov-cod-msg" style="font-size:12px;margin-top:4px"></div></div>'
     +'<div class="form-group"><label>Articolo *</label>'+comboHTML('mov','Cerca o scegli articolo...',(art?art.ID:''),(art?(art.Nome+' ('+art.ID+')'):''))+'</div>'
     +'<div id="stk" class="info-box" style="'+(art?'':'display:none')+'">Stock attuale: <strong id="stk-v">'+(art?art.Stock+' '+art.UnitaMisura:'')+'</strong></div>'
     +'<div class="form-group"><label>Quantita *</label><input type="number" id="mov-qty" min="0.001" step="any" placeholder="0"></div>'
@@ -8377,7 +9914,53 @@ function openMovimento(artId,tipo){
     +'<div class="form-group"><label>Note</label><input id="mov-note" placeholder="Opzionale..."></div>'
     +'<div id="mov-err"></div><button class="btn-primary" onclick="submitMov()">Conferma</button></div>');
 }
+// Scrivi (o detti) il codice dell'etichetta e l'app capisce da sola di che
+// roba si tratta. Se il codice sta su un pannello o un massiccio non e' un
+// movimento da articolo: ti porta dritto allo scarico di quel pezzo.
+function movDaCodice(){
+  const el=document.getElementById('mov-cod'), msg=document.getElementById('mov-cod-msg');
+  if(!el||!msg)return;
+  const cod=etNorm(el.value);
+  if(!cod){msg.innerHTML='';return;}
+  if(/^\d+$/.test(cod)&&!etCodiceValido(cod)){
+    msg.innerHTML='<span style="color:var(--red)">Codice non valido: ricontrolla le cifre.</span>';
+    return;
+  }
+  const e=etichetta(cod);
+  if(!e){msg.innerHTML='<span style="color:var(--red)">Nessuna etichetta con il codice '+att(etFmt(cod))+'.</span>';return;}
+  if(e.Stato!=='assegnata'){
+    msg.innerHTML='<span style="color:var(--amber)">L&#39;etichetta '+att(etFmt(cod))+' e&#39; '
+      +(e.Stato==='libera'?'ancora libera: non e&#39; attaccata a niente.':'dismessa.')+'</span>';
+    return;
+  }
+  if(e.TipoTarget!=='articolo'){
+    msg.innerHTML='<span style="color:var(--accent)">'+att(etTargetNome(e))+': e&#39; un '+e.TipoTarget+', si scarica dalla sua pagina.</span>';
+    setTimeout(function(){ closeModal();
+      if(e.TipoTarget==='pannello')openScaricoPannello(e.TargetID); else openScaricoMassiccio(e.TargetID); },700);
+    return;
+  }
+  const a=(STATE.articoli||[]).filter(x=>x.ID===e.TargetID)[0];
+  if(!a){msg.innerHTML='<span style="color:var(--red)">L&#39;articolo di questa etichetta non esiste piu&#39;.</span>';return;}
+  comboPick('mov',a.ID);
+  el.value=etFmt(cod);
+  msg.innerHTML='<span style="color:var(--green)">'+att(a.Nome)+'</span>'
+   +(e.Ddt?('<span style="color:var(--gray)"> &middot; bolla '+att(e.Ddt)+(e.Fornitore?(' - '+att(e.Fornitore)):'')+'</span>'):'');
+}
 // Mostra il selettore destinazione solo se: carico + commessa scelta
+// Quando scelgo un articolo che ha piu' di un'etichetta addosso, lo dico:
+// senza il codice il consumo non si puo' agganciare a nessuna delle due.
+function movAvvisoEtichette(){
+  const msg=document.getElementById('mov-cod-msg');
+  const cod=document.getElementById('mov-cod');
+  if(!msg||!cod||cod.value.trim())return;
+  const id=(typeof comboVal==='function')?comboVal('mov'):'';
+  if(!id){msg.innerHTML='';return;}
+  const sue=etichetteDi('articolo',id);
+  if(sue.length<2){msg.innerHTML='';return;}
+  msg.innerHTML='<span style="color:var(--amber)">Questo articolo ha <strong>'+sue.length+' etichette</strong> ('
+   +sue.map(e=>att(etFmt(e.Codice))).join(', ')+'): scrivi quale stai usando, sennò nel report '
+   +'il consumo resta senza codice.</span>';
+}
 function aggiornaDestinazione(){
   const t=document.getElementById("mov-tipo").value;
   const c=document.getElementById("mov-comm").value;
@@ -8387,6 +9970,7 @@ function aggiornaDestinazione(){
 function setTipo(t){document.getElementById("mov-tipo").value=t;document.getElementById("t-c").className=t==='carico'?'on-green':'';document.getElementById("t-s").className=t==='scarico'?'on-red':'';document.getElementById("forn-wrap").style.display=t==='carico'?'block':'none';aggiornaDestinazione();}
 function updStock(){const a=STATE.articoli.find(x=>x.ID===comboVal('mov'));const b=document.getElementById("stk");if(a){b.style.display="block";document.getElementById("stk-v").textContent=a.Stock+" "+a.UnitaMisura;const f=document.getElementById("mov-forn");if(f&&!f.value)f.value=a.Fornitore||"";}else b.style.display="none";}
 function submitMov(){
+  const _cod=etNorm((document.getElementById('mov-cod')||{}).value||'');
   const id=comboVal('mov'),t=document.getElementById("mov-tipo").value,q=parseFloat(document.getElementById("mov-qty").value),c=document.getElementById("mov-comm").value,n=document.getElementById("mov-note").value;
   const forn=t==='carico'?document.getElementById("mov-forn").value:"";
   const bolla=t==='carico'?leggiDdt('mov'):{Ddt:'',DataDdt:null};
@@ -8398,7 +9982,7 @@ function submitMov(){
   if(t==='carico'&&c&&dest==='scarica'){
     call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r1=>{
       if(!r1.ok){showErr("mov-err",r1.err);return;}
-      call("registraMovimento",{ArticoloID:id,Tipo:"scarico",Quantita:q,Commessa:c,Note:n||("Consumo diretto commessa "+c)}).then(r2=>{
+      call("registraMovimento",{ArticoloID:id,Tipo:"scarico",Quantita:q,Commessa:c,Note:n||("Consumo diretto commessa "+c),Etichetta:_cod}).then(r2=>{
         if(!r2.ok){showErr("mov-err",r2.err);return;}
         refreshDopoMov();toast("Caricato e scaricato subito nella commessa "+c);
       });
@@ -8416,10 +10000,10 @@ function submitMov(){
     return;
   }
   // Caso normale (solo carico senza commessa, o scarico)
-  call("registraMovimento",{ArticoloID:id,Tipo:t,Quantita:q,Commessa:c,Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r=>{
+  call("registraMovimento",{ArticoloID:id,Tipo:t,Quantita:q,Commessa:c,Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt,Etichetta:_cod}).then(r=>{
     if(!r.ok){showErr("mov-err",r.err);return;}
     STATE.articoli=STATE.articoli.map(x=>x.ID===id?Object.assign({},x,{Stock:r.nuovoStock}):x);
-    STATE.movimenti.push({ID:r.id,Data:new Date().toISOString().slice(0,19).replace("T"," "),Utente:STATE.utente.Nome,ArticoloID:id,NomeArticolo:a.Nome,Tipo:t,Quantita:q,UnitaMisura:a.UnitaMisura,Commessa:c,Note:n,Fornitore:forn,Annullato:"NO"});
+    STATE.movimenti.push({ID:r.id,Data:new Date().toISOString().slice(0,19).replace("T"," "),Utente:STATE.utente.Nome,ArticoloID:id,NomeArticolo:a.Nome,Tipo:t,Quantita:q,UnitaMisura:a.UnitaMisura,Commessa:c,Note:n,Fornitore:forn,Etichetta:_cod,Annullato:"NO"});
     closeModal();toast((t==='carico'?'Carico':'Scarico')+" registrato");renderPage(STATE.pagina);
     if(t==='scarico'&&c)setTimeout(function(){call("getRiserve").then(rs=>{const r2=(rs||[]).find(x=>x.ArticoloID===id&&x.Commessa===c);if(r2&&r2.Quantita>0)promptRiserva(id,c,r2.Quantita,a.UnitaMisura);});},300);
   });
@@ -8454,9 +10038,49 @@ function submitArt(){
   if(!n||!f){showErr("na-err","Nome e fornitore obbligatori.");return;}
   const cat=document.getElementById("na-cat").value.trim()||"Altro";
   const d={Nome:n,Categoria:cat,UnitaMisura:document.getElementById("na-unit").value,Fornitore:f,CodiceFornitore:document.getElementById("na-cf").value,SogliaRiordino:document.getElementById("na-sog").value||0,TipoRiordino:document.getElementById("na-tip").value,Urgenza:document.getElementById("na-urg").value,Stock:0,IsPannello:cat==="Pannelli"};
-  call("salvaArticolo",d).then(r=>{if(!r.ok){showErr("na-err",r.err||"Errore.");return;}STATE.articoli.push(Object.assign({},d,{ID:r.id,Stock:0,IsPannello:d.IsPannello?"SI":"NO"}));closeModal();toast("Articolo aggiunto: "+r.id);renderPage(STATE.pagina);});
+  call("salvaArticolo",d).then(r=>{if(!r.ok){showErr("na-err",r.err||"Errore.");return;}
+    STATE.articoli.push(Object.assign({},d,{ID:r.id,Stock:0,IsPannello:d.IsPannello?"SI":"NO"}));
+    closeModal();toast("Articolo aggiunto: "+r.id);renderPage(STATE.pagina);
+    // un articolo nuovo senza etichetta non si trova piu': la chiedo subito
+    if(d.Categoria!=='Pannelli'&&d.Categoria!=='Massello')
+      setTimeout(function(){etObbligatoria(r.id,n);},350);
+  });
 }
 
+// ==================================================================
+//  L'ETICHETTA OBBLIGATORIA SU UN ARTICOLO NUOVO
+//  Un articolo appena creato senza etichetta e' roba che in officina
+//  nessuno sa riconoscere. Quindi la chiedo subito, e la finestra non
+//  si chiude da sola: o ne attacchi una, o dici esplicitamente che lo
+//  farai dopo - e da quel momento l'articolo resta segnalato in rosso
+//  finche' non gliene dai una.
+// ==================================================================
+function etObbligatoria(artId,nome){
+  const libere=(STATE.etichette||[]).filter(x=>x.Stato==='libera');
+  openModal('<div class="modal" style="width:500px">'
+   +'<h2>Attacca un&#39;etichetta a '+att(nome||artId)+'</h2>'
+   +'<div class="alert alert-amber">Ogni articolo nuovo vuole <strong>almeno un&#39;etichetta</strong>: '
+   +'e&#39; l&#39;unico modo per ritrovarlo in officina inquadrandolo o dettandone il codice, '
+   +'e per farlo comparire nei report che legge la contabilita&#39;.</div>'
+   +(libere.length
+      ?('<button class="btn-primary" style="margin-bottom:10px" onclick="scanApri({attaccaA:{tipo:\'articolo\',id:\''+esc(artId)+'\'}})">&#128247; Inquadra l&#39;etichetta</button>'
+        +'<div class="form-group"><label>Oppure scegli fra le '+libere.length+' libere</label>'
+        +'<select id="et-lib">'+libere.map(e=>'<option value="'+att(e.Codice)+'">'+att(etFmt(e.Codice))+'</option>').join('')+'</select></div>'
+        +'<div id="et-err"></div>'
+        +'<button class="btn btn-accent" style="width:100%" onclick="etAttaccaVai(\'articolo\',\''+esc(artId)+'\')">Attacca questa</button>')
+      :('<div class="alert alert-red">Non hai nessuna etichetta libera. Stampane un blocco dalla pagina '
+        +'<strong>Etichette QR</strong> e poi torna qui: l&#39;articolo intanto resta segnalato.</div>'
+        +'<button class="btn btn-accent" style="width:100%" onclick="closeModal();navTo(\'etichette\')">Vai a Etichette QR</button>'))
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal();toast(\'Articolo senza etichetta: lo trovi segnalato in rosso negli Articoli\',\'err\')">Lo faccio dopo</button>'
+   +'</div>');
+}
+// gli articoli veri (non pannelli e massicci) che non hanno nessuna etichetta
+function articoliSenzaEtichetta(){
+  return (STATE.articoli||[]).filter(function(a){
+    if(a.Categoria==='Pannelli'||a.Categoria==='Massello'||a.IsPannello==='SI')return false;
+    return !etichetteDi('articolo',a.ID).length;
+  });
+}
 // -- CARICO PANNELLI --
 function openCaricoPannelli(){
   const next=STATE.pannelli.length?Math.max.apply(null,STATE.pannelli.map(p=>parseInt(String(p.ID).replace("P",""))||0))+1:1;
@@ -8811,7 +10435,7 @@ function openDettaglio(tipo,id){
     rows=dr("Tipo",'<span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span>')+dr("Quantita",'<span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span>')+dr("Data",m.Data)+dr("Operatore",m.Utente||'-')+dr("Fornitore",m.Fornitore||'-')+dr("Commessa",m.Commessa||'-')+(m.PezzoID?dr("Pezzo",m.PezzoID):'')+dr("Note",m.Note||'-')+dr("Stato",m.Annullato==='SI'?'<span style="color:var(--red)">Annullato</span>':'Valido');
     btns=m.Annullato==='SI'?'':'<button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="closeModal();openModificaMovimento(\''+esc(m.ID)+'\')">Modifica movimento</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openAnnulla(\''+esc(m.ID)+'\')">Annulla movimento</button>';
   }
-  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'+head+rows+btns+(hist?'<div class="det-hist"><h4>Storico movimenti</h4>'+hist+'</div>':'')+'</div>');
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'+head+rows+etichetteBlocco(tipo,id)+btns+(hist?'<div class="det-hist"><h4>Storico movimenti</h4>'+hist+'</div>':'')+'</div>');
 }
 
 // -- COMBOBOX con suggerimenti --
