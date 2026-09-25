@@ -255,8 +255,10 @@
   .viz-tab th:first-child,.viz-tab td:first-child{text-align:left}
   .viz-tab th{color:var(--gray);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
   #print-area{display:none}
-  @media print{aside,.mobile-nav,.fab,#toast,.qr-toolbar,#ver-badge,#btn-refresh,#btn-backup,#btn-restore{display:none!important}main{padding:0!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid;border:1px solid #000}
-    body.printing #app,body.printing #toast,body.printing #modal-container,body.printing #bulk-bar,body.printing #ver-badge{display:none!important}
+  @media print{aside,.mobile-nav,.fab,#toast,.qr-toolbar,#ver-badge,#btn-refresh,#btn-backup,#btn-restore,#ai-fab,#ai-pan,#ac-box{display:none!important}main{padding:0!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid;border:1px solid #000}
+    body.printing #app,body.printing #toast,body.printing #modal-container,body.printing #bulk-bar,body.printing #ver-badge,
+    body.printing #ai-fab,body.printing #ai-pan,body.printing #ac-box,body.printing #btn-refresh,
+    body.printing #btn-backup,body.printing #btn-restore{display:none!important}
     body.printing #print-area{display:block!important;padding:0}}
 </style>
 </head>
@@ -310,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v92 - Atelier</div>
+  <div id="ver-badge">v94 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -404,7 +406,7 @@ function anniCommesse(){
 }
 const CAT_VOCI = ["Conto lavorazione","Forniture di terzi","Componenti","Trasporti","Manutenzioni","Pasti e trasferte","Noleggi","Servizi e consulenze","Altro"];
 let CURRENT_DETAIL=null;
-let QR_TARGET = null, APP_URL = "";
+let QR_TARGET = null, APP_URL = "", RIGA_ORDINE = null;
 const ICONA_MIC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAACuElEQVR42u3dy3HqQBBAUclFfBAJ7JwE7JyJI8QJ+CPk1ny6z1m/EgN1q9+MkIv1fj0/F0jizUeAoEHQIGgQNIIGQYOgQdAgaAQNggZBg6BB0AgaBA2CBkGDoBE0CBoEDYIGQSNoEDQIGgQNgkbQIGgQNAgaBI2gQdDQxslHcIz3j88//83jdvFBBVv9rFvbiMUt6NQhC1vQKUMWtkNh2phbXF/QNI9N1IJOF5moBZ0uLlELOl1UohZ0uphELWgEzchT0ZQWNIJm5GloSgsaQYOgbTesT9AgaBA0ggZBg6BB0CBoBA2CBkGDoEHQCBoEDYIGQSNoEDQIGgQNgkbQIGgQNAgaBI2gQdAgaBA0CBpBg6BB0CBoEDSCBkHn8LhdrE/QIGgIs96v52fGN7bll1a3/Lc94i+2Rq0747bFhEbQDofWI2gQtKloOgs69OA4SkyvvP6IB1lBDzjNekWd6b0Iuvj2wzZD0GkiE7OgD91Ht4xt7/Ur75/TB90iuujXOOKalSa/LUfAVIuIMOIa1afzsizLSc7HTL6qz1L0lvbhpD2Ta+bAKrxHWw4cCisfDmfdg5rOJnSaqB0Eiwad8VmImZ5FEbTJZzILOnZKjRrNq+uqdHuw3ISePWox/67EfeioUHvGMdt6TejBJ3XPaS3m7Xz1/Y+4jozGoc+Wo1s4kWGPth5BFw57T1C9XlfQok53JnAodFC0bkGLw3ptOWxBhCzoCmELWdApwhayoFOELWRBTx+3iAU9deACFnSKsIUcz31oBA2CBkGDoBE0CBoEDYIGQVORr76/MdPfFvr6XNApQha2LQeCNp2tX9AgaBC0Q5VDoaDJzG27yQ9YJrOgseUAQYOgQdAgaAQNggZBg6BB0AgaBA2CBkEjaBA0CBoEDYJG0CBoEDQIGgSNoEHQIGgQNPzoCyN3BR2do+fyAAAAAElFTkSuQmCC";
 let PAGINA_INIZIALE = "", SOLO_DETTATURA = false;
 let SEL = {}, SELTIPO = null, QRSEL = {};
@@ -421,6 +423,8 @@ document.addEventListener("DOMContentLoaded", () => {
   try {
     const params = new URLSearchParams(window.location.search);
     const q = params.get("qr"); if (q) QR_TARGET = q;
+    const ordQ = params.get("ord");
+    if (ordQ) RIGA_ORDINE = { ordine: ordQ, riga: parseInt(params.get("riga")) || 0 };
     const p = params.get("p"); if (p) PAGINA_INIZIALE = p;
     SOLO_DETTATURA = (params.get("solo") === "1");
     // se la scorciatoia porta alla dettatura, l'icona da mettere in home
@@ -492,7 +496,8 @@ function loadAll() {
     if (errs.length) toast("Non caricati: "+errs.join(", ")+". Ripubblica il Code.gs.","err");
     caricaEtichette().then(function(){
       // se sono entrato inquadrando un QR, vado dritto li'
-      if (QR_TARGET) setTimeout(function(){ apriDaCodice(QR_TARGET); }, 250);
+      if (RIGA_ORDINE) setTimeout(function(){ openRicevoRiga(RIGA_ORDINE.ordine, RIGA_ORDINE.riga); }, 250);
+      else if (QR_TARGET) setTimeout(function(){ apriDaCodice(QR_TARGET); }, 250);
     });
   })
   .catch(e => {
@@ -1786,6 +1791,76 @@ async function call(fn, args) {
       await sbPost("ordini", { id, data: nowStr(), commessa: "", fornitore: args.fornitore || "", stato: "emesso", righe: JSON.stringify(righe), note: "GENERICO", email: args.email || "" });
       return { ok: true, id, _noemail: true };
     }
+    if (fn === "riceviRigheOrdine") {
+      const lista = (args && args.righe) || [];
+      if (!lista.length) return { ok: false, err: "Nessuna riga da caricare." };
+      const creati = [];
+      let completo = false;
+      for (const x of lista) {
+        const es = await call("riceviRigaOrdine", { id: args.id, riga: x.riga,
+          Quantita: x.quantita, Ddt: args.Ddt, DataDdt: args.DataDdt, Note: args.Note || "" });
+        if (!es.ok) return es;
+        (es.creati || []).forEach(c => creati.push(c));
+        completo = es.completo;
+      }
+      return { ok: true, creati: creati, completo: completo };
+    }
+    if (fn === "riceviRigaOrdine") {
+      const rows = await sbGet("ordini", "select=*&id=eq." + encodeURIComponent(args.id));
+      if (!rows.length) return { ok: false, err: "Ordine non trovato." };
+      const righe = typeof rows[0].righe === "string" ? JSON.parse(rows[0].righe || "[]") : (rows[0].righe || []);
+      const gruppi = raggruppaRigheOrdine(righe);
+      const gr = gruppi[args.riga];
+      if (!gr) return { ok: false, err: "Riga non trovata su questo ordine." };
+      const r = gr.primo;
+      const commessa = rows[0].commessa || "", forn = rows[0].fornitore || "";
+      const ddt = args.Ddt || "", dataDdt = args.DataDdt || null;
+      const qta = parseFloat(args.Quantita) || 0;
+      const note = (args.Note || "") + (args.Note ? " - " : "") + "ricevuto da ordine " + args.id;
+      const creati = [];
+      if (r.tipo === "articolo" || r.tipo === "generico") {
+        let artId = r.artId;
+        if (!artId) {
+          const nuovo = await call("salvaArticolo", { Nome: r.nome || r.descrizione, Categoria: "Generici",
+            UnitaMisura: r.unita || "pz", Stock: 0 });
+          artId = nuovo.id;
+        }
+        const es = await call("registraMovimento", { ArticoloID: artId, Tipo: "carico", Quantita: qta,
+          Fornitore: forn, Commessa: commessa, Note: note, Ddt: ddt, DataDdt: dataDdt });
+        if (!es.ok) return es;
+        if (commessa) { await aggiornaImpegnato(artId, qta, "add"); await setRiserva(artId, commessa, qta); }
+        creati.push({ tipo: "carico", id: es.id, nome: (r.descrizione || artId) + " - " + qta + " " + (r.unita || "") });
+      } else if (r.tipo === "pannello" && r.artId) {
+        const es = await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: parseInt(r.dim1) || 0,
+          Altezza_mm: parseInt(r.dim2) || 0, Quantita: Math.round(qta) || 1, Fornitore: forn,
+          Ddt: ddt, DataDdt: dataDdt });
+        if (!es.ok) return es;
+        (es.ids || []).forEach(x => creati.push({ tipo: "pannello", id: x,
+          nome: (r.descrizione || r.artId) + " " + (r.dim1 || "") + "x" + (r.dim2 || "") }));
+      } else if (r.tipo === "massiccio" && r.artId) {
+        const es = await call("caricaMassicci", { ArticoloID: r.artId, modo: "misure",
+          Lunghezza_mm: parseInt(r.dim1) || 0, Larghezza_mm: parseInt(r.dim2) || 0,
+          Spessore_mm: parseInt(r.dim3) || 0, Quantita: Math.round(qta) || 1, Fornitore: forn,
+          Ddt: ddt, DataDdt: dataDdt });
+        if (!es.ok) return es;
+        (es.ids || []).forEach(x => creati.push({ tipo: "massiccio", id: x, nome: (r.descrizione || r.artId) }));
+      } else {
+        return { ok: false, err: "Questa riga non si puo' caricare da sola: usa 'Carica a magazzino' sull'ordine intero." };
+      }
+      // segno ricevute le righe di questo gruppo e riscrivo l'ordine
+      const chiaviGruppo = gr.righe;
+      righe.forEach(function (x) { if (chiaviGruppo.indexOf(x) >= 0) x.ricevuto = true; });
+      const completo = righe.every(x => x.ricevuto);
+      const upd = { righe: JSON.stringify(righe) };
+      if (ddt) { upd.ddt = ddt; upd.data_ddt = dataDdt; }
+      if (completo) upd.stato = "ricevuto";
+      await sbPatch("ordini", "id=eq." + encodeURIComponent(args.id), upd);
+      for (const x of gr.righe) {
+        if (x.fabId) await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(x.fabId), { stato: "ricevuto" }).catch(()=>{});
+        if (x.voceId) await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(x.voceId), { stato: "ricevuto", ddt: ddt, data_ddt: dataDdt }).catch(()=>{});
+      }
+      return { ok: true, creati: creati, completo: completo };
+    }
     if (fn === "riceviOrdine") {
       const rows = await sbGet("ordini", "select=*&id=eq." + encodeURIComponent(args.id));
       if (!rows.length) return { ok: false, err: "Ordine non trovato." };
@@ -1798,10 +1873,14 @@ async function call(fn, args) {
       for (const r of righe) {
         const num = parseInt(r.numPezzi) || 1, d1 = parseInt(r.dim1) || 0, d2 = parseInt(r.dim2) || 0, d3 = parseInt(r.dim3) || 0, qta = parseFloat(r.quantita) || 0;
         if (r.tipo === "generico") {
-          if (qta > 0) await call("registraMovimento", { ArticoloID: r.artId || (await call("salvaArticolo", { Nome: r.nome || r.descrizione, Categoria: "Generici", UnitaMisura: r.unita || "pz", Stock: 0 })).id, Tipo: "carico", Quantita: qta, Fornitore: forn, Note: "Ricezione ordine generico", Ddt: ddt, DataDdt: dataDdt });
+          if (qta > 0) {
+            const es = await call("registraMovimento", { ArticoloID: r.artId || (await call("salvaArticolo", { Nome: r.nome || r.descrizione, Categoria: "Generici", UnitaMisura: r.unita || "pz", Stock: 0 })).id, Tipo: "carico", Quantita: qta, Fornitore: forn, Note: "Ricezione ordine generico", Ddt: ddt, DataDdt: dataDdt });
+            if (es && es.id) creati.push({ tipo: "carico", id: es.id, nome: (r.nome || r.descrizione || "") + " - " + qta + " " + (r.unita || "") });
+          }
         } else if (r.artId) {
           if (r.tipo === "articolo" && qta > 0) {
-            await call("registraMovimento", { ArticoloID: r.artId, Tipo: "carico", Quantita: qta, Fornitore: forn, Commessa: commessa, Note: "Ricezione ordine commessa " + commessa, Ddt: ddt, DataDdt: dataDdt });
+            const es = await call("registraMovimento", { ArticoloID: r.artId, Tipo: "carico", Quantita: qta, Fornitore: forn, Commessa: commessa, Note: "Ricezione ordine commessa " + commessa, Ddt: ddt, DataDdt: dataDdt });
+            if (es && es.id) creati.push({ tipo: "carico", id: es.id, nome: (r.nome || r.artId) + " - " + qta + " " + (r.unita || "") });
             if (commessa) { await aggiornaImpegnato(r.artId, qta, "add"); await setRiserva(r.artId, commessa, qta); }
           } else if (r.tipo === "pannello" && d1 && d2) {
             const es = await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: d1, Altezza_mm: d2, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
@@ -4274,6 +4353,7 @@ function ordineCard(o){
   }).join("")||'<div style="color:var(--gray);font-size:12px;padding:8px 0">Nessuna riga.</div>';
   let azioni='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">';
   azioni+='<button class="btn btn-ghost" onclick="esportaOrdinePDF(\''+esc(o.ID)+'\')">Esporta PDF</button>';
+  azioni+='<button class="btn btn-accent" onclick="stampaFoglioRicezione(\''+esc(o.ID)+'\')">Foglio di ricezione</button>';
   if(!ricevuto)azioni+='<button class="btn btn-green" onclick="caricaOrdineMagazzino(\''+esc(o.ID)+'\')">Carica a magazzino</button>';
   azioni+='<button class="btn btn-accent" onclick="openSegnalaOrdine(\''+esc(o.ID)+'\')">Segnala</button>';
   azioni+='<button class="btn btn-red" onclick="openEliminaOrdine(\''+esc(o.ID)+'\')">Elimina</button></div>';
@@ -4335,40 +4415,219 @@ function buildOrdinePDF(o){
    +'<p style="margin-top:18px;font-size:13px">Cordiali saluti,<br>Atelier Tonini</p>'
    +'</div>';
 }
+// ==================================================================
+//  IL FOGLIO DI RICEZIONE
+//  Non e' l'ordine che mandi al fornitore: quello resta pulito.
+//  Questo e' il foglio che tieni tu in officina, con accanto a ogni
+//  riga il QR da inquadrare quando il furgone scarica. Inquadri, e il
+//  carico si apre gia' compilato: articolo, quantita', commessa e
+//  numero d'ordine. Resta da scrivere solo la bolla del fornitore.
+// ==================================================================
+function stampaFoglioRicezione(id){
+  const o=(STATE.ordini||[]).filter(x=>x.ID===id)[0];
+  if(!o){toast('Ordine non trovato','err');return;}
+  stampaHTML(buildFoglioRicezione(o));
+}
+function buildFoglioRicezione(o){
+  const oggi=new Date().toLocaleDateString('it-IT');
+  const righe=raggruppaRigheOrdine(o.Righe).map(function(gr,i){
+    const r=gr.primo;
+    const mis=(r.dim1||r.dim2||r.dim3)
+      ? ((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm') : '';
+    const gia=gr.righe.every(x=>x.ricevuto);
+    return '<tr'+(gia?' style="opacity:.5"':'')+'>'
+      +'<td style="text-align:center;width:90px">'+qrRigaOrdine(o.ID,i)+'</td>'
+      +'<td><div style="font-weight:600">'+(r.descrizione||r.artId||'')+'</div>'
+      +(mis?('<div style="font-size:11px;color:#777">'+mis+'</div>'):'')
+      +'<div style="font-size:10.5px;color:#999;font-family:monospace">oppure scrivi: '+o.ID+'/'+i+'</div>'
+      +(gia?'<div style="font-size:11px;color:#2e7d32">gia\' ricevuto</div>':'')+'</td>'
+      +'<td style="text-align:center;font-size:15px;font-weight:700;white-space:nowrap">'+gr.qtaTxt+'</td>'
+      +'<td style="width:150px;border-left:1px dashed #bbb">&nbsp;</td>'
+      +'</tr>';
+  }).join("")||'<tr><td colspan="4" style="color:#888">Nessuna riga</td></tr>';
+  let sotto=oggi+'<br>Ordine n. <strong>'+o.ID+'</strong><br>Fornitore: '+(o.Fornitore||'-');
+  if(o.Commessa)sotto+='<br>Commessa: '+o.Commessa;
+  return '<div style="font-family:Georgia,serif;color:#3a342d">'
+   +pdfHead('Foglio di ricezione',sotto)
+   +'<div style="margin:10px 0 14px;padding:9px 13px;background:#f7f3ec;border-radius:8px;font-size:12.5px">'
+   +'<strong>Come si usa.</strong> Quando arriva la merce, inquadra con il telefono il QR della riga che hai in mano: '
+   +'il magazzino si apre gia\' compilato con articolo, quantita\', commessa e numero d\'ordine. '
+   +'A te resta da scrivere il numero della bolla del fornitore, e poi attaccare l\'etichetta alla roba.'
+   +'<br>Dal computer, senza fotocamera: apri l\'app, premi <strong>Inquadra un\'etichetta</strong> e nella casella '
+   +'in fondo scrivi il codice che trovi sotto la riga (per esempio <strong>'+o.ID+'/0</strong>). '
+   +'Oppure, per caricare tutto insieme, vai su <strong>Ordini</strong> e premi <strong>Carica a magazzino</strong>: '
+   +'esce la tabella con tutte le righe da spuntare.'
+   +'<br><em>Questo foglio resta in officina: non e\' l\'ordine da mandare al fornitore.</em></div>'
+   +'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+   +'<thead><tr style="background:#efeae1;text-align:left">'
+   +'<th style="padding:6px;text-align:center">Inquadra</th><th style="padding:6px">Cosa</th>'
+   +'<th style="padding:6px;text-align:center">Ordinato</th>'
+   +'<th style="padding:6px;text-align:center">Arrivato / bolla</th></tr></thead>'
+   +'<tbody>'+righe+'</tbody></table>'
+   +'<div style="margin-top:14px;font-size:11.5px;color:#888">Atelier Tonini - foglio di ricezione ordine '+o.ID+' - stampato il '+oggi+'</div>'
+   +'</div>';
+}
 function esportaOrdinePDF(id){const o=(STATE.ordini||[]).find(x=>x.ID===id);if(!o)return;stampaHTML(buildOrdinePDF(o));}
 // Prima di caricare a magazzino chiedo il numero della bolla: e' l'unico
 // momento in cui ce l'hai in mano, e senza non si controlla piu' niente.
+// ==================================================================
+//  CARICO DELL'ORDINE, TUTTO IN UNA TABELLA
+//  Il furgone scarica e tu hai la bolla in mano: la bolla si scrive
+//  una volta sola, in cima. Poi una riga per ogni cosa ordinata, con
+//  gia' dentro la quantita': togli la spunta a quello che non e'
+//  arrivato, correggi le quantita' che sono diverse, e salvi una
+//  volta. Funziona uguale col dito sul telefono e col mouse.
+// ==================================================================
 function caricaOrdineMagazzino(id){
   const o=(STATE.ordini||[]).find(x=>x.ID===id)||{};
-  const righe=(o.Righe||[]).length;
-  openModal('<div class="modal" style="width:540px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+  const gruppi=raggruppaRigheOrdine(o.Righe);
+  if(!gruppi.length){toast('Questo ordine non ha righe','err');return;}
+  const righe=gruppi.map(function(gr,i){
+    const r=gr.primo;
+    const gia=gr.righe.every(x=>x.ricevuto);
+    const mis=(r.dim1||r.dim2||r.dim3)?((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm'):'';
+    return '<tr style="border-top:1px solid var(--border)'+(gia?';opacity:.55':'')+'">'
+     +'<td style="padding:6px 4px;text-align:center">'
+     +'<input type="checkbox" class="ro-ok" data-i="'+i+'" '+(gia?'':'checked')+' '
+     +'style="width:19px;height:19px;accent-color:var(--accent)" onchange="roConta()"></td>'
+     +'<td style="padding:6px 4px"><div style="font-weight:600;font-size:13px">'+att(r.descrizione||r.artId||'')+'</div>'
+     +'<div style="font-size:11.5px;color:var(--gray)">'+att(mis)+(mis&&r.tipo?' &middot; ':'')+att(r.tipo||'')
+     +(gia?' &middot; <span style="color:var(--green)">gia&#39; ricevuta</span>':'')+'</div></td>'
+     +'<td style="padding:6px 4px;text-align:right;white-space:nowrap;font-size:12.5px;color:var(--gray)">'+att(gr.qtaTxt)+'</td>'
+     +'<td style="padding:6px 4px"><input type="number" step="any" min="0" class="ro-q" data-i="'+i+'" '
+     +'value="'+att(gr.qta)+'" style="width:86px;padding:6px;text-align:right"></td>'
+     +'</tr>';
+  }).join('');
+  openModal('<div class="modal" style="width:min(700px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Carico a magazzino &mdash; ordine '+att(o.ID||id)+'</h2>'
    +'<div class="info-box">Fornitore: <strong>'+att(o.Fornitore||'-')+'</strong>'
-   +(o.Commessa?('<br>Commessa: <strong>'+att(o.Commessa)+'</strong>'):'')
-   +'<br>'+righe+' righe entrano a magazzino.</div>'
-   +'<div class="alert" style="background:#faf7f2;border:1px solid var(--border);color:var(--text)">'
-   +'Scrivi il numero della <strong>bolla (DDT)</strong> che ti ha lasciato il fornitore: '
-   +'resta attaccato a tutto quello che entra adesso, e a fine mese ti serve per spuntare le bolle '
-   +'con le fatture.</div>'
+   +(o.Commessa?(' &middot; Commessa: <strong>'+att(o.Commessa)+'</strong>'):'')
+   +'<br><span style="font-size:12.5px">La bolla si scrive <strong>una volta sola</strong> qui sotto e vale per tutto '
+   +'quello che spunti: a fine mese ti serve per spuntare le bolle con le fatture. '
+   +'Togli la spunta a quello che non e&#39; arrivato: lo carichi un&#39;altra volta.</span></div>'
    +campiDdt('ro',o.Ddt||'',oggiISO())
+   +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+   +'<thead><tr style="text-align:left;color:var(--gray);font-size:11px;text-transform:uppercase">'
+   +'<th style="padding:4px;width:34px"></th><th style="padding:4px">Cosa</th>'
+   +'<th style="padding:4px;text-align:right">Ordinato</th><th style="padding:4px">Arrivato</th></tr></thead>'
+   +'<tbody>'+righe+'</tbody></table></div>'
+   +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px">'
+   +'<span onclick="roTutte(true)" style="color:var(--accent);text-decoration:underline;cursor:pointer">spunta tutte</span>'
+   +'<span onclick="roTutte(false)" style="color:var(--accent);text-decoration:underline;cursor:pointer">togli tutte</span>'
+   +'<span id="ro-conta" style="color:var(--gray)"></span></div>'
    +'<div id="ro-err"></div>'
-   +'<button class="btn-primary" onclick="submitCaricoOrdine(\''+esc(id)+'\',this)">Carica a magazzino</button>'
+   +'<button class="btn-primary" onclick="submitCaricoOrdine(\''+esc(id)+'\',this)">Carica quello che ho spuntato</button>'
    +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="submitCaricoOrdine(\''+esc(id)+'\',this,true)">Carica senza bolla</button>'
    +'</div>');
+  roConta();
+}
+// Le righe spuntate nella tabella. Se la tabella non c'e' (finestra non
+// aperta, o disegnata a meta'), non mi rifiuto di lavorare: prendo tutto
+// l'ordine com'e', che e' il comportamento di prima.
+function roScelte(ordineId){
+  const box=document.querySelectorAll('.ro-ok');
+  if(!box.length){
+    const o=(STATE.ordini||[]).filter(x=>x.ID===ordineId)[0];
+    if(!o)return [];
+    return raggruppaRigheOrdine(o.Righe).map((gr,i)=>({riga:i,quantita:gr.qta}))
+      .filter(x=>x.quantita>0);
+  }
+  const out=[];
+  Array.prototype.forEach.call(box,function(c){
+    if(!c.checked)return;
+    const i=+c.getAttribute('data-i');
+    const q=document.querySelector('.ro-q[data-i="'+i+'"]');
+    const v=parseFloat(q?q.value:0)||0;
+    if(v>0)out.push({riga:i,quantita:v});
+  });
+  return out;
+}
+function roConta(){
+  const el=document.getElementById('ro-conta'); if(!el)return;
+  const n=roScelte().length;
+  el.textContent=n?(n+(n===1?' riga da caricare':' righe da caricare')):'nessuna riga spuntata';
+}
+function roTutte(si){
+  Array.prototype.forEach.call(document.querySelectorAll('.ro-ok'),function(c){c.checked=si;});
+  roConta();
 }
 function submitCaricoOrdine(id,btn,senza){
   const b=senza?{Ddt:'',DataDdt:null}:leggiDdt('ro');
   if(!senza&&!b.Ddt){showErr('ro-err','Scrivi il numero della bolla, oppure usa "Carica senza bolla".');return;}
+  const scelte=roScelte(id);
+  if(!scelte.length){showErr('ro-err','Non hai spuntato nessuna riga.');return;}
   if(btn){btn.disabled=true;btn.textContent='Carico...';}
-  call("riceviOrdine",{id:id,Ddt:b.Ddt,DataDdt:b.DataDdt}).then(r=>{
+  call("riceviRigheOrdine",{id:id,righe:scelte,Ddt:b.Ddt,DataDdt:b.DataDdt}).then(r=>{
     if(!r.ok){showErr('ro-err',r.err||"Errore");if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}return;}
     Promise.all([call("getOrdini"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),call("getFabbisogno"),call("getVoci")]).then(([or,a,p,m,mv,fb,vc])=>{
       STATE.ordini=or||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];STATE.fabbisogni=fb||[];STATE.voci=vc||[];
       closeModal();
-      toast("Ordine caricato a magazzino"+(b.Ddt?(" con la bolla "+b.Ddt):" (senza bolla)"));
+      toast("Caricato"+(b.Ddt?(" con la bolla "+b.Ddt):" (senza bolla)")+(r.completo?" - ordine completo":" - l'ordine resta aperto"));
       renderPage(STATE.pagina);
       if(r.creati&&r.creati.length)setTimeout(function(){etDopoCarico(r.creati);},400);});
   }).catch(e=>{showErr('ro-err',String((e&&e.message)||e));if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}});
+}
+// ==================================================================
+//  ARRIVA UNA RIGA DELL'ORDINE
+//  Si inquadra il QR stampato sul foglio dell'ordine, accanto alla
+//  riga che il furgone ha appena scaricato. L'app sa gia' cosa e',
+//  quanto ne avevi ordinato, per quale commessa e con quale ordine:
+//  ti restano da dire la bolla del fornitore e, se e' arrivato meno
+//  del previsto, la quantita' vera.
+// ==================================================================
+function openRicevoRiga(ordineId,i){
+  const o=(STATE.ordini||[]).filter(x=>x.ID===ordineId)[0];
+  if(!o){ toast('Ordine '+ordineId+' non trovato','err'); return; }
+  const gruppi=raggruppaRigheOrdine(o.Righe);
+  const gr=gruppi[i];
+  if(!gr){ toast('Riga non trovata su questo ordine','err'); return; }
+  const r=gr.primo;
+  const gia=gr.righe.every(x=>x.ricevuto);
+  const mis=(r.dim1||r.dim2||r.dim3)?((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm'):'';
+  const art=(STATE.articoli||[]).filter(a=>a.ID===r.artId)[0];
+  openModal('<div class="modal" style="width:540px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<div class="det-tag">Ordine '+att(o.ID)+'</div>'
+   +'<h2 style="margin-bottom:4px">E&#39; arrivato questo</h2>'
+   +(gia?'<div class="alert alert-amber">Questa riga risulta <strong>gia&#39; ricevuta</strong>. Se carichi ancora, la roba si somma.</div>':'')
+   +'<div class="info-box">'
+   +'<div style="font-size:15px;font-weight:600">'+att(r.descrizione||r.artId||'')+'</div>'
+   +(mis?('<div style="font-size:12.5px;color:var(--gray)">'+mis+'</div>'):'')
+   +'<div style="margin-top:6px;font-size:13px">Ordinato: <strong>'+att(gr.qtaTxt)+'</strong></div>'
+   +'<div style="font-size:12.5px;color:var(--gray);margin-top:3px">Fornitore: <strong>'+att(o.Fornitore||'-')+'</strong>'
+   +(o.Commessa?(' &middot; Commessa: <strong>'+att(o.Commessa)+'</strong>'):' &middot; nessuna commessa')
+   +' &middot; Ordine <strong>'+att(o.ID)+'</strong></div></div>'
+   +'<div class="form-group" style="max-width:220px"><label>Quantita&#39; arrivata *</label>'
+   +'<input type="number" step="any" min="0" id="rr-q" value="'+att(gr.qta)+'">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Se ne e&#39; arrivata meno, correggi: '
+   +'carico solo quella.</div></div>'
+   +campiDdt('rr','',oggiISO())
+   +'<div class="form-group"><label>Note</label><input id="rr-note" placeholder="opzionale"></div>'
+   +'<div id="rr-err"></div>'
+   +'<button class="btn-primary" onclick="submitRicevoRiga(\''+esc(ordineId)+'\','+i+',this)">Carica a magazzino</button>'
+   +'<div style="font-size:11.5px;color:var(--gray);text-align:center;margin-top:8px">'
+   +'Dopo il carico ti chiedo di attaccarci l&#39;etichetta.</div></div>');
+}
+function submitRicevoRiga(ordineId,i,btn){
+  const q=parseFloat(gv('rr-q'));
+  if(!(q>0)){showErr('rr-err','Scrivi quanta roba e&#39; arrivata.');return;}
+  const b=leggiDdt('rr');
+  if(btn){btn.disabled=true;btn.textContent='Carico...';}
+  call('riceviRigaOrdine',{id:ordineId,riga:i,Quantita:q,Ddt:b.Ddt,DataDdt:b.DataDdt,Note:gv('rr-note').trim()})
+  .then(function(r){
+    if(!r||!r.ok){showErr('rr-err',(r&&r.err)||'Errore');if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}return;}
+    Promise.all([call('getOrdini'),call('getArticoli'),call('getPannelli'),call('getMassicci'),call('getMovimenti')])
+    .then(function(res){
+      STATE.ordini=res[0]||[];STATE.articoli=res[1]||[];STATE.pannelli=res[2]||[];
+      STATE.massicci=res[3]||[];STATE.movimenti=res[4]||[];
+      closeModal();
+      toast('Caricato'+(b.Ddt?(' con la bolla '+b.Ddt):'')+(r.completo?' - ordine completo':''));
+      renderPage(STATE.pagina);
+      if(r.creati&&r.creati.length)setTimeout(function(){etDopoCarico(r.creati);},400);
+    });
+  }).catch(function(e){
+    showErr('rr-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}
+  });
 }
 function openEliminaOrdine(id){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina ordine</h2><div class="alert alert-red">L\'ordine verra rimosso dalla lista. La merce gia caricata a magazzino resta in magazzino.</div><div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOrdine(\''+esc(id)+'\')">Elimina ordine</button></div>');
@@ -4490,6 +4749,33 @@ function renderDestinati(){
 }
 
 // -- QR --
+// Il QR stampato accanto a ogni riga dell'ordine. Non identifica una cosa
+// che esiste gia' in magazzino: identifica una RIGA D'ORDINE, cioe' roba
+// che deve ancora arrivare. Inquadrandolo quando il furgone scarica, il
+// magazzino si apre con dentro gia' articolo, quantita', commessa e numero
+// d'ordine: resta da scrivere solo la bolla del fornitore.
+function qrRigaOrdine(ordineId,i){
+  const base=(APP_URL||'').split('?')[0];
+  const dato=base?(base+'?ord='+encodeURIComponent(ordineId)+'&riga='+i)
+                 :('ORD:'+ordineId+':'+i);
+  try{
+    const q=qrcode(0,'M'); q.addData(dato); q.make();
+    return q.createSvgTag({cellSize:4,margin:3,scalable:true})
+      .replace('<svg ','<svg width="72" height="72" ');
+  }catch(e){ return ''; }
+}
+// riconosce il QR di una riga d'ordine, sia come indirizzo sia scritto corto
+function rigaOrdineDaTesto(testo){
+  const t=String(testo||'').trim();
+  let m=t.match(/[?&]ord=([^&#]+)[&#].*?riga=(\d+)/i);
+  if(!m)m=t.match(/[?&]ord=([^&#]+)&riga=(\d+)/i);
+  if(!m)m=t.match(/^ORD:(.+):(\d+)$/i);
+  // e anche scritto a mano dalla tastiera, come e' stampato sul foglio:
+  // ORD-77/1, ORD-77-1, "ORD-77 riga 1"
+  if(!m)m=t.match(/^([A-Za-z][A-Za-z0-9._-]*[0-9])\s*(?:\/|\s+riga\s+|\s+|-)\s*(\d{1,3})$/i);
+  if(!m)return null;
+  return {ordine:decodeURIComponent(m[1]),riga:parseInt(m[2])};
+}
 function qrImg(id){const t=(APP_URL||"")+"?qr="+encodeURIComponent(id);return "https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=6&data="+encodeURIComponent(t);}
 function qrItems(){
   const items=[];
@@ -5137,6 +5423,12 @@ function etichetteDiMovimento(m){
   if(!m)return '';
   if(m.Etichetta)return m.Etichetta;
   const out=[];
+  // se e' il movimento di entrata, le etichette di quel carico sono sue,
+  // senza incertezze: e' proprio quella roba li'
+  if(m.ID){
+    const dirette=etichetteDiCarico(m.ID);
+    if(dirette.length)return dirette.map(e=>e.Codice).join(' ');
+  }
   const ids=String(m.PezzoID||'').split(',').map(x=>x.trim()).filter(Boolean);
   ids.forEach(function(pid){
     (STATE.etichette||[]).forEach(function(e){
@@ -7268,15 +7560,62 @@ function etCose(e){
   if(e.TargetID)return [{tipo:e.TipoTarget,id:e.TargetID}];
   return [];
 }
-// le etichette attaccate a una certa cosa (anche dentro a un elenco)
+// Le etichette attaccate a una certa cosa. Per un articolo ci metto
+// dentro anche quelle attaccate ai suoi carichi: nella sua scheda le
+// vuoi vedere tutte, anche se ognuna riguarda un arrivo preciso.
 function etichetteDi(tipo,id){
   return (STATE.etichette||[]).filter(function(x){
     if(x.Stato!=='assegnata')return false;
-    return etCose(x).some(c=>c.tipo===tipo&&c.id===id);
+    return etCose(x).some(function(c){
+      if(c.tipo===tipo&&c.id===id)return true;
+      if(tipo==='articolo'&&c.tipo==='carico')return etArticoloDi(c)===id;
+      return false;
+    });
   });
+}
+// solo quelle attaccate a QUEL carico preciso
+function etichetteDiCarico(movId){
+  return (STATE.etichette||[]).filter(function(x){
+    return x.Stato==='assegnata'&&etCose(x).some(c=>c.tipo==='carico'&&c.id===movId);
+  });
+}
+// ------------------------------------------------------------------
+//  L'ARRIVO (il "carico")
+//  Un articolo come "VITE TSP 4x40" e' generico: la giacenza si somma
+//  e un'etichetta attaccata all'articolo vorrebbe dire "tutte le viti
+//  del magazzino". Non e' quello che succede in officina: l'etichetta
+//  sta su UNA scatola, arrivata con UNA bolla, per UN ordine.
+//  Percio' quando etichetti roba entrata, l'etichetta non punta
+//  all'articolo ma al CARICO: quel movimento di entrata li', con la
+//  sua quantita', la sua bolla, il suo ordine e la sua commessa.
+//  L'articolo si ricava dal carico, quindi nella sua scheda le
+//  etichette si vedono lo stesso.
+// ------------------------------------------------------------------
+function movimento(id){ return (STATE.movimenti||[]).filter(x=>x.ID===id)[0]||null; }
+// l'articolo di una cosa etichettata, qualunque cosa sia
+function etArticoloDi(cosa){
+  if(!cosa)return '';
+  if(cosa.tipo==='articolo')return cosa.id;
+  if(cosa.tipo==='carico'){const m=movimento(cosa.id);return m?m.ArticoloID:'';}
+  return '';
+}
+// come si legge un carico: quanto, quando, con che bolla, per chi
+function etNomeCarico(movId){
+  const m=movimento(movId);
+  if(!m)return 'carico '+movId;
+  const a=(STATE.articoli||[]).filter(x=>x.ID===m.ArticoloID)[0];
+  const b=bollaDi(m);
+  const p=[(a?a.Nome:(m.NomeArticolo||m.ArticoloID))];
+  p.push(nOre(m.Quantita)+' '+(m.UnitaMisura||''));
+  p.push('del '+dataIt(m.Data));
+  if(b.ddt)p.push('bolla '+b.ddt);
+  if(b.forn)p.push(b.forn);
+  if(m.Commessa)p.push('commessa '+m.Commessa);
+  return p.join(' &middot; ');
 }
 // come si chiama una singola cosa
 function etNomeCosa(tipo,id){
+  if(tipo==='carico')return etNomeCarico(id);
   if(tipo==='articolo'){const a=(STATE.articoli||[]).filter(x=>x.ID===id)[0];return a?a.Nome:id;}
   if(tipo==='pannello'){const p=(STATE.pannelli||[]).filter(x=>x.ID===id)[0];
     const a=p?(STATE.articoli||[]).filter(x=>x.ID===p.ArticoloID)[0]:null;
@@ -7365,6 +7704,11 @@ function renderEtichette(){
    +'<option value="scheda"'+(ET_DOPO==='scheda'?' selected':'')+'>Apri la scheda dell&#39;oggetto</option>'
    +'<option value="operazione"'+(ET_DOPO==='operazione'?' selected':'')+'>Chiedi subito: carico o scarico</option>'
    +'</select></div>'
+   +'<div><div style="font-size:11.5px;color:var(--gray);margin-bottom:3px">Quando premo Stampa</div>'
+   +'<select onchange="setEtDiretta(this.value===\'1\')">'
+   +'<option value="0"'+(ET_DIRETTA?'':' selected')+'>Chiedi prima: misura e anteprima</option>'
+   +'<option value="1"'+(ET_DIRETTA?' selected':'')+'>Stampa e basta, con la misura '+att(etMisura()[1])+'</option>'
+   +'</select></div>'
    +'<div><div style="font-size:11.5px;color:var(--gray);margin-bottom:3px">Cosa scrivo dentro al QR</div>'
    +'<select onchange="setEtCorto(this.value===\'1\')">'
    +'<option value="1"'+(ET_CORTO?' selected':'')+'>Solo il codice &mdash; quadretti piu&#39; grossi, si legge meglio</option>'
@@ -7372,7 +7716,9 @@ function renderEtichette(){
    +'</select></div>'
    +'</div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-top:6px">Su un&#39;etichetta da 25 mm il codice corto e&#39; molto piu&#39; facile da leggere. '
-   +'Le etichette gia&#39; stampate continuano a funzionare in tutti e due i modi: il lettore dell&#39;app li capisce entrambi.</div>'
+   +'Le etichette gia&#39; stampate continuano a funzionare in tutti e due i modi: il lettore dell&#39;app li capisce entrambi.'
+   +'<br><strong>Stampa e basta</strong> salta la finestra di riepilogo: mettilo solo sul computer dove la Dymo e&#39; gia&#39; '
+   +'la stampante predefinita e Chrome e&#39; aperto con la stampa silenziosa, sennò ti ritrovi la finestra del browser lo stesso.</div>'
    +'</div>';
 
   h+='<div class="filters" style="margin-top:12px">'
@@ -7468,7 +7814,7 @@ function etCard(e){
    +(e.Note?('<div style="font-size:11px;color:var(--gray);font-style:italic;text-align:center;margin-top:4px">'+att(e.Note)+'</div>'):'')
    +'<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">'
    +(e.Stato==='assegnata'
-      ?('<button class="btn btn-accent" style="flex:1" onclick="openDettaglio(\''+esc(e.TipoTarget)+'\',\''+esc(e.TargetID)+'\')">Apri</button>'
+      ?('<button class="btn btn-accent" style="flex:1" onclick=\'etApriCosa('+att(JSON.stringify(etCose(e)[0]||{}))+')\'>Apri</button>'
         +(admin?'<button class="btn btn-ghost" onclick="etLibera(\''+esc(e.Codice)+'\')">Stacca</button>':''))
       :(e.Stato==='libera'
         ?'<button class="btn btn-accent" style="flex:1" onclick="etAssegnaApri(\''+esc(e.Codice)+'\')">Assegna</button>'
@@ -7542,10 +7888,23 @@ let ET_MIS=(function(){try{return localStorage.getItem('at_etmis')||'25x25';}cat
 function etSetMisura(v){ ET_MIS=v; try{localStorage.setItem('at_etmis',v);}catch(e){} etStampaPreview(); }
 function etMisura(){ return ET_MISURE.filter(x=>x[0]===ET_MIS)[0]||ET_MISURE[0]; }
 
+// Quando il computer e' gia' impostato bene - stampante predefinita giusta,
+// formato salvato nel driver, Chrome aperto con la stampa silenziosa - la
+// finestra di riepilogo e' solo un passaggio in piu': si va dritti.
+let ET_DIRETTA=(function(){try{return localStorage.getItem('at_etdiretta')==='1';}catch(e){return false;}})();
+function setEtDiretta(v){
+  ET_DIRETTA=!!v; try{localStorage.setItem('at_etdiretta',ET_DIRETTA?'1':'0');}catch(e){}
+  if(STATE.pagina==='etichette')renderPage('etichette');
+}
 function etStampa(){
   const scelte=Object.keys(ET_SEL);
   const list=scelte.length?scelte.map(c=>etichetta(c)).filter(Boolean):etFiltrate();
   if(!list.length){toast('Nessuna etichetta da stampare','err');return;}
+  if(ET_DIRETTA){
+    toast('Stampo '+list.length+(list.length===1?' etichetta':' etichette')+' su '+etMisura()[1]);
+    etStampaVai();
+    return;
+  }
   openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Stampa etichette</h2>'
    +'<div class="info-box">Sto per stampare <strong>'+list.length+' etichette</strong>'
@@ -7666,11 +8025,23 @@ function etAssegnaApri(codice,dopo){
    +'<button class="btn-primary" onclick="etAssegnaSalva(\''+esc(codice)+'\',this,'+(dopo?'true':'false')+')">Attacca l&#39;etichetta</button>'
    +'</div>');
 }
+// Se ho scelto un articolo E un suo arrivo, quello che va sull'etichetta
+// e' l'arrivo, non l'articolo intero.
+function etCosaScelta(){
+  const v=gv('ea-t');
+  if(!v)return null;
+  const p=v.split('|');
+  if(p[0]==='articolo'){
+    const movId=gv('ea-mov');
+    if(movId&&movimento(movId))return {tipo:'carico',id:movId};
+  }
+  return {tipo:p[0],id:p[1]};
+}
 // aggiungo all'elenco la cosa scelta adesso nel menu
 function etAggiungiCosa(){
-  const v=gv('ea-t');
-  if(!v){showErr('ea-err','Scegli prima una cosa dal menu qui sopra.');return;}
-  const p=v.split('|');
+  const c0=etCosaScelta();
+  if(!c0){showErr('ea-err','Scegli prima una cosa dal menu qui sopra.');return;}
+  const p=[c0.tipo,c0.id];
   if(EA_SCELTE.some(c=>c.tipo===p[0]&&c.id===p[1])){showErr('ea-err','Quella c&#39;e&#39; gia&#39; nell&#39;elenco.');return;}
   EA_SCELTE.push({tipo:p[0],id:p[1]});
   showErr('ea-err','');
@@ -7724,7 +8095,11 @@ function etAssegnaCambia(){
   }
 
   const v=gv('ea-t');
-  const solo=EA_SCELTE.length===1?EA_SCELTE[0]:(v?{tipo:v.split('|')[0],id:v.split('|')[1]}:null);
+  // il menu degli arrivi si mostra appena scegli un articolo nel menu,
+  // perche' e' li' che si decide cosa sara' davvero l'etichetta
+  const scelto=v?{tipo:v.split('|')[0],id:v.split('|')[1]}:null;
+  if(scelto&&scelto.tipo==='articolo'){ box.innerHTML=etBolleHTML('articolo',scelto.id); acAttiva(box); return; }
+  const solo=EA_SCELTE.length===1?EA_SCELTE[0]:scelto;
   if(!solo){box.innerHTML='';return;}
   if(solo.tipo==='articolo'){ box.innerHTML=etBolleHTML('articolo',solo.id); acAttiva(box); }
   else{
@@ -7739,15 +8114,12 @@ function etAssegnaCambia(){
 }
 function etAssegnaSalva(codice,btn,riapri){
   // quello che sta nel menu ma non e' ancora stato aggiunto lo prendo lo stesso
-  const v=gv('ea-t');
-  if(v){
-    const p=v.split('|');
-    if(!EA_SCELTE.some(c=>c.tipo===p[0]&&c.id===p[1]))EA_SCELTE.push({tipo:p[0],id:p[1]});
-  }
+  const c0=etCosaScelta();
+  if(c0&&!EA_SCELTE.some(c=>c.tipo===c0.tipo&&c.id===c0.id))EA_SCELTE.push(c0);
   if(!EA_SCELTE.length){showErr('ea-err','Scegli a cosa attaccarla.');return;}
   const cose=EA_SCELTE.slice();
   let pr;
-  if(cose.length>1){
+  if(cose.length>1&&!document.getElementById('ea-mov')){
     pr={fornitore:gv('ea-forn').trim(),ddt:gv('ea-ddt').trim(),
         dataDdt:gv('ea-ddtdata')||null,movimentoId:''};
   }else{
@@ -7814,6 +8186,11 @@ function etCarichiDi(artId){
     .slice(0,25);
 }
 function etProvenienzaDi(tipo,id){
+  if(tipo==='carico'){
+    const m=movimento(id);
+    if(m){const b=bollaDi(m);
+      return {fornitore:b.forn||m.Fornitore||'',ddt:b.ddt||'',dataDdt:b.data||null,movimentoId:m.ID};}
+  }
   if(tipo==='pannello'||tipo==='massiccio'){
     const p=((tipo==='pannello'?STATE.pannelli:STATE.massicci)||[]).filter(x=>x.ID===id)[0];
     if(p)return {fornitore:p.Fornitore||'',ddt:p.Ddt||'',dataDdt:p.DataDdt||null,movimentoId:''};
@@ -7832,21 +8209,30 @@ function etichetteDiVoce(id){
 function etBolleHTML(tipo,id){
   if(tipo!=='articolo')return '';
   const car=etCarichiDi(id);
-  if(!car.length)return '<input type="hidden" id="ea-mov" value="">';
-  return '<div class="form-group"><label>Da che bolla arriva?</label>'
+  if(!car.length)return '<input type="hidden" id="ea-mov" value="">'
+   +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px">Di questo articolo non risulta nessun carico: '
+   +'l&#39;etichetta restera&#39; attaccata all&#39;articolo in generale.</div>';
+  return '<div class="form-group"><label>Quale arrivo stai etichettando? *</label>'
    +'<select id="ea-mov">'
    +car.map(function(m,i){
       const b=bollaDi(m);
-      const et=(b.ddt?('bolla '+b.ddt):'senza bolla')+(b.forn?(' - '+b.forn):'')
-        +' - '+dataIt(m.Data)+' - '+m.Quantita+' '+(m.UnitaMisura||'');
-      return '<option value="'+att(m.ID)+'"'+(i===0?' selected':'')+'>'+att(et)+'</option>';
+      const p=[dataIt(m.Data),nOre(m.Quantita)+' '+(m.UnitaMisura||'')];
+      if(b.ddt)p.push('bolla '+b.ddt); else p.push('senza bolla');
+      if(b.forn)p.push(b.forn);
+      if(m.Commessa)p.push('commessa '+m.Commessa);
+      const gia=etichetteDiCarico(m.ID).length;
+      if(gia)p.push(gia+(gia===1?' etichetta gia\' attaccata':' etichette gia\' attaccate'));
+      return '<option value="'+att(m.ID)+'"'+(i===0?' selected':'')+'>'+att(p.join(' - '))+'</option>';
     }).join('')
-   +'<option value="">Non lo so</option></select>'
-   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Resta scritto sull&#39;etichetta e finisce nei report: '
-   +'e&#39; il filo che lega questa scatola alla fattura del fornitore.</div></div>';
+   +'<option value="">Tutto l&#39;articolo, non un arrivo preciso</option></select>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">'
+   +'L&#39;etichetta finisce su <strong>quella roba li&#39;</strong>, non su tutta la giacenza: '
+   +'resta legata alla sua bolla, al suo ordine e alla sua commessa. '
+   +'Scegli l&#39;ultima voce solo se l&#39;etichetta vale per l&#39;articolo in generale (un attrezzo, un contenitore fisso).</div></div>';
 }
 function etProvDaForm(tipo,id){
   const base=etProvenienzaDi(tipo,id);
+  if(tipo==='carico')return base;
   if(tipo!=='articolo')return base;
   const movId=gv('ea-mov');
   if(!movId)return base;
@@ -7854,6 +8240,137 @@ function etProvDaForm(tipo,id){
   if(!m)return base;
   const b=bollaDi(m);
   return {fornitore:b.forn||m.Fornitore||'',ddt:b.ddt||'',dataDdt:b.data||null,movimentoId:m.ID};
+}
+// ==================================================================
+//  GLI ARRIVI DI UN ARTICOLO
+//  Nella scheda non basta sapere quanti pezzi ci sono: serve sapere
+//  DA DOVE vengono. Un arrivo per riga: quanto, quando, con quale
+//  bolla, da quale ordine, per quale commessa, e con che etichetta
+//  addosso. E' la stessa catena che legge la contabilita'.
+// ==================================================================
+function arriviDiArticolo(artId){
+  return (STATE.movimenti||[])
+    .filter(m=>m.Tipo==='carico'&&m.ArticoloID===artId&&m.Annullato!=='SI'&&m.Annullato!==true)
+    .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)));
+}
+// l'ordine da cui e' nato un carico: lo riconosco dalla nota che ci scrive
+function ordineDiCarico(m){
+  const t=String((m&&m.Note)||'');
+  const x=t.match(/ordine\s+([A-Za-z0-9._\-]+)/i);
+  return x?x[1]:'';
+}
+function arriviBlocco(artId){
+  const arr=arriviDiArticolo(artId);
+  if(!arr.length)return '';
+  const mostra=arr.slice(0,12);
+  let h='<div class="det-hist"><h4>Da dove arriva ('+arr.length+(arr.length===1?' carico':' carichi')+')</h4>';
+  h+=mostra.map(function(m){
+    const b=bollaDi(m);
+    const et=etichetteDiCarico(m.ID);
+    const ord=ordineDiCarico(m);
+    const riga2=[];
+    if(b.forn)riga2.push(att(b.forn));
+    if(b.ddt)riga2.push('bolla <strong>'+att(b.ddt)+'</strong>'+(b.data?(' del '+dataIt(b.data)):''));
+    if(ord)riga2.push('ordine <strong>'+att(ord)+'</strong>');
+    if(m.Commessa)riga2.push('commessa <strong>'+att(m.Commessa)+'</strong>');
+    return '<div style="padding:8px 0;border-top:1px solid var(--border)">'
+     +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">'
+     +'<span style="font-weight:600">'+nOre(m.Quantita)+' '+att(m.UnitaMisura||'')+'</span>'
+     +'<span style="color:var(--gray);font-size:12px">'+dataIt(m.Data)+'</span></div>'
+     +(riga2.length?('<div style="font-size:12px;color:var(--gray);margin-top:2px">'+riga2.join(' &middot; ')+'</div>'):'')
+     +'<div style="margin-top:4px">'
+     +(et.length
+        ? et.map(e=>'<span style="font-family:monospace;background:var(--accent-light);color:var(--accent);'
+            +'padding:1px 6px;border-radius:5px;font-size:11px;margin-right:4px">'+att(etFmt(e.Codice))+'</span>').join('')
+        : ('<span onclick="etAttaccaA(\'carico\',\''+esc(m.ID)+'\')" '
+           +'style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer">+ attacca un&#39;etichetta a questo arrivo</span>'))
+     +'</div></div>';
+  }).join('');
+  if(arr.length>mostra.length)
+    h+='<div style="font-size:11.5px;color:var(--gray);padding-top:6px">...e altri '+(arr.length-mostra.length)+' carichi piu&#39; vecchi.</div>';
+  return h+'</div>';
+}
+// quanto e' riservato alle commesse, commessa per commessa
+function riserveBlocco(artId){
+  const r=(STATE.riserve||[]).filter(x=>x.ArticoloID===artId&&(+x.Quantita||0)>0);
+  if(!r.length)return '';
+  const a=(STATE.articoli||[]).filter(x=>x.ID===artId)[0]||{};
+  return '<div class="det-hist"><h4>Prenotato per le commesse</h4>'
+   +r.map(x=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border)">'
+      +'<span>'+att(x.Commessa)+'</span>'
+      +'<span style="font-weight:600;color:var(--accent)">'+nOre(x.Quantita)+' '+att(a.UnitaMisura||'')+'</span></div>').join('')
+   +'</div>';
+}
+// Da dove arriva, per qualunque cosa: articolo, pannello, massiccio, voce.
+// Cambia solo dove sta scritta l'informazione, non quello che si legge.
+function traccBlocco(tipo,id){
+  if(tipo==='articolo')return riserveBlocco(id)+arriviBlocco(id);
+  if(tipo==='pannello'||tipo==='massiccio')return arrivoPezzoBlocco(tipo,id);
+  if(tipo==='voce')return arrivoVoceBlocco(id);
+  return '';
+}
+function traccRiga(voci){
+  const p=voci.filter(Boolean);
+  return p.length?('<div style="font-size:12px;color:var(--gray);margin-top:3px">'+p.join(' &middot; ')+'</div>'):'';
+}
+// il carico che ha fatto nascere questo pezzo
+function caricoDelPezzo(pezzoId){
+  return (STATE.movimenti||[]).filter(function(m){
+    if(m.Tipo!=='carico'||m.Annullato==='SI'||m.Annullato===true)return false;
+    return String(m.PezzoID||'').split(',').map(x=>x.trim()).indexOf(pezzoId)>=0;
+  })[0]||null;
+}
+function arrivoPezzoBlocco(tipo,id){
+  const p=((tipo==='pannello'?STATE.pannelli:STATE.massicci)||[]).filter(x=>x.ID===id)[0];
+  if(!p)return '';
+  const m=caricoDelPezzo(id);
+  const b=m?bollaDi(m):{ddt:p.Ddt||'',forn:p.Fornitore||'',data:p.DataDdt||''};
+  const ord=m?ordineDiCarico(m):'';
+  const et=etichetteDi(tipo,id);
+  let h='<div class="det-hist"><h4>Da dove arriva</h4>';
+  h+='<div style="padding:8px 0;border-top:1px solid var(--border)">'
+   +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">'
+   +'<span style="font-weight:600">'+(tipo==='pannello'
+      ?((+p.M2_originale||0).toFixed(3)+' m2 entrati')
+      :((+p.M3_originale||0).toFixed(3)+' m3 entrati'))+'</span>'
+   +'<span style="color:var(--gray);font-size:12px">'+(String(p.DataCarico||'').slice(0,10)?dataIt(p.DataCarico):(m?dataIt(m.Data):'-'))+'</span></div>'
+   +traccRiga([
+      b.forn?att(b.forn):'',
+      b.ddt?('bolla <strong>'+att(b.ddt)+'</strong>'+(b.data?(' del '+dataIt(b.data)):'')):'',
+      ord?('ordine <strong>'+att(ord)+'</strong>'):'',
+      String(p.Commesse||'').trim()?('commessa <strong>'+att(p.Commesse)+'</strong>'):'',
+      m?('movimento '+att(m.ID)):''])
+   +'<div style="margin-top:4px">'
+   +(et.length
+      ? et.map(e=>'<span style="font-family:monospace;background:var(--accent-light);color:var(--accent);'
+          +'padding:1px 6px;border-radius:5px;font-size:11px;margin-right:4px">'+att(etFmt(e.Codice))+'</span>').join('')
+      : ('<span onclick="etAttaccaA(\''+esc(tipo)+'\',\''+esc(id)+'\')" '
+         +'style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer">+ attacca un&#39;etichetta</span>'))
+   +'</div></div></div>';
+  return h;
+}
+function arrivoVoceBlocco(id){
+  const v=(STATE.voci||[]).filter(x=>x.ID===id)[0];
+  if(!v)return '';
+  const et=etichetteDi('voce',id);
+  return '<div class="det-hist"><h4>Da dove arriva</h4>'
+   +'<div style="padding:8px 0;border-top:1px solid var(--border)">'
+   +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">'
+   +'<span style="font-weight:600">'+((v.Quantita!=null&&v.Quantita!=='')?(nOre(v.Quantita)+' '+att(v.Unita||'')):att(v.Descrizione||''))+'</span>'
+   +'<span style="color:var(--gray);font-size:12px">'+dataIt(v.Data)+'</span></div>'
+   +traccRiga([
+      v.Fornitore?att(v.Fornitore):'',
+      v.Ddt?('bolla <strong>'+att(v.Ddt)+'</strong>'+(v.DataDdt?(' del '+dataIt(v.DataDdt)):'')):'',
+      v.OrdineID?('ordine <strong>'+att(v.OrdineID)+'</strong>'):'',
+      v.Commessa?('commessa <strong>'+att(v.Commessa)+'</strong>'):'',
+      v.NrFattura?('fattura '+att(v.NrFattura)):''])
+   +'<div style="margin-top:4px">'
+   +(et.length
+      ? et.map(e=>'<span style="font-family:monospace;background:var(--accent-light);color:var(--accent);'
+          +'padding:1px 6px;border-radius:5px;font-size:11px;margin-right:4px">'+att(etFmt(e.Codice))+'</span>').join('')
+      : ('<span onclick="etAttaccaA(\'voce\',\''+esc(id)+'\')" '
+         +'style="font-size:11px;color:var(--accent);text-decoration:underline;cursor:pointer">+ attacca un&#39;etichetta</span>'))
+   +'</div></div></div>';
 }
 // il blocchetto che compare nella scheda di un articolo o di un pezzo
 function etichetteBlocco(tipo,id){
@@ -7875,7 +8392,7 @@ function etichetteBlocco(tipo,id){
 // dal lato opposto: sto guardando la roba e voglio darle un'etichetta
 function etAttaccaA(tipo,id){
   const libere=(STATE.etichette||[]).filter(x=>x.Stato==='libera');
-  const gia=etichetteDi(tipo,id);
+  const gia=(tipo==='carico')?etichetteDiCarico(id):etichetteDi(tipo,id);
   openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Attacca un&#39;etichetta</h2>'
    +(gia.length?('<div class="info-box" style="margin-bottom:10px">Ne ha gia&#39; '+gia.length+': '
@@ -7988,9 +8505,11 @@ function etDopoCarico(creati){
   const libere=(STATE.etichette||[]).filter(x=>x.Stato==='libera').length;
   openModal('<div class="modal" style="width:560px"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Etichette per quello che e&#39; appena entrato</h2>'
-   +'<div class="info-box">Sono entrati <strong>'+creati.length+'</strong> pezzi. Attacca l&#39;etichetta di carta '
-   +'su ognuno e inquadrala: da quel momento basta un colpo di telefono per sapere cos&#39;e&#39;.<br>'
-   +'Puoi anche saltare e farlo dopo, dalla scheda del pezzo.</div>'
+   +'<div class="info-box">Sono entrate <strong>'+creati.length+'</strong> cose. Attacca l&#39;etichetta di carta '
+   +'su ognuna e inquadrala: da quel momento basta un colpo di telefono per sapere cos&#39;e&#39;.<br>'
+   +'L&#39;etichetta resta legata a <strong>questo arrivo</strong> - questa bolla, questo ordine, questa commessa - '
+   +'non a tutta la giacenza dell&#39;articolo.<br>'
+   +'Puoi anche saltare e farlo dopo, dalla scheda.</div>'
    +(libere?'':'<div class="alert alert-amber">Non hai etichette libere: creane un blocco dalla pagina Etichette QR.</div>')
    +'<div style="max-height:46vh;overflow:auto">'
    +creati.map(function(c){
@@ -8015,7 +8534,10 @@ var SCAN_STREAM=null, SCAN_TIMER=null, SCAN_DET=null, SCAN_OPZ=null, SCAN_ULTIMO
 function scanApri(opz){
   SCAN_OPZ=opz||{};
   const manuale='<div class="form-group" style="margin-top:12px"><label>Oppure scrivi il codice a mano</label>'
-   +'<div style="display:flex;gap:8px"><input id="sc-man" placeholder="es. AT-000123" style="flex:1" '
+   +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">Va bene il codice di un&#39;etichetta '
+   +'(<strong>4729 158</strong>) oppure quello di una riga d&#39;ordine dal foglio di ricezione '
+   +'(<strong>ORD-77/0</strong>). Dal computer si fa tutto da qui, senza fotocamera.</div>'
+   +'<div style="display:flex;gap:8px"><input id="sc-man" placeholder="es. 4729 158 oppure ORD-77/0" style="flex:1" '
    +'onkeydown="if(event.key===\'Enter\'){scanManuale();}">'
    +'<button class="btn btn-accent" onclick="scanManuale()">Vai</button></div></div>';
   openModal('<div class="modal" style="width:min(520px,96vw)"><button class="modal-close" onclick="scanChiudi()">&times;</button>'
@@ -8118,6 +8640,17 @@ function scanCaricaJsQR(){
 // completo dell'app con dentro ?qr=AT-000123
 function scanCodice(testo){ return etNorm(testo); }
 function scanTrovato(testo){
+  // prima di tutto: e' il QR di una riga d'ordine? Allora non c'entrano
+  // le etichette, si sta ricevendo della merce
+  const ro=rigaOrdineDaTesto(testo);
+  if(ro){
+    if(SCAN_TIMER){clearInterval(SCAN_TIMER);SCAN_TIMER=null;}
+    if(SCAN_STREAM){try{SCAN_STREAM.getTracks().forEach(t=>t.stop());}catch(e){}SCAN_STREAM=null;}
+    if(navigator.vibrate)try{navigator.vibrate(60);}catch(e){}
+    closeModal();
+    openRicevoRiga(ro.ordine,ro.riga);
+    return;
+  }
   const cod=scanCodice(testo);
   if(!cod||cod===SCAN_ULTIMO)return;
   SCAN_ULTIMO=cod;
@@ -8128,6 +8661,8 @@ function scanTrovato(testo){
   scanUsa(cod,opz);
 }
 function scanManuale(){
+  const ro=rigaOrdineDaTesto(gv('sc-man'));
+  if(ro){ scanChiudi(); openRicevoRiga(ro.ordine,ro.riga); return; }
   const cod=scanCodice(gv('sc-man'));
   if(!cod){showErr('sc-err','Scrivi un codice.');return;}
   const opz=SCAN_OPZ||{};
@@ -8186,7 +8721,7 @@ function scanUsa(cod,opz){
   if(cose.length>1){ etScegliCosa(eObj); return; }
   closeModal();
   if(ET_DOPO==='operazione')scanOperazione(eObj);
-  else openDettaglio(eObj.TipoTarget,eObj.TargetID);
+  else etApriCosa(cose[0]);
 }
 // L'etichetta e' su un collo con dentro piu' cose: mostro l'elenco e
 // lascio scegliere. Con la bolla scritta in cima, che vale per tutte.
@@ -8202,9 +8737,8 @@ function etScegliCosa(e){
    +(b.length?('<div style="font-size:12.5px;color:var(--gray);margin-bottom:10px">'+b.join(' &middot; ')+'</div>'):'')
    +'<div style="max-height:52vh;overflow:auto">'
    +cose.map(function(c){
-      return '<div onclick="closeModal();'
-       +(c.tipo==='voce'?('navTo(\'voci\')'):('openDettaglio(\''+esc(c.tipo)+'\',\''+esc(c.id)+'\')'))
-       +'" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 4px;'
+      return '<div onclick=\'closeModal();etApriCosa('+att(JSON.stringify(c))+')\''
+       +' style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 4px;'
        +'border-top:1px solid var(--border);cursor:pointer">'
        +'<div><div style="font-weight:600">'+att(etNomeCosa(c.tipo,c.id))+'</div>'
        +'<div style="font-size:11.5px;color:var(--gray)">'+c.tipo+' &middot; '+att(c.id)+'</div></div>'
@@ -8212,22 +8746,41 @@ function etScegliCosa(e){
     }).join('')
    +'</div></div>');
 }
+// Aprire la cosa giusta: per un carico si apre l'articolo, perche' e' li'
+// che si fanno le operazioni; il carico lo dico nel messaggio.
+function etApriCosa(c){
+  if(!c)return;
+  if(c.tipo==='carico'){
+    const m=movimento(c.id);
+    if(m&&m.ArticoloID){
+      toast('Etichetta del carico del '+dataIt(m.Data)+(bollaDi(m).ddt?(' - bolla '+bollaDi(m).ddt):''));
+      openDettaglio('articolo',m.ArticoloID); return;
+    }
+    toast('Il carico di questa etichetta non esiste piu&#39;','err'); return;
+  }
+  if(c.tipo==='voce'){ navTo('voci'); return; }
+  openDettaglio(c.tipo,c.id);
+}
 // la scorciatoia carico/scarico, per chi ha le mani occupate
 function scanOperazione(e){
   const nome=etTargetNome(e);
+  const primo=etCose(e)[0]||{};
+  const artId=etArticoloDi(primo)||e.TargetID;
   let bottoni='';
-  if(e.TipoTarget==='articolo'){
-    bottoni='<button class="det-btn" style="background:var(--green-light);color:var(--green);font-size:16px;padding:16px" onclick="closeModal();openMovimento(\''+esc(e.TargetID)+'\',\'carico\')">Carico</button>'
-      +'<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openMovimento(\''+esc(e.TargetID)+'\',\'scarico\')">Scarico</button>';
-  }else if(e.TipoTarget==='pannello'){
-    bottoni='<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openScaricoPannello(\''+esc(e.TargetID)+'\')">Scarico pannello</button>';
+  if(primo.tipo==='carico'||e.TipoTarget==='articolo'){
+    bottoni='<button class="det-btn" style="background:var(--green-light);color:var(--green);font-size:16px;padding:16px" onclick="closeModal();openMovimento(\''+esc(artId)+'\',\'carico\')">Carico</button>'
+      +'<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openMovimento(\''+esc(artId)+'\',\'scarico\')">Scarico</button>';
+  }else if(primo.tipo==='pannello'){
+    bottoni='<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openScaricoPannello(\''+esc(primo.id)+'\')">Scarico pannello</button>';
+  }else if(primo.tipo==='massiccio'){
+    bottoni='<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openScaricoMassiccio(\''+esc(primo.id)+'\')">Scarico massiccio</button>';
   }else{
-    bottoni='<button class="det-btn" style="background:var(--red-light);color:var(--red);font-size:16px;padding:16px" onclick="closeModal();openScaricoMassiccio(\''+esc(e.TargetID)+'\')">Scarico massiccio</button>';
+    bottoni='<div class="info-box" style="font-size:12.5px">Su questa etichetta non c&#39;e&#39; niente da scaricare da qui.</div>';
   }
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<div class="det-tag">'+att(etFmt(e.Codice))+'</div><h2 style="margin-bottom:12px">'+att(nome)+'</h2>'
    +bottoni
-   +'<button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openDettaglio(\''+esc(e.TipoTarget)+'\',\''+esc(e.TargetID)+'\')">Apri la scheda completa</button>'
+   +'<button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();etApriCosa('+att(JSON.stringify(primo)).replace(/\x27/g,'&#39;')+')">Apri la scheda completa</button>'
    +'</div>');
 }
 
@@ -9448,11 +10001,12 @@ function vocSchedaConferma(d){
   try{ daCodice=etDalTesto(d.Testo); }catch(e){}
   if(daCodice&&!d.ArticoloID&&!d.PezzoID){
     d=Object.assign({},d);
-    if(daCodice.TipoTarget==='articolo')d.ArticoloID=daCodice.TargetID;
-    else{
-      const pz=((daCodice.TipoTarget==='pannello'?STATE.pannelli:STATE.massicci)||[])
-        .filter(x=>x.ID===daCodice.TargetID)[0];
-      if(pz){ d.Articolo=pz.ArticoloID; d.PezzoID=daCodice.TargetID; }
+    const c0=etCose(daCodice)[0]||{};
+    const artCod=etArticoloDi(c0);
+    if(artCod)d.ArticoloID=artCod;
+    else if(c0.tipo==='pannello'||c0.tipo==='massiccio'){
+      const pz=((c0.tipo==='pannello'?STATE.pannelli:STATE.massicci)||[]).filter(x=>x.ID===c0.id)[0];
+      if(pz){ d.Articolo=pz.ArticoloID; d.PezzoID=c0.id; }
     }
   }
   const optTipo=[['materiale','Materiale consumato'],['ore','Ore'],['voce','Altra voce di commessa']]
@@ -9933,17 +10487,25 @@ function movDaCodice(){
       +(e.Stato==='libera'?'ancora libera: non e&#39; attaccata a niente.':'dismessa.')+'</span>';
     return;
   }
-  if(e.TipoTarget!=='articolo'){
-    msg.innerHTML='<span style="color:var(--accent)">'+att(etTargetNome(e))+': e&#39; un '+e.TipoTarget+', si scarica dalla sua pagina.</span>';
-    setTimeout(function(){ closeModal();
-      if(e.TipoTarget==='pannello')openScaricoPannello(e.TargetID); else openScaricoMassiccio(e.TargetID); },700);
+  const primo=etCose(e)[0]||{};
+  const artId=etArticoloDi(primo);
+  if(!artId){
+    if(primo.tipo==='pannello'||primo.tipo==='massiccio'){
+      msg.innerHTML='<span style="color:var(--accent)">'+att(etTargetNome(e))+': e&#39; un '+primo.tipo+', si scarica dalla sua pagina.</span>';
+      setTimeout(function(){ closeModal();
+        if(primo.tipo==='pannello')openScaricoPannello(primo.id); else openScaricoMassiccio(primo.id); },700);
+      return;
+    }
+    msg.innerHTML='<span style="color:var(--amber)">'+att(etTargetNome(e))+': non e&#39; un articolo di magazzino.</span>';
     return;
   }
-  const a=(STATE.articoli||[]).filter(x=>x.ID===e.TargetID)[0];
+  const a=(STATE.articoli||[]).filter(x=>x.ID===artId)[0];
   if(!a){msg.innerHTML='<span style="color:var(--red)">L&#39;articolo di questa etichetta non esiste piu&#39;.</span>';return;}
   comboPick('mov',a.ID);
   el.value=etFmt(cod);
+  const m0=(primo.tipo==='carico')?movimento(primo.id):null;
   msg.innerHTML='<span style="color:var(--green)">'+att(a.Nome)+'</span>'
+   +(m0?('<span style="color:var(--gray)"> &middot; arrivo del '+dataIt(m0.Data)+' da '+nOre(m0.Quantita)+' '+att(m0.UnitaMisura||'')+'</span>'):'')
    +(e.Ddt?('<span style="color:var(--gray)"> &middot; bolla '+att(e.Ddt)+(e.Fornitore?(' - '+att(e.Fornitore)):'')+'</span>'):'');
 }
 // Mostra il selettore destinazione solo se: carico + commessa scelta
@@ -10005,6 +10567,10 @@ function submitMov(){
     STATE.articoli=STATE.articoli.map(x=>x.ID===id?Object.assign({},x,{Stock:r.nuovoStock}):x);
     STATE.movimenti.push({ID:r.id,Data:new Date().toISOString().slice(0,19).replace("T"," "),Utente:STATE.utente.Nome,ArticoloID:id,NomeArticolo:a.Nome,Tipo:t,Quantita:q,UnitaMisura:a.UnitaMisura,Commessa:c,Note:n,Fornitore:forn,Etichetta:_cod,Annullato:"NO"});
     closeModal();toast((t==='carico'?'Carico':'Scarico')+" registrato");renderPage(STATE.pagina);
+    // appena entrata della roba nuova: chiedo se ci attacchi un'etichetta,
+    // legata a QUESTO arrivo e non a tutta la giacenza
+    if(t==='carico'&&r.id)setTimeout(function(){etDopoCarico([{tipo:'carico',id:r.id,
+      nome:a.Nome+' - '+q+' '+(a.UnitaMisura||'')}]);},450);
     if(t==='scarico'&&c)setTimeout(function(){call("getRiserve").then(rs=>{const r2=(rs||[]).find(x=>x.ArticoloID===id&&x.Commessa===c);if(r2&&r2.Quantita>0)promptRiserva(id,c,r2.Quantita,a.UnitaMisura);});},300);
   });
 }
@@ -10435,7 +11001,8 @@ function openDettaglio(tipo,id){
     rows=dr("Tipo",'<span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span>')+dr("Quantita",'<span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span>')+dr("Data",m.Data)+dr("Operatore",m.Utente||'-')+dr("Fornitore",m.Fornitore||'-')+dr("Commessa",m.Commessa||'-')+(m.PezzoID?dr("Pezzo",m.PezzoID):'')+dr("Note",m.Note||'-')+dr("Stato",m.Annullato==='SI'?'<span style="color:var(--red)">Annullato</span>':'Valido');
     btns=m.Annullato==='SI'?'':'<button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="closeModal();openModificaMovimento(\''+esc(m.ID)+'\')">Modifica movimento</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openAnnulla(\''+esc(m.ID)+'\')">Annulla movimento</button>';
   }
-  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'+head+rows+etichetteBlocco(tipo,id)+btns+(hist?'<div class="det-hist"><h4>Storico movimenti</h4>'+hist+'</div>':'')+'</div>');
+  const tracc=traccBlocco(tipo,id);
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'+head+rows+etichetteBlocco(tipo,id)+btns+tracc+(hist?'<div class="det-hist"><h4>Storico movimenti</h4>'+hist+'</div>':'')+'</div>');
 }
 
 // -- COMBOBOX con suggerimenti --
