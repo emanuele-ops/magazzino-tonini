@@ -312,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v94 - Atelier</div>
+  <div id="ver-badge">v95 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -1173,7 +1173,53 @@ async function call(fn, args) {
         }
       }
       await sbPatch("movimenti", "id=eq." + encodeURIComponent(args.movId), { annullato: true, note: (m.note || "") + " [ANNULLATO: " + (args.nota || "") + "]" });
-      return { ok: true, pezziRipristinati: pezziRipristinati };
+      // Lo stock e' a posto. Ora, solo se me l'hanno chiesto, tolgo anche le
+      // conseguenze del carico: la prenotazione per la commessa, l'etichetta
+      // attaccata a quell'arrivo e lo stato "ricevuto" della richiesta.
+      const pulito = { riserva: 0, etichette: [], richieste: 0 };
+      if (args.togliRiserva && m.commessa && m.articolo_id) {
+        const rr = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(m.articolo_id) + "&commessa=eq." + encodeURIComponent(m.commessa));
+        if (rr.length) {
+          const vecchia = parseFloat(rr[0].quantita) || 0;
+          const tolgo = Math.min(vecchia, parseFloat(m.quantita) || 0);
+          const nuova = round5(vecchia - tolgo);
+          if (nuova <= 0) await sbDelete("riserve", "articolo_id=eq." + encodeURIComponent(m.articolo_id) + "&commessa=eq." + encodeURIComponent(m.commessa));
+          else await sbPatch("riserve", "articolo_id=eq." + encodeURIComponent(m.articolo_id) + "&commessa=eq." + encodeURIComponent(m.commessa), { quantita: nuova });
+          pulito.riserva = tolgo;
+        }
+      }
+      if (args.etichetta === "libera" || args.etichetta === "dismessa") {
+        let trovate = [];
+        if (!args.soloCodici) {
+          const perMov = await sbGet("etichette", "select=*&movimento_id=eq." + encodeURIComponent(args.movId));
+          const perTarget = await sbGet("etichette", "select=*&target_id=eq." + encodeURIComponent(args.movId));
+          trovate = perMov.concat(perTarget);
+        }
+        // codici scelti a mano nella finestra (le etichette dell'articolo intero)
+        for (const c of (args.codiciEtichette || [])) {
+          const r = await sbGet("etichette", "select=*&codice=eq." + encodeURIComponent(c));
+          if (r.length) trovate.push(r[0]);
+        }
+        const viste = {};
+        const tutte = trovate.filter(function (e) {
+          const c = String(e.codice || ""); if (!c || viste[c]) return false; viste[c] = 1;
+          return e.stato === "assegnata";
+        });
+        for (const e of tutte) {
+          if (args.etichetta === "libera") await call("liberaEtichetta", { codice: e.codice });
+          else await call("dismettiEtichetta", { codice: e.codice });
+          pulito.etichette.push(e.codice);
+        }
+      }
+      if (args.rimettiRichiesta && m.commessa && m.articolo_id) {
+        const fb = await sbGet("fabbisogni", "select=id,stato&commessa=eq." + encodeURIComponent(m.commessa) + "&articolo_id=eq." + encodeURIComponent(m.articolo_id));
+        for (const f of fb) {
+          if (String(f.stato || "").toLowerCase() !== "ricevuto") continue;
+          await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(f.id), { stato: "da_ordinare" });
+          pulito.richieste++;
+        }
+      }
+      return { ok: true, pezziRipristinati: pezziRipristinati, pulito: pulito };
     }
     if (fn === "modificaMovimento") {
       const d = args;
@@ -1897,8 +1943,27 @@ async function call(fn, args) {
       return { ok: true, creati: creati };
     }
     if (fn === "eliminaOrdine") {
+      // args.richieste: "niente" (solo l'ordine), "da_ordinare" (le richieste
+      // della commessa tornano in attesa), "cancella" (spariscono anche quelle).
+      const modo = args.richieste || "niente";
+      const tocc = { rimesse: 0, cancellate: 0 };
+      if (modo !== "niente") {
+        const rows = await sbGet("ordini", "select=*&id=eq." + encodeURIComponent(args.id));
+        let righe = [];
+        if (rows.length) { try { righe = typeof rows[0].righe === "string" ? JSON.parse(rows[0].righe || "[]") : (rows[0].righe || []); } catch (e) { righe = []; } }
+        for (const r of righe) {
+          if (r.fabId) {
+            if (modo === "cancella") { await sbDelete("fabbisogni", "id=eq." + encodeURIComponent(r.fabId)).catch(()=>{}); tocc.cancellate++; }
+            else { await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(r.fabId), { stato: "da_ordinare" }).catch(()=>{}); tocc.rimesse++; }
+          }
+          if (r.voceId) {
+            if (modo === "cancella") { await sbDelete("voci_commessa", "id=eq." + encodeURIComponent(r.voceId)).catch(()=>{}); tocc.cancellate++; }
+            else { await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(r.voceId), { stato: "da_ordinare" }).catch(()=>{}); tocc.rimesse++; }
+          }
+        }
+      }
       await sbDelete("ordini", "id=eq." + encodeURIComponent(args.id));
-      return { ok: true };
+      return { ok: true, tocc: tocc };
     }
     if (fn === "segnalaOrdine") {
       const rows = await sbGet("ordini", "select=*&id=eq." + encodeURIComponent(args.id));
@@ -3295,6 +3360,12 @@ function openAnnullaMovBulk(){
   if(!ms.length){toast("I movimenti selezionati sono gia annullati","err");return;}
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla '+ms.length+' movimenti</h2>'
    +'<div class="alert alert-amber">L\'annullamento inverte lo stock degli articoli e restituisce i m2/m3 ai pezzi scaricati. I movimenti restano visibili ma barrati.</div>'
+   +'<div class="form-group"><label>Cosa pulisco insieme, su tutti</label>'
+   +'<div style="border:1px solid var(--border);border-radius:9px;padding:4px 12px">'
+   +annRiga('ba-ris','Togli le prenotazioni per le commesse','Solo dove il movimento aveva una commessa.',true)
+   +annRiga('ba-et','Stacca le etichette attaccate a questi arrivi','Tornano fra le libere: le riusi su un&#39;altra scatola.',true)
+   +annRiga('ba-ric','Rimetti "da ordinare" le richieste delle commesse','In Crea ordine tornano fra i materiali da ordinare.',true)
+   +'</div></div>'
    +'<div class="form-group"><label>Motivo *</label><textarea id="ba-n" rows="3" placeholder="es. inserimento errato"></textarea></div>'
    +'<div id="ba-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnullaMovBulk()">Annulla i movimenti</button></div>');
 }
@@ -3307,10 +3378,15 @@ function submitAnnullaMovBulk(){
   // in parallelo si sovrascriverebbero a vicenda
   let ripr=0;
   ms.reduce(function(cat,m){return cat.then(function(){
-    return call("annullaMovimento",{movId:m.ID,nota:n}).then(function(r){ripr+=(+((r||{}).pezziRipristinati)||0);});
+    const a={movId:m.ID,nota:n};
+    const cr=document.getElementById('ba-ris'); if(!cr||cr.checked)a.togliRiserva=true;
+    const cq=document.getElementById('ba-ric'); if(!cq||cq.checked)a.rimettiRichiesta=true;
+    const ce=document.getElementById('ba-et'); if(!ce||ce.checked)a.etichetta='libera';
+    return call("annullaMovimento",a).then(function(r){ripr+=(+((r||{}).pezziRipristinati)||0);});
   });},Promise.resolve()).then(function(){
-    Promise.all([call("getMovimenti"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([mv,a,p,mm])=>{
+    Promise.all([call("getMovimenti"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getRiserve"),call("getFabbisogno"),call("getEtichette")]).then(([mv,a,p,mm,ri,fb,et])=>{
       STATE.movimenti=mv||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=mm||[];
+      STATE.riserve=ri||[];STATE.fabbisogni=fb||[];if(et)STATE.etichette=et;
       closeModal();clearSel(true);renderPage(STATE.pagina);
       toast("Annullati "+ms.length+" movimenti"+(ripr?(" - ripristinati "+ripr+" pezzi"):""));});
   }).catch(e=>showErr("ba-err",e.message||"Errore"));
@@ -4630,11 +4706,37 @@ function submitRicevoRiga(ordineId,i,btn){
   });
 }
 function openEliminaOrdine(id){
-  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina ordine</h2><div class="alert alert-red">L\'ordine verra rimosso dalla lista. La merce gia caricata a magazzino resta in magazzino.</div><div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOrdine(\''+esc(id)+'\')">Elimina ordine</button></div>');
+  const o=(STATE.ordini||[]).filter(x=>x.ID===id)[0]||{};
+  const righe=o.Righe||[];
+  const nFab=righe.filter(r=>r.fabId).length, nVoc=righe.filter(r=>r.voceId).length;
+  const n=nFab+nVoc;
+  const scelta=function(val,tit,sotto,def){
+    return '<label style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;cursor:pointer">'
+     +'<input type="radio" name="eo-r" value="'+val+'" '+(def?'checked':'')+' style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex:0 0 auto">'
+     +'<span><span style="font-size:13.5px">'+tit+'</span><br>'
+     +'<span style="font-size:11.5px;color:var(--gray)">'+sotto+'</span></span></label>';
+  };
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina ordine '+att(o.ID||id)+'</h2>'
+   +'<div class="alert alert-red">L\'ordine viene tolto dalla lista. La merce gia&#39; caricata a magazzino <strong>resta</strong> in magazzino: '
+   +'per farla sparire devi annullare i movimenti di carico.</div>'
+   +(n?('<div class="form-group"><label>E le '+n+' righe di materiale della commessa '+commTxt(o.Commessa||'')+'?</label>'
+     +'<div style="border:1px solid var(--border);border-radius:9px;padding:4px 12px">'
+     +scelta('da_ordinare','Rimettile "da ordinare"','Restano nella commessa ma tornano fra i materiali da ordinare, in Crea ordine.',true)
+     +scelta('cancella','Cancellale dalla commessa','Spariscono del tutto: usalo quando l&#39;ordine era una prova.',false)
+     +scelta('niente','Lasciale come sono','Restano segnate "ricevuto" anche se l&#39;ordine non c&#39;e&#39; piu&#39;.',false)
+     +'</div></div>'):'')
+   +'<div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOrdine(\''+esc(id)+'\')">Elimina ordine</button></div>');
 }
 function submitEliminaOrdine(id){
-  call("eliminaOrdine",{id:id}).then(r=>{if(!r.ok){showErr("eo-err",r.err||"Errore");return;}
-    call("getOrdini").then(or=>{STATE.ordini=or||[];closeModal();toast("Ordine eliminato");renderPage(STATE.pagina);});});
+  const sel=document.querySelector('input[name="eo-r"]:checked');
+  call("eliminaOrdine",{id:id,richieste:(sel&&sel.value)||'niente'}).then(r=>{if(!r.ok){showErr("eo-err",r.err||"Errore");return;}
+    Promise.all([call("getOrdini"),call("getFabbisogno"),call("getVoci")]).then(([or,fb,vc])=>{
+      STATE.ordini=or||[];STATE.fabbisogni=fb||[];STATE.voci=vc||[];
+      const tc=(r&&r.tocc)||{};
+      let msg="Ordine eliminato";
+      if(tc.rimesse)msg+=" - "+tc.rimesse+" righe rimesse da ordinare";
+      if(tc.cancellate)msg+=" - "+tc.cancellate+" righe cancellate";
+      closeModal();toast(msg);renderPage(STATE.pagina);});});
 }
 function openSegnalaOrdine(id){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Segnala un problema</h2><div class="info-box">Verra inviata una mail di notifica con il problema descritto.</div><div class="form-group"><label>Descrivi il problema *</label><textarea id="sg-p" rows="4" placeholder="es. mancano 2 pezzi, materiale danneggiato..."></textarea></div><div id="sg-err"></div><button class="btn-primary" onclick="submitSegnalaOrdine(\''+esc(id)+'\')">Invia segnalazione</button></div>');
@@ -7610,7 +7712,8 @@ function etNomeCarico(movId){
   p.push('del '+dataIt(m.Data));
   if(b.ddt)p.push('bolla '+b.ddt);
   if(b.forn)p.push(b.forn);
-  if(m.Commessa)p.push('commessa '+m.Commessa);
+  const ord=ordineDiCarico(m); if(ord)p.push('ordine '+ord);
+  if(m.Commessa)p.push('commessa '+commTxtPiano(m.Commessa));
   return p.join(' &middot; ');
 }
 // come si chiama una singola cosa
@@ -8219,7 +8322,8 @@ function etBolleHTML(tipo,id){
       const p=[dataIt(m.Data),nOre(m.Quantita)+' '+(m.UnitaMisura||'')];
       if(b.ddt)p.push('bolla '+b.ddt); else p.push('senza bolla');
       if(b.forn)p.push(b.forn);
-      if(m.Commessa)p.push('commessa '+m.Commessa);
+      if(m.Commessa)p.push('commessa '+commTxtPiano(m.Commessa));
+      const ord=ordineDiCarico(m); if(ord)p.push('ordine '+ord);
       const gia=etichetteDiCarico(m.ID).length;
       if(gia)p.push(gia+(gia===1?' etichetta gia\' attaccata':' etichette gia\' attaccate'));
       return '<option value="'+att(m.ID)+'"'+(i===0?' selected':'')+'>'+att(p.join(' - '))+'</option>';
@@ -8256,8 +8360,31 @@ function arriviDiArticolo(artId){
 // l'ordine da cui e' nato un carico: lo riconosco dalla nota che ci scrive
 function ordineDiCarico(m){
   const t=String((m&&m.Note)||'');
-  const x=t.match(/ordine\s+([A-Za-z0-9._\-]+)/i);
+  if(!t)return '';
+  // Prima strada, quella sicura: cerco dentro la nota un numero di ordine che
+  // esiste davvero. Gli ordini si chiamano "2026 - 012", con spazi dentro:
+  // a indovinarli con un'espressione si prendeva solo "2026".
+  const ids=(STATE.ordini||[]).map(o=>String(o.ID||'')).filter(Boolean)
+    .sort((a,b)=>b.length-a.length);
+  for(const id of ids){ if(t.indexOf(id)>=0)return id; }
+  // Seconda strada: l'ordine non c'e' piu' in elenco (cancellato), ma la nota
+  // se lo ricorda. Accetto sia "2026 - 012" sia le forme senza spazi.
+  let x=t.match(/ordine\s+(\d{4}\s*-\s*\d+)/i);
+  if(x)return x[1].replace(/\s*-\s*/,' - ');
+  x=t.match(/ordine\s+([A-Za-z0-9._\/\-]+)/i);
   return x?x[1]:'';
+}
+// "C2025.001 - sassicaia" in chiaro, per le tendine
+function commTxtPiano(id){
+  if(!id)return '';
+  const n=nomeCommessa(id);
+  return String(id)+(n?(' - '+n):'');
+}
+// "C2025.001 - sassicaia": il codice da solo non dice niente a nessuno
+function commTxt(id){
+  if(!id)return '';
+  const n=nomeCommessa(id);
+  return att(id)+(n?(' - '+att(n)):'');
 }
 function arriviBlocco(artId){
   const arr=arriviDiArticolo(artId);
@@ -8272,7 +8399,7 @@ function arriviBlocco(artId){
     if(b.forn)riga2.push(att(b.forn));
     if(b.ddt)riga2.push('bolla <strong>'+att(b.ddt)+'</strong>'+(b.data?(' del '+dataIt(b.data)):''));
     if(ord)riga2.push('ordine <strong>'+att(ord)+'</strong>');
-    if(m.Commessa)riga2.push('commessa <strong>'+att(m.Commessa)+'</strong>');
+    if(m.Commessa)riga2.push('commessa <strong>'+commTxt(m.Commessa)+'</strong>');
     return '<div style="padding:8px 0;border-top:1px solid var(--border)">'
      +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">'
      +'<span style="font-weight:600">'+nOre(m.Quantita)+' '+att(m.UnitaMisura||'')+'</span>'
@@ -8297,7 +8424,7 @@ function riserveBlocco(artId){
   const a=(STATE.articoli||[]).filter(x=>x.ID===artId)[0]||{};
   return '<div class="det-hist"><h4>Prenotato per le commesse</h4>'
    +r.map(x=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border)">'
-      +'<span>'+att(x.Commessa)+'</span>'
+      +'<span>'+commTxt(x.Commessa)+'</span>'
       +'<span style="font-weight:600;color:var(--accent)">'+nOre(x.Quantita)+' '+att(a.UnitaMisura||'')+'</span></div>').join('')
    +'</div>';
 }
@@ -8338,7 +8465,7 @@ function arrivoPezzoBlocco(tipo,id){
       b.forn?att(b.forn):'',
       b.ddt?('bolla <strong>'+att(b.ddt)+'</strong>'+(b.data?(' del '+dataIt(b.data)):'')):'',
       ord?('ordine <strong>'+att(ord)+'</strong>'):'',
-      String(p.Commesse||'').trim()?('commessa <strong>'+att(p.Commesse)+'</strong>'):'',
+      String(p.Commesse||'').trim()?('commessa <strong>'+commTxt(String(p.Commesse).trim())+'</strong>'):'',
       m?('movimento '+att(m.ID)):''])
    +'<div style="margin-top:4px">'
    +(et.length
@@ -8362,7 +8489,7 @@ function arrivoVoceBlocco(id){
       v.Fornitore?att(v.Fornitore):'',
       v.Ddt?('bolla <strong>'+att(v.Ddt)+'</strong>'+(v.DataDdt?(' del '+dataIt(v.DataDdt)):'')):'',
       v.OrdineID?('ordine <strong>'+att(v.OrdineID)+'</strong>'):'',
-      v.Commessa?('commessa <strong>'+att(v.Commessa)+'</strong>'):'',
+      v.Commessa?('commessa <strong>'+commTxt(v.Commessa)+'</strong>'):'',
       v.NrFattura?('fattura '+att(v.NrFattura)):''])
    +'<div style="margin-top:4px">'
    +(et.length
@@ -11168,13 +11295,126 @@ function filtraOpzioni(selId,q){
   q=(q||"").toLowerCase();
   for(let i=0;i<s.options.length;i++){const o=s.options[i];if(o.value==="")continue;o.hidden=o.text.toLowerCase().indexOf(q)<0;}
 }
-function openAnnulla(mid){openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla movimento</h2><div class="alert alert-amber">L\'annullamento inverte lo stock e restituisce i m2/m3 al pezzo scaricato.</div><div class="form-group"><label>Motivo *</label><textarea id="an-n" rows="3" placeholder="es. inserimento errato"></textarea></div><div id="an-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnulla(\''+mid+'\')">Conferma annullamento</button></div>');}
+// -- ANNULLARE UN MOVIMENTO: le caselle di pulizia --
+// Annullare un carico rimette a posto lo stock, ma da solo lascia in giro tre
+// cose che invece vanno tolte: la prenotazione per la commessa, l'etichetta
+// attaccata a quell'arrivo, e la richiesta della commessa segnata "ricevuto".
+// Qui costruisco le caselle, e mostro solo quelle che servono davvero.
+function annRiga(id,testo,sotto,spuntata){
+  return '<label style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;cursor:pointer">'
+   +'<input type="checkbox" id="'+id+'" '+(spuntata?'checked':'')+' onchange="annEtRadio()" '
+   +'style="width:19px;height:19px;margin-top:2px;accent-color:var(--accent);flex:0 0 auto">'
+   +'<span><span style="font-size:13.5px">'+testo+'</span>'
+   +(sotto?('<br><span style="font-size:11.5px;color:var(--gray)">'+sotto+'</span>'):'')+'</span></label>';
+}
+// 25 e non 25,00 - 2,5 e non 2,50
+function qtaBreve(v){
+  const n=Math.round((+v||0)*1000)/1000;
+  return String(n).replace('.',',');
+}
+function annRiservaDi(m){
+  if(!m||!m.Commessa||!m.ArticoloID)return null;
+  const r=(STATE.riserve||[]).filter(function(x){return x.ArticoloID===m.ArticoloID&&x.Commessa===m.Commessa;})[0];
+  if(!r||!(+r.Quantita>0))return null;
+  return r;
+}
+function annRichiesteDi(m){
+  if(!m||!m.Commessa||!m.ArticoloID)return [];
+  return (STATE.fabbisogni||[]).filter(function(f){
+    return f.Commessa===m.Commessa&&f.ArticoloID===m.ArticoloID&&String(f.Stato||'').toLowerCase()==='ricevuto';});
+}
+let ANN_ET_ART=[];
+function annCaselle(m){
+  let h='',qualcosa=false; ANN_ET_ART=[];
+  const ris=annRiservaDi(m);
+  if(ris){ qualcosa=true;
+    const tolgo=Math.min(+ris.Quantita||0,+m.Quantita||0);
+    h+=annRiga('an-ris','Togli la prenotazione per la commessa '+commTxt(m.Commessa),
+      '-'+qtaBreve(tolgo)+' '+att(m.UnitaMisura||'')+' da "prenotato per le commesse" (adesso ce ne sono '+qtaBreve(ris.Quantita)+')',true);
+  }
+  const ets=annEtCarico(m);
+  const etsArt=annEtArticolo(m,ets);
+  if(ets.length){ qualcosa=true;
+    h+=annRiga('an-et','Stacca '+(ets.length>1?('le '+ets.length+' etichette'):('l&#39;etichetta '+etFmt(ets[0].Codice||ets[0].codice))),
+      'Adesso e&#39; attaccata a questo arrivo: se il carico non c&#39;e&#39; piu&#39;, non deve restare appesa.',true)
+     +'<div id="an-etmodo" style="padding:2px 0 8px 28px">'
+     +'<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;padding:3px 0;cursor:pointer"><input type="radio" name="an-etm" value="libera" checked style="width:16px;height:16px;margin:0;flex:0 0 auto;accent-color:var(--accent)"><span>rimettila fra le <strong>libere</strong> (la riuso su un&#39;altra scatola)</span></label>'
+     +'<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;padding:3px 0;cursor:pointer"><input type="radio" name="an-etm" value="dismessa" style="width:16px;height:16px;margin:0;flex:0 0 auto;accent-color:var(--accent)"><span>mettila fra le <strong>dismesse</strong> (non la riuso piu&#39;)</span></label>'
+     +'</div>';
+  }
+  if(etsArt.length){ qualcosa=true;
+    ANN_ET_ART=etsArt.map(x=>x.Codice);
+    h+=annRiga('an-eta','Stacca anche '+(etsArt.length>1?('le '+etsArt.length+' etichette'):('l&#39;etichetta '+etFmt(etsArt[0].Codice)))+' attaccate a tutto l&#39;articolo',
+      'Queste non sono legate a questo arrivo ma all&#39;articolo intero: '+etsArt.map(x=>etFmt(x.Codice)).join(', ')+'. Spuntala solo se stai facendo pulizia.',false);
+  }
+  const ric=annRichiesteDi(m);
+  if(ric.length){ qualcosa=true;
+    h+=annRiga('an-ric','Rimetti "da ordinare" '+(ric.length>1?('le '+ric.length+' richieste'):'la richiesta')+' della commessa '+commTxt(m.Commessa),
+      'In Crea ordine torna fra i materiali da ordinare, invece di restare "ricevuto".',true);
+  }
+  if(!qualcosa)return '';
+  return '<div class="form-group"><label>Cosa pulisco insieme</label>'
+   +'<div style="border:1px solid var(--border);border-radius:9px;padding:4px 12px">'+h+'</div></div>';
+}
+// Le etichette di QUESTO arrivo, e quelle appese all'articolo intero
+function annEtCarico(m){
+  if(!m||!m.ID)return [];
+  return (STATE.etichette||[]).filter(function(x){
+    if(x.Stato!=='assegnata')return false;
+    if(x.MovimentoID&&x.MovimentoID===m.ID)return true;
+    return etCose(x).some(c=>c.tipo==='carico'&&c.id===m.ID);
+  });
+}
+function annEtArticolo(m,gia){
+  if(!m||!m.ArticoloID)return [];
+  const visti={}; (gia||[]).forEach(x=>{visti[x.Codice]=1;});
+  return (STATE.etichette||[]).filter(function(x){
+    if(x.Stato!=='assegnata'||visti[x.Codice])return false;
+    return etCose(x).some(c=>c.tipo==='articolo'&&c.id===m.ArticoloID);
+  });
+}
+function annEtRadio(){
+  const c=document.getElementById('an-et'),ca=document.getElementById('an-eta'),d=document.getElementById('an-etmodo');
+  if(d)d.style.display=((c&&c.checked)||(ca&&ca.checked))?'block':'none';
+}
+function annArgs(){
+  const a={};
+  const r=document.getElementById('an-ris'); if(r&&r.checked)a.togliRiserva=true;
+  const q=document.getElementById('an-ric'); if(q&&q.checked)a.rimettiRichiesta=true;
+  const e=document.getElementById('an-et'),ea=document.getElementById('an-eta');
+  if((e&&e.checked)||(ea&&ea.checked)){
+    const sel=document.querySelector('input[name="an-etm"]:checked');
+    a.etichetta=(sel&&sel.value)||'libera';
+    if(ea&&ea.checked&&ANN_ET_ART.length)a.codiciEtichette=ANN_ET_ART.slice();
+    if(!(e&&e.checked))a.soloCodici=true;
+  }
+  return a;
+}
+function openAnnulla(mid){
+  const m=(STATE.movimenti||[]).filter(x=>x.ID===mid)[0]||{};
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Annulla movimento</h2>'
+   +'<div class="alert alert-amber">L\'annullamento inverte lo stock e restituisce i m2/m3 al pezzo scaricato. Il movimento resta visibile ma barrato.</div>'
+   +annCaselle(m)
+   +'<div class="form-group"><label>Motivo *</label><textarea id="an-n" rows="3" placeholder="es. inserimento errato"></textarea></div>'
+   +'<div id="an-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitAnnulla(\''+esc(mid)+'\')">Conferma annullamento</button></div>');
+}
 function submitAnnulla(mid){const n=document.getElementById("an-n").value.trim();if(!n){showErr("an-err","Inserisci il motivo.");return;}
-  call("annullaMovimento",{movId:mid,nota:n}).then(r=>{if(!r.ok){showErr("an-err",r.err||"Errore.");return;}
-    Promise.all([call("getMovimenti"),call("getArticoli"),call("getPannelli"),call("getMassicci")]).then(([mv,a,p,m])=>{
+  const args=annArgs(); args.movId=mid; args.nota=n;
+  call("annullaMovimento",args).then(r=>{if(!r.ok){showErr("an-err",r.err||"Errore.");return;}
+    Promise.all([call("getMovimenti"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getRiserve"),call("getFabbisogno"),call("getEtichette")]).then(([mv,a,p,m,ri,fb,et])=>{
       STATE.movimenti=mv||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];
-      closeModal();toast("Movimento annullato"+(r.pezziRipristinati?(" - ripristinati "+r.pezziRipristinati+" pezzi"):""));renderPage(STATE.pagina);});
+      STATE.riserve=ri||[];STATE.fabbisogni=fb||[];if(et)STATE.etichette=et;
+      closeModal();toast("Movimento annullato"+riepilogoPulizia(r));renderPage(STATE.pagina);});
   });}
+// "- tolta la prenotazione, 1 etichetta liberata": cosi' si vede cosa e' successo
+function riepilogoPulizia(r){
+  const p=(r&&r.pulito)||{},v=[];
+  if(r&&r.pezziRipristinati)v.push('ripristinati '+r.pezziRipristinati+' pezzi');
+  if(p.riserva)v.push('tolta la prenotazione');
+  if(p.etichette&&p.etichette.length)v.push(p.etichette.length+' '+(p.etichette.length>1?'etichette staccate':'etichetta staccata'));
+  if(p.richieste)v.push(p.richieste+' '+(p.richieste>1?'richieste rimesse da ordinare':'richiesta rimessa da ordinare'));
+  return v.length?(' - '+v.join(', ')):'';
+}
 </script>
 </body>
 </html>
