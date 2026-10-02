@@ -312,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v95 - Atelier</div>
+  <div id="ver-badge">v98 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -2088,7 +2088,7 @@ function renderPanoramicaBody(){
   const m3=STATE.massicci.reduce((s,p)=>s+(+p.M3_residuo||0),0);
   const byC={}; STATE.movimenti.filter(m=>m.Commessa&&m.Annullato!=='SI'&&m.Tipo==='scarico').forEach(m=>{const k=m.Commessa;if(!byC[k])byC[k]={};const u=m.UnitaMisura||'pz';byC[k][u]=(byC[k][u]||0)+(+m.Quantita||0);});
   const sc=(lbl,val)=>'<div class="card" style="padding:14px 16px"><div class="stat-label">'+lbl+'</div><div class="stat-value" style="font-size:24px">'+val+'</div></div>';
-  const comm=Object.keys(byC).map(c=>{const parti=Object.keys(byC[c]).map(u=>byC[c][u].toFixed(u==='pz'?0:3)+' '+u).join(' - ');return '<div class="alert-row" style="border-top:1px solid var(--border)" onclick="navTo(\'report\')"><span style="font-weight:600;font-family:monospace">'+c+'</span><span style="color:var(--gray)">'+parti+'</span></div>';}).join("")||'<div style="color:var(--gray);font-size:13px">Nessun consumo registrato per commessa.</div>';
+  const comm=Object.keys(byC).map(c=>{const parti=Object.keys(byC[c]).map(u=>byC[c][u].toFixed(u==='pz'?0:3)+' '+u).join(' - ');return '<div class="alert-row" style="border-top:1px solid var(--border)" onclick="navTo(\'report\')"><span style="font-weight:600;font-family:monospace">'+commTxt(c)+'</span><span style="color:var(--gray)">'+parti+'</span></div>';}).join("")||'<div style="color:var(--gray);font-size:13px">Nessun consumo registrato per commessa.</div>';
   return '<div class="acc-body"><div class="grid-4" style="margin-bottom:16px">'+sc("Articoli",STATE.articoli.length)+sc("Pannelli (m2 residui)",m2.toFixed(2))+sc("Massicci (m3 residui)",m3.toFixed(3))+sc("Commesse attive",Object.keys(byC).length)+'</div><div style="font-weight:600;margin-bottom:6px">Consumi per commessa</div>'+comm+reportBox()+'</div>';
 }
 function reportBox(){
@@ -2189,11 +2189,11 @@ function csvRimanenze(anno){
 
 // ---- CSV: ordini non ricevuti ----
 function csvOrdiniAperti(){
-  const out=[['Ordine','Data','Fornitore','Commessa','Stato','Materiale','Dettaglio','Note']];
+  const out=[['Ordine','Data','Fornitore','Commessa','Nome commessa','Stato','Materiale','Dettaglio','Note']];
   (STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()!=='ricevuto').forEach(function(o){
-    (o.Righe||[]).forEach(r=>out.push([o.ID,String(o.Data||'').slice(0,16),o.Fornitore||'',o.Commessa||'',
+    (o.Righe||[]).forEach(r=>out.push([o.ID,String(o.Data||'').slice(0,16),o.Fornitore||'',o.Commessa||'',nomeCommessa(o.Commessa),
       o.Stato||'',r.descrizione||'',r.dettaglio||'',r.note||'']));
-    if(!(o.Righe||[]).length)out.push([o.ID,String(o.Data||'').slice(0,16),o.Fornitore||'',o.Commessa||'',o.Stato||'','','','']);
+    if(!(o.Righe||[]).length)out.push([o.ID,String(o.Data||'').slice(0,16),o.Fornitore||'',o.Commessa||'',nomeCommessa(o.Commessa),o.Stato||'','','','']);
   });
   scaricaCsv('ordini-non-ricevuti_'+oggiFile()+'.csv',out);
 }
@@ -2346,7 +2346,7 @@ function buildReportScarico(anno,mese){
   const comm={};Object.keys(byC).forEach(c=>comm[c]=1);Object.keys(byV).forEach(c=>comm[c]=1);Object.keys(byO).forEach(c=>comm[c]=1);
   let totGen=0,totOreGen=0,totCostoGen=0;
   const body=Object.keys(comm).sort().map(function(c){
-    let out='<h3 style="font-size:14px;margin:16px 0 6px">Commessa '+c+'</h3>';
+    let out='<h3 style="font-size:14px;margin:16px 0 6px">Commessa '+commTxt(c)+'</h3>';
     if(byC[c]){
       let rows='';
       Object.keys(byC[c]).sort().reverse().forEach(ms=>{
@@ -2425,7 +2425,7 @@ function buildReportRimanenze(anno){
 }
 function buildReportOrdiniAperti(){
   const ap=(STATE.ordini||[]).filter(o=>String(o.Stato).toLowerCase()!=='ricevuto');
-  const body=ap.map(o=>{const rr=(o.Righe||[]).map(r=>'<tr><td>'+r.descrizione+'</td><td>'+(r.dettaglio||'')+'</td><td>'+(r.note||'')+'</td></tr>').join("")||'<tr><td colspan="3" style="color:#888">-</td></tr>';return '<h3 style="font-size:14px;margin:12px 0 6px">Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - '+o.Commessa):'')+'</h3><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="left">Dettaglio</th><th align="left">Note</th></tr></thead><tbody>'+rr+'</tbody></table>';}).join("")||'<p style="color:#888">Nessun ordine in attesa.</p>';
+  const body=ap.map(o=>{const rr=(o.Righe||[]).map(r=>'<tr><td>'+r.descrizione+'</td><td>'+(r.dettaglio||'')+'</td><td>'+(r.note||'')+'</td></tr>').join("")||'<tr><td colspan="3" style="color:#888">-</td></tr>';return '<h3 style="font-size:14px;margin:12px 0 6px">Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - '+commTxt(o.Commessa)):'')+'</h3><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Materiale</th><th align="left">Dettaglio</th><th align="left">Note</th></tr></thead><tbody>'+rr+'</tbody></table>';}).join("")||'<p style="color:#888">Nessun ordine in attesa.</p>';
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Ordini emessi non ancora ricevuti',new Date().toLocaleDateString('it-IT'))+body+'</div>';
 }
 function buildReportRiepilogo(anno,mese){
@@ -2507,11 +2507,11 @@ function renderDashboard(){
   h+='<details class="acc"><summary>Materiali da riordinare'+(sotto.length?'<span class="sum-badge">'+sotto.length+'</span>':'')+'</summary>'+renderReorderBody()+'</details>';
   h+='<details class="acc" open><summary>Panoramica magazzino</summary>'+renderPanoramicaBody()+'</details>';
   h+='<details class="acc" open><summary>Ultimi movimenti</summary><div class="acc-body">'
-    +(recent.map(m=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><span><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span> &nbsp;'+m.NomeArticolo+(m.Commessa?(' <span style="color:var(--gray);font-size:11px;font-family:monospace">'+m.Commessa+'</span>'):'')+'</span><span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessun movimento.</div>')
+    +(recent.map(m=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><span><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span> &nbsp;'+m.NomeArticolo+(m.Commessa?(' <span style="color:var(--gray);font-size:11px;font-family:monospace">'+commTxt(m.Commessa)+'</span>'):'')+'</span><span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessun movimento.</div>')
     +'<div style="margin-top:10px"><button class="btn btn-ghost" onclick="navTo(\'movimenti\')">Vedi tutti i movimenti</button></div>'
   +'</div></details>';
   h+='<details class="acc" open><summary>Ultime voci di commessa</summary><div class="acc-body">'
-    +((STATE.voci||[]).slice(0,6).map(v=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="navTo(\'voci\')"><span>'+v.Descrizione+' <span style="color:var(--gray);font-size:11px">'+v.Categoria+(v.Commessa?(' &middot; '+v.Commessa):'')+'</span></span><span>'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessuna voce registrata. Le aggiungi da "Altre voci".</div>')
+    +((STATE.voci||[]).slice(0,6).map(v=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="navTo(\'voci\')"><span>'+v.Descrizione+' <span style="color:var(--gray);font-size:11px">'+v.Categoria+(v.Commessa?(' &middot; '+commTxt(v.Commessa)):'')+'</span></span><span>'+(v.Importo!=null&&v.Importo!==""?('&euro; '+euro(v.Importo)):'-')+'</span></div>').join("")||'<div style="color:var(--gray);font-size:13px">Nessuna voce registrata. Le aggiungi da "Altre voci".</div>')
   +'</div></details>';
   h+='<details class="acc" open><summary>Grafici e andamenti</summary><div class="acc-body">'+renderGrafici()+'</div></details>';
   h+='<details class="acc" open><summary>Azioni rapide</summary><div class="acc-body"><div class="big-op">'
@@ -2799,10 +2799,16 @@ function ripristinaBackup(input){
     try{ data=JSON.parse(e.target.result); }
     catch(err){ toast("File non valido: non è un backup JSON","err"); return; }
     if(!data.articoli&&!data.movimenti){ toast("Il file non sembra un backup del magazzino","err"); return; }
-    const conteggi=['articoli','pannelli','massicci','movimenti','commesse','fornitori','voci','personale','ore','dettature','ordini','offerte','fabbisogni','riserve','rettifiche','immagini','modelli','utenti','config','etichette']
+    const conteggi=BACKUP_TABELLE.map(t=>t[0])
       .filter(k=>(data[k]||[]).length).map(k=>(data[k]||[]).length+' '+k).join(', ');
+    // se il file contiene una tabella che questa versione non conosce, lo dico
+    const sconosciute=Object.keys(data).filter(k=>k.charAt(0)!=='_'
+      && Array.isArray(data[k]) && BACKUP_TABELLE.map(t=>t[0]).indexOf(k)<0);
     openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Conferma ripristino</h2>'
-     +'<div class="info-box">Backup del <strong>'+(data._data?new Date(data._data).toLocaleString('it-IT'):'data sconosciuta')+'</strong><br><br>Contiene: '+conteggi+'</div>'
+     +'<div class="info-box">Backup del <strong>'+(data._data?new Date(data._data).toLocaleString('it-IT'):'data sconosciuta')+'</strong>'
+     +(data._versione?(' - fatto con la '+att(data._versione)):'')+'<br><br>Contiene: '+conteggi+'</div>'
+     +(sconosciute.length?('<div class="alert alert-amber">Il file contiene anche <strong>'+sconosciute.join(', ')
+        +'</strong>, che questa versione dell&#39;app non sa rimettere a posto. Aggiorna l&#39;app prima di ripristinare.</div>'):'')
      +'<div class="alert alert-red">Procedendo, questi dati verranno reinseriti nel database (sovrascrivendo quelli con lo stesso codice). Continuare?</div>'
      +'<div id="rip-prog" style="font-size:13px;color:var(--gray);margin-bottom:8px"></div>'
      +'<button class="btn-primary" style="background:var(--red)" onclick="eseguiRipristino()">Sì, ripristina ora</button>'
@@ -2835,7 +2841,7 @@ async function eseguiRipristino(){
     // MASSICCI
     await up("massicci",(data.massicci||[]).map(m=>({id:m.ID,articolo_id:m.ArticoloID,lunghezza_mm:m.Lunghezza_mm||null,larghezza_mm:m.Larghezza_mm||null,spessore_mm:m.Spessore_mm||null,m3_originale:m.M3_originale,m3_residuo:m.M3_residuo,commesse:m.Commesse||'',fornitore:m.Fornitore||'',data_carico:m.DataCarico||null,note:m.Note||'',ddt:m.Ddt||'',data_ddt:m.DataDdt||null})),"massicci");
     // MOVIMENTI
-    await up("movimenti",(data.movimenti||[]).map(m=>({id:m.ID,data:m.Data,utente:m.Utente,articolo_id:m.ArticoloID,nome_articolo:m.NomeArticolo,tipo:m.Tipo,quantita:m.Quantita,unita_misura:m.UnitaMisura,commessa:m.Commessa||'',pezzo_id:m.PezzoID||'',note:m.Note||'',annullato:(m.Annullato==='SI'||m.Annullato===true),fornitore:m.Fornitore||'',ddt:m.Ddt||'',data_ddt:m.DataDdt||null})),"movimenti");
+    await up("movimenti",(data.movimenti||[]).map(m=>({id:m.ID,data:m.Data,utente:m.Utente,articolo_id:m.ArticoloID,nome_articolo:m.NomeArticolo,tipo:m.Tipo,quantita:m.Quantita,unita_misura:m.UnitaMisura,commessa:m.Commessa||'',pezzo_id:m.PezzoID||'',note:m.Note||'',annullato:(m.Annullato==='SI'||m.Annullato===true),fornitore:m.Fornitore||'',ddt:m.Ddt||'',data_ddt:m.DataDdt||null,etichetta:m.Etichetta||''})),"movimenti");
     // RISERVE
     await up("riserve",(data.riserve||[]).map(r=>({articolo_id:r.ArticoloID,commessa:r.Commessa,quantita:r.Quantita})),"riserve");
     // FABBISOGNI
@@ -2901,38 +2907,102 @@ async function eseguiRipristino(){
     setTimeout(()=>location.reload(),nu?9000:1400);
   }catch(e){ setP("Errore: "+e.message); toast("Errore durante il ripristino: "+e.message,"err"); }
 }
+// Le tabelle del database, una per una: nome nel backup, funzione che la
+// legge, nome del foglio Excel. Se un domani se ne aggiunge una, va messa
+// qui e il backup se la porta dietro da solo.
+var BACKUP_TABELLE=[
+  ['articoli',  'getArticoli',     'Articoli'],
+  ['pannelli',  'getPannelli',     'Pannelli'],
+  ['massicci',  'getMassicci',     'Massicci'],
+  ['movimenti', 'getMovimenti',    'Movimenti'],
+  ['commesse',  'getCommesse',     'Commesse'],
+  ['fornitori', 'getFornitori',    'Fornitori'],
+  ['fabbisogni','getFabbisogno',   'Fabbisogni'],
+  ['ordini',    'getOrdini',       'Ordini'],
+  ['offerte',   'getOfferte',      'Offerte'],
+  ['riserve',   'getRiserve',      'Riserve'],
+  ['rettifiche','getRettifiche',   'Rettifiche'],
+  ['immagini',  'getImmagini',     'Immagini'],
+  ['modelli',   'getModelli',      'Modelli'],
+  ['voci',      'getVoci',         'Altre voci'],
+  ['personale', 'getPersonale',    'Personale'],
+  ['ore',       'getOre',          'Ore'],
+  ['dettature', 'getDettature',    'Dettature'],
+  ['utenti',    'getUtentiElenco', 'Utenti'],
+  ['config',    'getConfig',       'Config'],
+  ['etichette', 'getEtichette',    'Etichette']
+];
 function scaricaBackup(){
   toast("Preparazione backup...");
-  Promise.all([
-    call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti"),
-    call("getCommesse"),call("getFornitori"),call("getFabbisogno"),call("getOrdini"),
-    call("getOfferte"),call("getRiserve"),call("getRettifiche"),call("getImmagini"),call("getModelli"),call("getVoci"),call("getPersonale"),call("getOre"),call("getDettature"),
-    call("getUtentiElenco"),call("getConfig"),call("getEtichette")
-  ]).then(([articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config,etichette])=>{
+  const mancate=[];
+  Promise.all(BACKUP_TABELLE.map(function(t){
+    return call(t[1])
+      .then(function(r){ return Array.isArray(r)?r:[]; })
+      .catch(function(){ mancate.push(t[0]); return []; });
+  })).then(function(res){
+    const dati={},conteggi={};
+    BACKUP_TABELLE.forEach(function(t,i){ dati[t[0]]=res[i]||[]; conteggi[t[0]]=(res[i]||[]).length; });
     const d=new Date();
     const pad=n=>String(n).padStart(2,"0");
     const stamp=pad(d.getDate())+"-"+pad(d.getMonth()+1)+"-"+d.getFullYear()+"_ore-"+pad(d.getHours())+"-"+pad(d.getMinutes());
-    // 1) JSON completo (per il ripristino nell'app)
-    const backup={_info:"Backup Magazzino Atelier Tonini",_data:new Date().toISOString(),
-      _tabelle:20,_nota:"Degli utenti sono salvati nome, email e ruolo ma NON le password: dopo un ripristino su un database vuoto le password vanno rimesse a mano.",
-      articoli,pannelli,massicci,movimenti,commesse,fornitori,fabbisogni,ordini,offerte,riserve,rettifiche,immagini,modelli,voci,personale,ore,dettature,utenti,config,etichette};
+    // 1) JSON completo (e' questo che il pulsante Ripristina sa rileggere)
+    const backup=Object.assign({
+      _info:"Backup Magazzino Atelier Tonini",
+      _data:new Date().toISOString(),
+      _versione:(document.getElementById('ver-badge')||{}).textContent||'',
+      _tabelle:BACKUP_TABELLE.length,
+      _conteggi:conteggi,
+      _nonLette:mancate,
+      _nota:"Degli utenti sono salvati nome, email e ruolo ma NON le password: dopo un ripristino su un database vuoto le password vanno rimesse a mano. Delle immagini e' salvato il collegamento, non il file."
+    },dati);
     scaricaFile(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),"backup-magazzino_"+stamp+".json");
     // 2) Excel con un foglio per ogni tabella
     try{
       const wb=XLSX.utils.book_new();
-      const aggiungi=(nome,dati)=>{ if(dati&&dati.length){ const ws=XLSX.utils.json_to_sheet(dati); XLSX.utils.book_append_sheet(wb,ws,nome.slice(0,31)); } };
-      aggiungi("Articoli",articoli); aggiungi("Pannelli",pannelli); aggiungi("Massicci",massicci);
-      aggiungi("Movimenti",movimenti); aggiungi("Commesse",commesse); aggiungi("Fornitori",fornitori);
-      aggiungi("Fabbisogni",fabbisogni); aggiungi("Ordini",ordini.map(o=>Object.assign({},o,{Righe:JSON.stringify(o.Righe||[])})));
-      aggiungi("Offerte",offerte.map(o=>Object.assign({},o,{Dati:JSON.stringify(o.Dati||{})})));
-      aggiungi("Riserve",riserve); aggiungi("Rettifiche",rettifiche); aggiungi("Immagini",immagini); aggiungi("Modelli",modelli); aggiungi("Altre voci",voci);
-      aggiungi("Personale",personale); aggiungi("Ore",ore); aggiungi("Dettature",dettature);
-      aggiungi("Utenti",utenti); aggiungi("Config",config); aggiungi("Etichette",etichette);
+      const piatto=function(nome,righe){
+        if(nome==='ordini')return righe.map(o=>Object.assign({},o,{Righe:JSON.stringify(o.Righe||[])}));
+        if(nome==='offerte')return righe.map(o=>Object.assign({},o,{Dati:JSON.stringify(o.Dati||{})}));
+        if(nome==='etichette')return righe.map(e=>Object.assign({},e,{Contenuto:JSON.stringify(e.Contenuto||[])}));
+        return righe;
+      };
+      BACKUP_TABELLE.forEach(function(t){
+        const righe=dati[t[0]];
+        if(righe&&righe.length){
+          const ws=XLSX.utils.json_to_sheet(piatto(t[0],righe));
+          XLSX.utils.book_append_sheet(wb,ws,t[2].slice(0,31));
+        }
+      });
       const xbuf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
       scaricaFile(new Blob([xbuf],{type:"application/octet-stream"}),"magazzino_"+stamp+".xlsx");
     }catch(e){console.error("Excel non generato:",e);}
-    toast("Backup scaricato: JSON + Excel ("+(articoli.length)+" articoli, "+(pannelli.length)+" pannelli, "+(movimenti.length)+" movimenti, "+(ore.length)+" ore)");
+    riepilogoBackup(conteggi,mancate);
   }).catch(e=>toast("Errore backup: "+e.message,"err"));
+}
+// La prova del nove: ti faccio vedere riga per riga che cosa e' finito
+// dentro al file, cosi non devi fidarti sulla parola.
+function riepilogoBackup(conteggi,mancate){
+  let tot=0;
+  const righe=BACKUP_TABELLE.map(function(t){
+    const n=conteggi[t[0]]||0; tot+=n;
+    const rosso=mancate.indexOf(t[0])>=0;
+    return '<div class="det-row"><span>'+t[2]+'</span><span style="'
+      +(rosso?'color:var(--red)':(n?'':'color:var(--gray)'))+'">'
+      +(rosso?'non letta':(n?(n+' righe'):'vuota'))+'</span></div>';
+  }).join('');
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Backup scaricato</h2>'
+   +'<div class="info-box">Hai due file nei Download: il <strong>.json</strong> (serve al pulsante Ripristina) '
+   +'e il <strong>.xlsx</strong> con un foglio per ogni tabella.</div>'
+   +(mancate.length
+      ? ('<div class="alert alert-red">Attenzione: '+mancate.length+' tabella/e non si sono fatte leggere ('
+         +mancate.join(', ')+'). Il file e&#39; incompleto: riprova, e se insiste e&#39; un problema del database.</div>')
+      : '<div class="alert alert-green">Tutte le '+BACKUP_TABELLE.length+' tabelle lette correttamente.</div>')
+   +righe
+   +'<div class="det-row" style="border-bottom:none"><span style="font-weight:700">Totale righe</span>'
+   +'<span style="font-weight:700">'+tot+'</span></div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:8px">Delle immagini e&#39; salvato il collegamento, '
+   +'non il file. Degli utenti non sono salvate le password.</div>'
+   +'<button class="btn-primary" onclick="closeModal()">Ho capito</button></div>');
 }
 function scaricaFile(blob,nome){
   const url=URL.createObjectURL(blob);
@@ -3299,7 +3369,7 @@ function selAllMov(chk){
 function rowsMov(list){
   const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'-';};
   MOV_VIS=list.map(m=>m.ID);
-  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(bollaDi(m).forn||m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(bollaDi(m).ddt||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa||"-")+'</td></tr>').join("")||'<tr><td colspan="10" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
+  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(bollaDi(m).forn||m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(bollaDi(m).ddt||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa?commTxt(m.Commessa):"-")+'</td></tr>').join("")||'<tr><td colspan="10" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
 }
 function movFiltrati(){
   const te=document.getElementById("flt-tipo"),ce=document.getElementById("flt-comm"),xe=document.getElementById("flt-txt");
@@ -3708,7 +3778,7 @@ function _openReportCommessa(comm){
   // barra fissa in alto: il pulsante di stampa resta sempre a portata,
   // anche scorrendo un report lungo
   const barra='<div style="position:sticky;top:-24px;z-index:6;background:#fff;margin:-24px -24px 12px;padding:16px 24px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">'
-    +'<div style="flex:1;font-family:Georgia,serif;font-size:17px;font-weight:600">Commessa '+comm+'</div>'
+    +'<div style="flex:1;font-family:Georgia,serif;font-size:17px;font-weight:600">Commessa '+commTxt(comm)+'</div>'
     +'<button class="btn btn-accent" onclick="stampaReportCommessa(\''+esc(comm)+'\')">Stampa / PDF</button>'
     +'<button class="btn btn-green" onclick="csvReportCommessa(\''+esc(comm)+'\')">CSV</button>'
     +'<button class="btn btn-ghost" onclick="closeModal()">Chiudi</button></div>';
@@ -4305,7 +4375,7 @@ function apriSceltaCodici(fabId){
     return '<label style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border);cursor:pointer"><input type="checkbox" class="sc-chk" value="'+esc(p.ID)+'" style="width:18px;height:18px;accent-color:var(--accent)"><span style="flex:1"><strong>'+p.ID+'</strong> <span style="color:var(--gray);font-size:12px">'+dim+' - '+res+(p.Note?(' - '+p.Note):'')+'</span></span></label>';
   }).join("");
   openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Scegli i codici da assegnare</h2>'
-    +'<div class="info-box">Commessa <strong>'+f.Commessa+'</strong> - servono <strong>'+need+'</strong> pezzi di "'+f.Descrizione+'". Seleziona quali codici destinare.</div>'
+    +'<div class="info-box">Commessa <strong>'+commTxt(f.Commessa)+'</strong> - servono <strong>'+need+'</strong> pezzi di "'+f.Descrizione+'". Seleziona quali codici destinare.</div>'
     +'<div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:11px;padding:4px 10px">'+righe+'</div>'
     +'<div id="sc-err" style="color:var(--red);font-size:13px;margin-top:8px"></div>'
     +'<button class="btn-primary" onclick="confermaSceltaCodici(\''+esc(fabId)+'\')">Assegna i selezionati</button></div>');
@@ -4433,7 +4503,7 @@ function ordineCard(o){
   if(!ricevuto)azioni+='<button class="btn btn-green" onclick="caricaOrdineMagazzino(\''+esc(o.ID)+'\')">Carica a magazzino</button>';
   azioni+='<button class="btn btn-accent" onclick="openSegnalaOrdine(\''+esc(o.ID)+'\')">Segnala</button>';
   azioni+='<button class="btn btn-red" onclick="openEliminaOrdine(\''+esc(o.ID)+'\')">Elimina</button></div>';
-  return '<details class="acc"><summary>Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+o.Commessa):'')+' &nbsp;'+badge(o.Stato)+'<span style="margin-left:auto;font-size:11.5px;color:var(--gray);font-weight:400">'+String(o.Data||'').slice(0,16)+'</span></summary><div class="acc-body">'+righeHtml+azioni+(o.Note?'<div style="margin-top:8px;font-size:11.5px;color:var(--red)">'+o.Note+'</div>':'')+'</div></details>';
+  return '<details class="acc"><summary>Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')+' &nbsp;'+badge(o.Stato)+'<span style="margin-left:auto;font-size:11.5px;color:var(--gray);font-weight:400">'+String(o.Data||'').slice(0,16)+'</span></summary><div class="acc-body">'+righeHtml+azioni+(o.Note?'<div style="margin-top:8px;font-size:11.5px;color:var(--red)">'+o.Note+'</div>':'')+'</div></details>';
 }
 // Le righe salvate su un ordine: se lo stesso articolo compare piu'
 // volte (liste prese un armadio alla volta) al fornitore ne va una sola.
@@ -4479,7 +4549,7 @@ function buildOrdinePDF(o){
       +'</tr>';
   }).join("")||'<tr><td colspan="6" style="color:#888">Nessuna riga</td></tr>';
   let sottotitolo=oggi+'<br>Ordine n. <strong>'+o.ID+'</strong>';
-  if(o.Commessa)sottotitolo+='<br>Commessa: '+o.Commessa;
+  if(o.Commessa)sottotitolo+='<br>Commessa: '+commTxt(o.Commessa);
   let fornBox='<div style="margin:14px 0;padding:10px 14px;background:#f7f3ec;border-radius:8px;font-size:13px"><strong>Fornitore:</strong> '+(o.Fornitore||'-');
   if(email)fornBox+=' &nbsp;|&nbsp; <strong>Email:</strong> '+email;
   if(tel)fornBox+=' &nbsp;|&nbsp; <strong>Tel:</strong> '+tel;
@@ -4522,7 +4592,7 @@ function buildFoglioRicezione(o){
       +'</tr>';
   }).join("")||'<tr><td colspan="4" style="color:#888">Nessuna riga</td></tr>';
   let sotto=oggi+'<br>Ordine n. <strong>'+o.ID+'</strong><br>Fornitore: '+(o.Fornitore||'-');
-  if(o.Commessa)sotto+='<br>Commessa: '+o.Commessa;
+  if(o.Commessa)sotto+='<br>Commessa: '+commTxt(o.Commessa);
   return '<div style="font-family:Georgia,serif;color:#3a342d">'
    +pdfHead('Foglio di ricezione',sotto)
    +'<div style="margin:10px 0 14px;padding:9px 13px;background:#f7f3ec;border-radius:8px;font-size:12.5px">'
@@ -4577,7 +4647,7 @@ function caricaOrdineMagazzino(id){
   openModal('<div class="modal" style="width:min(700px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Carico a magazzino &mdash; ordine '+att(o.ID||id)+'</h2>'
    +'<div class="info-box">Fornitore: <strong>'+att(o.Fornitore||'-')+'</strong>'
-   +(o.Commessa?(' &middot; Commessa: <strong>'+att(o.Commessa)+'</strong>'):'')
+   +(o.Commessa?(' &middot; Commessa: <strong>'+commTxt(o.Commessa)+'</strong>'):'')
    +'<br><span style="font-size:12.5px">La bolla si scrive <strong>una volta sola</strong> qui sotto e vale per tutto '
    +'quello che spunti: a fine mese ti serve per spuntare le bolle con le fatture. '
    +'Togli la spunta a quello che non e&#39; arrivato: lo carichi un&#39;altra volta.</span></div>'
@@ -4670,7 +4740,7 @@ function openRicevoRiga(ordineId,i){
    +(mis?('<div style="font-size:12.5px;color:var(--gray)">'+mis+'</div>'):'')
    +'<div style="margin-top:6px;font-size:13px">Ordinato: <strong>'+att(gr.qtaTxt)+'</strong></div>'
    +'<div style="font-size:12.5px;color:var(--gray);margin-top:3px">Fornitore: <strong>'+att(o.Fornitore||'-')+'</strong>'
-   +(o.Commessa?(' &middot; Commessa: <strong>'+att(o.Commessa)+'</strong>'):' &middot; nessuna commessa')
+   +(o.Commessa?(' &middot; Commessa: <strong>'+commTxt(o.Commessa)+'</strong>'):' &middot; nessuna commessa')
    +' &middot; Ordine <strong>'+att(o.ID)+'</strong></div></div>'
    +'<div class="form-group" style="max-width:220px"><label>Quantita&#39; arrivata *</label>'
    +'<input type="number" step="any" min="0" id="rr-q" value="'+att(gr.qta)+'">'
@@ -4765,7 +4835,7 @@ function euro(n){return Number(n||0).toLocaleString('it-IT',{minimumFractionDigi
 function renderOfferte(){
   if(!OFFERTE_OK)return '<h1 class="page-title">Offerte</h1><div class="card" style="max-width:420px"><div class="info-box">Area protetta. Inserisci la password (modificabile nel foglio Config, voce password_offerte).</div><div class="form-group"><label>Password</label><input type="password" id="off-pw" onkeydown="if(event.key===\'Enter\')verificaOff()"></div><div id="off-pwerr"></div><button class="btn-primary" onclick="verificaOff()">Sblocca</button></div>';
   const list=STATE.offerte||[];
-  const rows=list.map(o=>'<div class="card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-weight:600">'+o.ID+' - '+(o.Oggetto||'')+'</div><div style="font-size:12px;color:var(--gray)">'+(o.Cliente||'')+(o.Commessa?(' - commessa '+o.Commessa):'')+' - '+String(o.Data||'').slice(0,10)+'</div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="esportaOffertaPDF(\''+esc(o.ID)+'\')">PDF</button><button class="btn btn-accent" onclick="openOfferta(\''+esc(o.ID)+'\')">Apri</button><button class="btn btn-red" onclick="eliminaOff(\''+esc(o.ID)+'\')">Elimina</button></div></div>').join("")||'<div class="card" style="color:var(--gray)">Nessuna offerta.</div>';
+  const rows=list.map(o=>'<div class="card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-weight:600">'+o.ID+' - '+(o.Oggetto||'')+'</div><div style="font-size:12px;color:var(--gray)">'+(o.Cliente||'')+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')+' - '+String(o.Data||'').slice(0,10)+'</div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="esportaOffertaPDF(\''+esc(o.ID)+'\')">PDF</button><button class="btn btn-accent" onclick="openOfferta(\''+esc(o.ID)+'\')">Apri</button><button class="btn btn-red" onclick="eliminaOff(\''+esc(o.ID)+'\')">Elimina</button></div></div>').join("")||'<div class="card" style="color:var(--gray)">Nessuna offerta.</div>';
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Offerte</h1><button class="btn btn-accent" onclick="openNuovaOfferta()">+ Nuova offerta</button></div>'+rows;
 }
 function verificaOff(){const pw=gv("off-pw");call("verificaPasswordOfferte",pw).then(r=>{if(!r.ok){showErr("off-pwerr","Password errata.");return;}OFFERTE_OK=true;call("getOfferte").then(o=>{STATE.offerte=o||[];renderPage("offerte");});});}
@@ -4818,7 +4888,7 @@ function buildOffertaPDF(o){
    +'<div style="display:flex;justify-content:flex-end">'+LOGO_TONINI+'</div>'
    +'<div style="text-align:right;margin-top:44px">Spett.le<br><strong>'+(o.Cliente||'')+'</strong><br>'+String(D.clienteIndirizzo||"").replace(/\n/g,'<br>')+'</div>'
    +'<div style="text-align:right;margin-top:14px">'+(D.luogo||"Maserada")+', '+String(o.Data||"").slice(0,10)+'</div>'
-   +(o.Commessa?'<div style="margin-top:30px;font-weight:bold">COMMESSA: '+o.Commessa+'</div>':'')
+   +(o.Commessa?'<div style="margin-top:30px;font-weight:bold">COMMESSA: '+commTxt(o.Commessa)+'</div>':'')
    +'<div style="margin-top:'+(o.Commessa?'8px':'30px')+';font-weight:bold">OGGETTO: '+(o.Oggetto||'')+'</div>'
    +'<p style="margin-top:16px;font-weight:bold;line-height:1.6">'+String(D.intro||"").replace(/\n/g,'<br>')+'</p>'
    +'<table style="width:100%;border-collapse:collapse;margin-top:18px;font-size:11.5px"><thead><tr style="border-bottom:1.5px solid #000"><th align="left" style="padding-bottom:5px">PR</th><th align="left">COD</th><th align="left">DESCRIZIONE</th><th align="center">Q.TA\'</th><th align="right">EURO CAD</th><th align="right">EURO TOT</th></tr></thead><tbody>'+body+'</tbody></table>'
@@ -4845,7 +4915,7 @@ function renderDestinati(){
   keys.forEach(c=>{const g=byC[c];
     let body=g.pan.map(p=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'pannello\',\''+esc(p.ID)+'\')"><span>'+p.ID+' - '+nomeTipo(p.ArticoloID)+'</span><span style="color:var(--gray)">'+(+p.M2_residuo).toFixed(2)+' m2</span></div>').join("");
     body+=g.mas.map(p=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'massiccio\',\''+esc(p.ID)+'\')"><span>'+p.ID+' - '+nomeTipo(p.ArticoloID)+'</span><span style="color:var(--gray)">'+(+p.M3_residuo).toFixed(3)+' m3</span></div>').join("");
-    h+='<div class="card" style="margin-bottom:10px"><div class="card-title">Commessa '+c+' ('+(g.pan.length+g.mas.length)+' pezzi)</div>'+body+'</div>';
+    h+='<div class="card" style="margin-bottom:10px"><div class="card-title">Commessa '+commTxt(c)+' ('+(g.pan.length+g.mas.length)+' pezzi)</div>'+body+'</div>';
   });
   return h;
 }
@@ -5442,6 +5512,56 @@ function tipoOraLabel(t){return tipoOra(t)[1];}
 function tipoOraCommessa(t){return tipoOra(t)[3];}
 function tipoOraViaggio(t){return tipoOra(t)[4];}
 function oreProduttive(t){return t==='lavoro'||t==='viaggio';}
+// ============================================================
+//  LA TRASFERTA E' UNA COSA SOLA
+//  In archivio restano due righe (il viaggio e il lavoro in
+//  cantiere) perche' costano diverso e nei mastrini non devono
+//  confondersi. Ma per chi le scrive sono lo stesso giorno di
+//  lavoro: qui le ritrovo in coppia, cosi' l'app le puo' mostrare
+//  e far correggere insieme.
+// ============================================================
+function oreDestNorm(x){return String(x||'').trim().toLowerCase();}
+// una riga di lavoro con una destinazione e' lavoro fatto in cantiere,
+// non in officina
+function oreInCantiere(r){return !!(r&&r.Tipo==='lavoro'&&oreDestNorm(r.Destinazione));}
+function oreStessaTrasferta(a,b){
+  if(!a||!b||a.ID===b.ID)return false;
+  return String(a.Data||'').slice(0,10)===String(b.Data||'').slice(0,10)
+    && a.PersonaID===b.PersonaID
+    && String(a.Commessa||'')===String(b.Commessa||'')
+    && oreDestNorm(a.Destinazione)===oreDestNorm(b.Destinazione);
+}
+// l'altra meta' della trasferta: dal viaggio il cantiere, dal cantiere il viaggio
+function oreGemella(r){
+  if(!r)return null;
+  let cerco='';
+  if(r.Tipo==='viaggio')cerco='lavoro';
+  else if(oreInCantiere(r))cerco='viaggio';
+  else return null;
+  const c=(STATE.ore||[]).filter(function(x){
+    if(x.Tipo!==cerco)return false;
+    if(cerco==='lavoro'&&!oreInCantiere(x))return false;
+    return oreStessaTrasferta(r,x);
+  });
+  return c[0]||null;
+}
+// {viaggio, lavoro}: null se la riga non c'entra con le trasferte
+function oreTrasferta(r){
+  if(!r)return null;
+  if(r.Tipo==='viaggio')return {viaggio:r,lavoro:oreGemella(r)};
+  if(oreInCantiere(r))return {viaggio:oreGemella(r),lavoro:r};
+  return null;
+}
+// "2,00 h di viaggio + 6,00 h in cantiere = 8,00 h"
+function oreTrasfertaTxt(tr){
+  if(!tr)return '';
+  const v=tr.viaggio?(+tr.viaggio.Ore||0):0, l=tr.lavoro?(+tr.lavoro.Ore||0):0;
+  const p=[];
+  if(v)p.push(nOre(v)+' h di viaggio');
+  if(l)p.push(nOre(l)+' h in cantiere');
+  if(!p.length)return '';
+  return p.join(' + ')+((v&&l)?(' = '+nOre(v+l)+' h'):'');
+}
 function oreAdmin(){return (STATE.utente||{}).Ruolo!=='operator';}
 function personaMia(){
   const em=String((STATE.utente||{}).Email||'').trim().toLowerCase();
@@ -5554,12 +5674,13 @@ function nomeCommessa(id){
   return (c&&c.Nome&&c.Nome!==c.ID)?c.Nome:'';
 }
 function oreTot(list){
-  const t={n:list.length,ore:0,lavoro:0,viaggio:0,interno:0,assenza:0,km:0,costo:0,rimborso:0};
+  const t={n:list.length,ore:0,lavoro:0,viaggio:0,cantiere:0,interno:0,assenza:0,km:0,costo:0,rimborso:0};
   const gg={};
   (list||[]).forEach(function(r){
     const h=+r.Ore||0;t.ore+=h;
     if(r.Tipo==='lavoro')t.lavoro+=h;
     else if(r.Tipo==='viaggio')t.viaggio+=h;
+    if(oreInCantiere(r))t.cantiere+=h;
     else if(r.Tipo==='interno'||r.Tipo==='progetto_interno')t.interno+=h;
     else t.assenza+=h;
     t.km+=(+r.Km||0);t.costo+=(+r.Costo||0);t.rimborso+=(+r.Rimborso||0);
@@ -5623,14 +5744,34 @@ function rigaOra(r,mostraPersona){
   if(r.Destinazione)extra.push(r.Destinazione);
   if(+r.Km)extra.push(nOre(r.Km)+' km');
   if(r.Descrizione)extra.push(r.Descrizione);
+  // Se questa riga fa parte di una trasferta, il nome del tipo da solo non
+  // basta: "Lavoro in commessa" per 6 ore in cantiere non si distingue dalle
+  // ore fatte in officina. Qui scrivo cosa sono queste ore e cos'e' l'altra meta'.
+  const tr=oreTrasferta(r);
+  let titolo=t[1];
+  if(r.Tipo==='viaggio')titolo='Trasferta &mdash; viaggio';
+  else if(oreInCantiere(r))titolo='Trasferta &mdash; lavoro in cantiere';
+  let sotto='';
+  if(tr){
+    const alt=(r.Tipo==='viaggio')?tr.lavoro:tr.viaggio;
+    sotto='<div style="font-size:11.5px;color:var(--accent);margin-top:2px">'
+     +(alt
+        ? ('stessa trasferta: '+oreTrasfertaTxt(tr))
+        : (r.Tipo==='viaggio'
+            ? 'solo viaggio, nessuna ora in cantiere &mdash; se ne hai fatte, aggiungile con Modifica'
+            : 'solo cantiere, nessuna ora di viaggio'))
+     +'</div>';
+  }
   return '<div style="padding:10px 0;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">'
    +'<div style="flex:1;min-width:210px">'
    +'<div style="font-weight:600">'+(mostraPersona?(r.Persona+' &middot; '):'')
-     +'<span style="color:'+t[2]+'">'+t[1]+'</span>'+(r.Commessa?(' &middot; '+r.Commessa):'')+'</div>'
+     +'<span style="color:'+t[2]+'">'+titolo+'</span>'+(r.Commessa?(' &middot; '+commTxt(r.Commessa)):'')+'</div>'
    +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+extra.join(' &middot; ')+'</div>'
+   +sotto
    +(r.Note?'<div style="font-size:12px;color:var(--gray);font-style:italic;margin-top:2px">'+r.Note+'</div>':'')
    +'</div><div style="text-align:right;white-space:nowrap">'
    +'<div style="font-weight:700">'+nOre(r.Ore)+' h</div>'
+   +(tr?('<div style="font-size:11px;color:var(--gray)">'+(r.Tipo==='viaggio'?'di viaggio':'in cantiere')+'</div>'):'')
    +(admin&&((+r.Costo||0)+(+r.Rimborso||0))?('<div style="font-size:12px;color:var(--gray)">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</div>'):'')
    +'<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
    +'<button class="btn btn-accent" onclick="openNuovaOra(\''+esc(r.ID)+'\')">Modifica</button>'
@@ -5727,7 +5868,8 @@ function kpiOre(t,admin){
     +(sub?'<div style="font-size:11.5px;color:var(--gray);margin-top:2px">'+sub+'</div>':'')+'</div>';
   let h='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
   h+=box('Ore totali',nOre(t.ore)+' h',t.nGiorni+' giorni con registrazioni');
-  h+=box('Su commessa',nOre(t.produttive)+' h',nOre(t.lavoro)+' h lavoro &middot; '+nOre(t.viaggio)+' h viaggio');
+  h+=box('Su commessa',nOre(t.produttive)+' h',nOre(t.lavoro)+' h lavoro'
+    +(t.cantiere?(' (di cui '+nOre(t.cantiere)+' in cantiere)'):'')+' &middot; '+nOre(t.viaggio)+' h viaggio');
   h+=box('Non su commessa',nOre(t.interno+t.assenza)+' h',nOre(t.interno)+' h interne &middot; '+nOre(t.assenza)+' h assenze');
   h+=box('Chilometri',nOre(t.km)+' km',t.rimborso?('&euro; '+euro(t.rimborso)+' di rimborso'):'nessun rimborso');
   if(admin){
@@ -5827,7 +5969,7 @@ function oreTabCommessa(){
     .filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
   const t=oreTot(list);
   h+='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
-   +'<div style="font-family:Georgia,serif;font-size:18px;font-weight:600">'+(ORE_COMM?('Commessa '+ORE_COMM):'Tutte le commesse')+'</div>'
+   +'<div style="font-family:Georgia,serif;font-size:18px;font-weight:600">'+(ORE_COMM?('Commessa '+commTxt(ORE_COMM)):'Tutte le commesse')+'</div>'
    +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-accent" onclick="stampaMastrinoCommessa()">Stampa PDF</button>'
    +'<button class="btn btn-green" onclick="csvMastrinoCommessa()">Esporta CSV</button>'
    +'<button class="btn btn-green" onclick="csvDettaglioPeriodo()">Dettaglio giorno per giorno</button>'
@@ -5868,7 +6010,7 @@ function oreRegDescrizione(){
   const p=[];
   if(ORE_Q)p.push('che contengono "'+ORE_Q+'"');
   if(ORE_PERS){const x=(STATE.personale||[]).filter(y=>y.ID===ORE_PERS)[0];if(x)p.push('di '+x.Nome);}
-  if(ORE_COMM)p.push('sulla commessa '+ORE_COMM);
+  if(ORE_COMM)p.push('sulla commessa '+commTxtPiano(ORE_COMM));
   if(ORE_TIPO)p.push('di tipo "'+tipoOraLabel(ORE_TIPO)+'"');
   if(ORE_DA||ORE_A)p.push(periodoTxt());
   return p.length?p.join(', '):'tutte le registrazioni';
@@ -5944,7 +6086,7 @@ function oreTabRegistro(){
      +'<td style="padding:7px 5px;white-space:nowrap">'+dataIt(r.Data)+'</td>'
      +'<td>'+(r.Persona||'')+'</td>'
      +'<td style="color:'+tp[2]+'">'+tp[1]+'</td>'
-     +'<td style="white-space:nowrap">'+(r.Commessa||'<span style="color:var(--gray)">-</span>')+'</td>'
+     +'<td style="white-space:nowrap">'+(r.Commessa?commTxt(r.Commessa):'<span style="color:var(--gray)">-</span>')+'</td>'
      +'<td style="color:var(--gray)">'+(r.Descrizione||'')
        +(r.Destinazione?(' <span style="color:var(--accent)">('+r.Destinazione+')</span>'):'')
        +(r.Note?(' <em>'+r.Note+'</em>'):'')+'</td>'
@@ -6249,7 +6391,7 @@ function agendaVoci(righe){
   return righe.slice().sort((a,b)=>(+b.Ore||0)-(+a.Ore||0)).map(function(r){
     const t=tipoOra(r.Tipo);
     const dove=r.Commessa
-      ? ('<span style="font-family:monospace">'+r.Commessa+'</span>'
+      ? ('<span style="font-family:monospace">'+commTxt(r.Commessa)+'</span>'
          +(nomeCommessa(r.Commessa)?(' <span style="color:var(--gray)">'+nomeCommessa(r.Commessa)+'</span>'):''))
       : ('<span style="color:'+t[2]+'">'+t[1]+'</span>');
     const extra=[];
@@ -6376,7 +6518,7 @@ function stampaAgenda(){
          +'<span style="min-width:140px;font-weight:600">'+p.nome+'</span>'
          +'<span style="width:50px;text-align:right">'+nOre(p.ore)+' h</span>'
          +'<span style="flex:1">'+p.righe.map(function(r){
-             return nOre(r.Ore)+'h '+(r.Commessa||tipoOraLabel(r.Tipo))
+             return nOre(r.Ore)+'h '+(r.Commessa?commTxt(r.Commessa):tipoOraLabel(r.Tipo))
                +(r.Descrizione?(' ('+r.Descrizione+')'):'');
            }).join(' &middot; ')+'</span></div>';
       });
@@ -6680,10 +6822,28 @@ function oreTabPersonale(){
 
 // ---------- modale: una registrazione ----------
 var ORE_MOD_ID='';   // se sto correggendo una riga esistente, il suo codice
+var ORE_MOD_VIA='';  // la riga del viaggio, quando sto correggendo una trasferta
+var ORE_MOD_LAV='';  // la riga delle ore fatte in cantiere
 function openNuovaOra(id,pre){
   if(!(STATE.personale||[]).length){toast('Prima devi inserire le persone','err');navTo('ore');return;}
-  ORE_MOD_ID=id||'';
-  const r=id?(STATE.ore||[]).filter(x=>x.ID===id)[0]:null;
+  ORE_MOD_ID=id||''; ORE_MOD_VIA=''; ORE_MOD_LAV='';
+  let r=id?(STATE.ore||[]).filter(x=>x.ID===id)[0]:null;
+  // Se la riga aperta fa parte di una trasferta, la finestra non deve mostrare
+  // mezza giornata: apro tutte e due le caselle, gia' compilate.
+  let oreLav='';
+  const tr=r?oreTrasferta(r):null;
+  if(tr&&(tr.viaggio||tr.lavoro)){
+    ORE_MOD_VIA=tr.viaggio?tr.viaggio.ID:'';
+    ORE_MOD_LAV=tr.lavoro?tr.lavoro.ID:'';
+    oreLav=tr.lavoro?tr.lavoro.Ore:'';
+    if(tr.viaggio){
+      r=Object.assign({},tr.viaggio);
+      // la descrizione la scrive chi vuole su una delle due righe: la mostro
+      // comunque, sennò salvando si perde quella dell'altra meta'
+      if(!String(r.Descrizione||'').trim()&&tr.lavoro)r.Descrizione=tr.lavoro.Descrizione||'';
+      if(!String(r.Note||'').trim()&&tr.lavoro)r.Note=tr.lavoro.Note||'';
+    } else r=Object.assign({},tr.lavoro,{Tipo:'viaggio',Ore:'',Km:''});
+  }
   const admin=oreAdmin(),mia=personaMia();
   const persone=(STATE.personale||[]).filter(p=>p.Attivo||(r&&r.PersonaID===p.ID));
   if(!admin&&!mia){toast('Il tuo utente non è collegato a nessuna persona in elenco','err');return;}
@@ -6697,25 +6857,27 @@ function openNuovaOra(id,pre){
   const optC=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)))
     .map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===d.Commessa?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('');
   openModal('<div class="modal" style="width:520px"><button class="modal-close" onclick="closeModal()">&times;</button>'
-   +'<h2>'+(r?'Modifica registrazione':'Registra ore')+'</h2>'
+   +'<h2>'+(ORE_MOD_VIA||ORE_MOD_LAV?'Modifica trasferta':(r?'Modifica registrazione':'Registra ore'))+'</h2>'
    +'<div class="form-row"><div class="form-group"><label>Data *</label><input type="date" id="no-data" value="'+att(String(d.Data||'').slice(0,10))+'"></div>'
    +'<div class="form-group"><label>Persona *</label><select id="no-pers"'+(admin?'':' disabled')+'>'+optP+'</select></div></div>'
    +'<div class="form-group"><label>Che ore sono *</label><select id="no-tipo" onchange="oreFormTipo()">'+optT+'</select></div>'
    +'<div id="no-box-comm" class="form-group"><label>Commessa *</label><select id="no-comm"><option value="">- Scegli -</option>'+optC+'</select></div>'
-   +'<div class="form-row"><div class="form-group"><label id="no-lab-ore">Ore *</label><input type="number" step="0.25" min="0" id="no-ore" value="'+att(d.Ore)+'" placeholder="es. 7,5"></div>'
+   +'<div class="form-row"><div class="form-group"><label id="no-lab-ore">Ore *</label><input type="number" step="0.25" min="0" id="no-ore" value="'+att(d.Ore)+'" placeholder="es. 7,5" oninput="oreTotTrasferta()"></div>'
    +'<div class="form-group" id="no-box-km"><label>Chilometri</label><input type="number" step="any" min="0" id="no-km" value="'+att(d.Km)+'"></div></div>'
    +'<div class="form-group" id="no-box-lav" style="display:none">'
    +'<label>Ore di lavoro in cantiere</label>'
-   +'<input type="number" step="0.25" min="0" id="no-lav" placeholder="es. 6">'
+   +'<input type="number" step="0.25" min="0" id="no-lav" value="'+att(oreLav)+'" placeholder="es. 6" oninput="oreTotTrasferta()">'
+   +'<div id="no-tot-tra" style="font-size:12px;color:var(--accent);margin-top:5px"></div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">'
    +'Quando vai in trasferta le ore sono due cose diverse: quelle passate in furgone e quelle '
-   +'passate a lavorare. Scrivile separate e l&#39;app registra <strong>due righe</strong>, '
-   +'cos&igrave; nei mastrini il viaggio non si confonde con il lavoro. Se lasci vuoto, registra solo il viaggio.</div></div>'
+   +'passate a lavorare. Scrivile separate e l&#39;app tiene <strong>due righe</strong>, '
+   +'cos&igrave; nei mastrini il viaggio non si confonde con il lavoro. '
+   +'Se metti <strong>0</strong> in una delle due, quella riga viene tolta.</div></div>'
    +'<div class="form-group" id="no-box-dest"><label>Destinazione</label><input id="no-dest" value="'+att(d.Destinazione)+'" placeholder="es. cantiere Venezia"></div>'
    +'<div class="form-group"><label>Cosa hai fatto</label><input id="no-desc" value="'+att(d.Descrizione)+'" placeholder="es. montaggio ante cucina"></div>'
    +'<div class="form-group"><label>Note</label><input id="no-note" value="'+att(d.Note)+'"></div>'
    +'<div id="no-err"></div>'
-   +'<button class="btn-primary" onclick="submitOra(\''+esc(id||'')+'\')">'+(r?'Salva modifiche':'Registra')+'</button></div>');
+   +'<button class="btn-primary" onclick="submitOra(\''+esc(ORE_MOD_VIA||id||'')+'\')">'+(r?'Salva modifiche':'Registra')+'</button></div>');
   oreFormTipo();
 }
 function oreFormTipo(){
@@ -6723,13 +6885,25 @@ function oreFormTipo(){
   const bc=document.getElementById('no-box-comm'); if(bc)bc.style.display=tipoOraCommessa(t)?'':'none';
   const bk=document.getElementById('no-box-km'); if(bk)bk.style.display=tipoOraViaggio(t)?'':'none';
   const bd=document.getElementById('no-box-dest'); if(bd)bd.style.display=tipoOraViaggio(t)?'':'none';
-  // la divisione viaggio/cantiere ha senso solo quando registri una trasferta
-  // nuova: se stai correggendo una riga gia' salvata, quella riga e' una sola
+  // La divisione viaggio/cantiere vale sempre, anche quando correggo: era
+  // questo il difetto, aprivi una trasferta e vedevi mezza giornata.
   const bl=document.getElementById('no-box-lav');
-  const nuova=!(ORE_MOD_ID||'');
-  if(bl)bl.style.display=(tipoOraViaggio(t)&&nuova)?'':'none';
+  if(bl)bl.style.display=tipoOraViaggio(t)?'':'none';
   const lab=document.getElementById('no-lab-ore');
-  if(lab)lab.textContent=(tipoOraViaggio(t)&&nuova)?'Ore di viaggio *':'Ore *';
+  if(lab)lab.textContent=tipoOraViaggio(t)?'Ore di viaggio *':'Ore *';
+  oreTotTrasferta();
+}
+// la somma sotto le due caselle, cosi' si vede subito la giornata intera
+function oreTotTrasferta(){
+  const box=document.getElementById('no-tot-tra'); if(!box)return;
+  if(!tipoOraViaggio(gv('no-tipo'))){box.innerHTML='';return;}
+  const h=parseFloat(gv('no-ore'))||0, l=parseFloat(gv('no-lav'))||0;
+  if(!h&&!l){box.innerHTML='';return;}
+  const p=[];
+  if(h)p.push('<strong>'+nOre(h)+' h</strong> di viaggio');
+  if(l)p.push('<strong>'+nOre(l)+' h</strong> in cantiere');
+  box.innerHTML='Giornata: '+p.join(' + ')+((h&&l)?(' = <strong>'+nOre(h+l)+' h</strong>'):'')
+   +((h&&l)?'':' <span style="color:var(--gray)">(una sola riga)</span>');
 }
 function submitOra(id){
   const tipo=gv('no-tipo');
@@ -6742,25 +6916,60 @@ function submitOra(id){
   if(!d.PersonaID){showErr('no-err','Scegli la persona.');return;}
   if(tipoOraCommessa(tipo)&&!d.Commessa){showErr('no-err','Per "'+tipoOraLabel(tipo)+'" serve la commessa: è quella che riceve il costo.');return;}
   const h=parseFloat(d.Ore)||0,km=parseFloat(d.Km)||0;
-  // le ore passate a lavorare in cantiere: si compilano solo per le trasferte nuove
-  const lav=(!id&&tipoOraViaggio(tipo))?(parseFloat(gv('no-lav'))||0):0;
+  // le ore passate a lavorare in cantiere: valgono sia quando registro sia
+  // quando correggo, perche' la trasferta e' una giornata sola
+  const lav=tipoOraViaggio(tipo)?(parseFloat(gv('no-lav'))||0):0;
   if(h<=0&&km<=0&&lav<=0){showErr('no-err','Metti almeno le ore.');return;}
   if(h+lav>24){showErr('no-err','Più di 24 ore in un giorno: controlla i numeri.');return;}
   if(id){const v=(STATE.ore||[]).filter(x=>x.ID===id)[0];
     if(v&&v.PersonaID===d.PersonaID){d.CostoOrario=v.CostoOrario;d.EuroKm=v.EuroKm;}}
 
-  // TRASFERTA DIVISA: una compilazione sola, ma due registrazioni.
-  // Cosi' nei mastrini, nei report e nel costo della commessa il viaggio
-  // resta viaggio e il lavoro resta lavoro, senza dover scrivere due volte.
-  if(lav>0){
-    const righe=[];
-    if(h>0||km>0)righe.push(Object.assign({},d,{Tipo:'viaggio',Ore:h,Km:km}));
-    righe.push(Object.assign({},d,{Tipo:'lavoro',Ore:lav,Km:0,
-      Descrizione:d.Descrizione||('lavoro in cantiere'+(d.Destinazione?(' '+d.Destinazione):''))}));
-    call('salvaOreBulk',{righe:righe}).then(function(r){
-      if(!r||!r.ok){showErr('no-err',(r&&r.err)||'Errore');return;}
-      call('getOre').then(function(o){STATE.ore=o||[];closeModal();
-        toast(nOre(h)+' h di viaggio e '+nOre(lav)+' h di lavoro registrate');oreDopoModifica();});
+  // ============================================================
+  //  TRASFERTA: due righe in archivio, una sola da compilare.
+  //  Il viaggio e il lavoro in cantiere costano diverso e nei
+  //  mastrini non si devono confondere, ma chi scrive le ore vede
+  //  una giornata sola. Qui, per ognuna delle due, decido se va
+  //  creata, corretta o tolta: mettere 0 significa "non c'e'".
+  // ============================================================
+  if(tipoOraViaggio(tipo)&&(lav>0||ORE_MOD_LAV||ORE_MOD_VIA)){
+    const via=(h>0||km>0);
+    if(!via&&!lav){showErr('no-err','Metti le ore di viaggio o quelle in cantiere.');return;}
+    const passi=[];
+    // il viaggio
+    if(via){
+      const rv=Object.assign({},d,{ID:ORE_MOD_VIA||'',Tipo:'viaggio',Ore:h,Km:km});
+      if(ORE_MOD_VIA){const v=(STATE.ore||[]).filter(x=>x.ID===ORE_MOD_VIA)[0];
+        if(v&&v.PersonaID===rv.PersonaID){rv.CostoOrario=v.CostoOrario;rv.EuroKm=v.EuroKm;}}
+      passi.push(()=>call('salvaOra',rv));
+    } else if(ORE_MOD_VIA){
+      passi.push(()=>call('eliminaOra',{id:ORE_MOD_VIA}));
+    }
+    // le ore in cantiere
+    if(lav>0){
+      const vecchia=ORE_MOD_LAV?((STATE.ore||[]).filter(x=>x.ID===ORE_MOD_LAV)[0]||{}):{};
+      const rl=Object.assign({},d,{ID:ORE_MOD_LAV||'',Tipo:'lavoro',Ore:lav,Km:0,
+        Descrizione:d.Descrizione||vecchia.Descrizione
+          ||('lavoro in cantiere'+(d.Destinazione?(' '+d.Destinazione):''))});
+      if(ORE_MOD_LAV){const v=(STATE.ore||[]).filter(x=>x.ID===ORE_MOD_LAV)[0];
+        if(v&&v.PersonaID===rl.PersonaID){rl.CostoOrario=v.CostoOrario;rl.EuroKm=v.EuroKm;}}
+      passi.push(()=>call('salvaOra',rl));
+    } else if(ORE_MOD_LAV){
+      passi.push(()=>call('eliminaOra',{id:ORE_MOD_LAV}));
+    }
+    const eraMod=!!(ORE_MOD_VIA||ORE_MOD_LAV);
+    passi.reduce((cat,f)=>cat.then(function(r){
+      if(r&&r.ok===false)throw new Error(r.err||'Errore');
+      return f();
+    }),Promise.resolve()).then(function(r){
+      if(r&&r.ok===false)throw new Error(r.err||'Errore');
+      return call('getOre').then(function(o){
+        STATE.ore=o||[];closeModal();
+        const p=[];
+        if(via)p.push(nOre(h)+' h di viaggio');
+        if(lav>0)p.push(nOre(lav)+' h in cantiere');
+        toast((eraMod?'Trasferta aggiornata: ':'Trasferta registrata: ')+p.join(' + '));
+        oreDopoModifica();
+      });
     }).catch(e=>showErr('no-err',String((e&&e.message)||e)));
     return;
   }
@@ -6772,8 +6981,13 @@ function submitOra(id){
 }
 function confEliminaOra(id){
   const r=(STATE.ore||[]).filter(x=>x.ID===id)[0]||{};
+  const gem=oreGemella(r);
+  const che=(r.Tipo==='viaggio')?' di viaggio':(oreInCantiere(r)?' in cantiere':'');
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina registrazione</h2>'
-   +'<div class="alert alert-red">Elimino <strong>'+nOre(r.Ore)+' h</strong> di '+(r.Persona||'')+' del '+dataIt(r.Data)+(r.Commessa?(' sulla commessa '+r.Commessa):'')+'? Non e\' reversibile.</div>'
+   +'<div class="alert alert-red">Elimino <strong>'+nOre(r.Ore)+' h</strong>'+che+' di '+(r.Persona||'')+' del '+dataIt(r.Data)+(r.Commessa?(' sulla commessa '+commTxt(r.Commessa)):'')+'? Non e\' reversibile.</div>'
+   +(gem?('<div class="info-box">Le <strong>'+nOre(gem.Ore)+' h</strong> '
+      +(gem.Tipo==='viaggio'?'di viaggio':'lavorate in cantiere')+' della stessa trasferta <strong>restano</strong>. '
+      +'Se vuoi togliere tutta la giornata, elimina anche quella riga.</div>'):'')
    +'<div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOra(\''+esc(id)+'\')">Elimina</button></div>');
 }
 function submitEliminaOra(id){
@@ -7409,7 +7623,7 @@ function impPreview(){
      +c.righe.slice(0,12).map(function(r){
         const p=(STATE.personale||[]).filter(x=>x.ID===r.PersonaID)[0];
         return dataIt(r.Data)+' &nbsp; '+att(p?p.Nome:'?')+' &nbsp; '+nOre(r.Ore)+' h'
-          +(r.Commessa?(' &nbsp; '+att(r.Commessa)):'')+(r.Descrizione?(' &nbsp; '+att(r.Descrizione)):'');
+          +(r.Commessa?(' &nbsp; '+commTxt(r.Commessa)):'')+(r.Descrizione?(' &nbsp; '+att(r.Descrizione)):'');
        }).join('<br>')
      +(c.righe.length>12?('<br>... e altre '+(c.righe.length-12)):'')+'</div>';
   }
@@ -7447,7 +7661,7 @@ var ORE_DETT=null;
 function oreDettSottotitolo(f){
   const p=[];
   if(f.persona){const x=(STATE.personale||[]).filter(y=>y.ID===f.persona)[0];if(x)p.push(x.Nome);}
-  if(f.commessa&&f.commessa!=='__vuota__')p.push('commessa '+f.commessa);
+  if(f.commessa&&f.commessa!=='__vuota__')p.push('commessa '+commTxtPiano(f.commessa));
   if(f.commessa==='__vuota__')p.push('senza commessa');
   if(f.tipo)p.push(tipoOraLabel(f.tipo));
   if(f.giorno)p.push(dataIt(f.giorno));
@@ -7727,7 +7941,7 @@ function etNomeCosa(tipo,id){
     const a=p?(STATE.articoli||[]).filter(x=>x.ID===p.ArticoloID)[0]:null;
     return p?(a?a.Nome:p.ArticoloID):id;}
   if(tipo==='voce'){const v=(STATE.voci||[]).filter(x=>x.ID===id)[0];
-    return v?(v.Descrizione+(v.Commessa?(' - '+v.Commessa):'')):id;}
+    return v?(v.Descrizione+(v.Commessa?(' - '+commTxtPiano(v.Commessa)):'')):id;}
   return id;
 }
 // come si chiama quello a cui e' attaccata, in una riga
@@ -8099,7 +8313,7 @@ function etVoci(){
   // che sono roba, non lavorazioni. Le metto tutte e decidi tu.
   (STATE.voci||[]).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
     .forEach(v=>out.push({tipo:'voce',id:v.ID,
-      testo:'Voce: '+(v.Descrizione||'')+(v.Commessa?(' ('+v.Commessa+')'):'')
+      testo:'Voce: '+(v.Descrizione||'')+(v.Commessa?(' ('+commTxtPiano(v.Commessa)+')'):'')
         +(v.Fornitore?(' - '+v.Fornitore):'')}));
   return out;
 }
@@ -8386,6 +8600,17 @@ function commTxt(id){
   const n=nomeCommessa(id);
   return att(id)+(n?(' - '+att(n)):'');
 }
+// Un elenco di codici ("C2025.001, C2026.003") con il nome del cliente
+// accanto a ognuno. Serve per Pannelli e Massicci, che possono stare su
+// piu' commesse insieme.
+function commLista(s){
+  const v=String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
+  return v.length?v.map(commTxt).join(', '):'';
+}
+function commListaPiano(s){
+  const v=String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
+  return v.length?v.map(commTxtPiano).join(', '):'';
+}
 function arriviBlocco(artId){
   const arr=arriviDiArticolo(artId);
   if(!arr.length)return '';
@@ -8657,6 +8882,7 @@ function etDopoCarico(creati){
 //  guarda i fotogrammi uno per uno.
 // ------------------------------------------------------------------
 var SCAN_STREAM=null, SCAN_TIMER=null, SCAN_DET=null, SCAN_OPZ=null, SCAN_ULTIMO='';
+var SCAN_TRACK=null, SCAN_TORCIA=false;
 
 function scanApri(opz){
   SCAN_OPZ=opz||{};
@@ -8671,9 +8897,10 @@ function scanApri(opz){
    +'<h2>Inquadra l&#39;etichetta</h2>'
    +'<div id="sc-msg" class="info-box" style="margin-bottom:10px">Accendo la fotocamera...</div>'
    +'<div style="position:relative;background:#000;border-radius:10px;overflow:hidden">'
-   +'<video id="sc-video" playsinline muted style="width:100%;display:block;max-height:52vh;object-fit:cover"></video>'
+   +'<video id="sc-video" playsinline muted onclick="scanFuoco()" style="width:100%;display:block;max-height:52vh;object-fit:cover"></video>'
    +'<div style="position:absolute;inset:14%;border:3px solid rgba(255,255,255,.85);border-radius:12px;pointer-events:none"></div>'
    +'</div>'
+   +'<div id="sc-ctrl" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"></div>'
    +'<canvas id="sc-canvas" style="display:none"></canvas>'
    +manuale
    +'<div id="sc-err"></div></div>');
@@ -8686,8 +8913,81 @@ function scanMsg(t,colore){
 function scanChiudi(){
   if(SCAN_TIMER){clearInterval(SCAN_TIMER);SCAN_TIMER=null;}
   if(SCAN_STREAM){try{SCAN_STREAM.getTracks().forEach(t=>t.stop());}catch(e){}SCAN_STREAM=null;}
-  SCAN_DET=null; SCAN_ULTIMO='';
+  SCAN_DET=null; SCAN_ULTIMO=''; SCAN_TRACK=null; SCAN_TORCIA=false;
   closeModal();
+}
+// Il messaggio normale del lettore, con il suggerimento del tocco.
+function scanPronto(){
+  scanMsg('Metti il QR dentro al riquadro. <span style="color:var(--gray)">Se resta sfocato, '
+   +'tocca lo schermo sopra l&#39;etichetta per rimettere a fuoco.</span>');
+}
+// Quello che chiedo alla fotocamera: camera posteriore, risoluzione piena
+// e fuoco continuo da vicino. Un'etichetta da 25 mm tenuta a una spanna
+// resta sfocata se il telefono tiene il fuoco lontano.
+function scanVincoli(){
+  return {video:{facingMode:{ideal:'environment'},
+    width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30},
+    advanced:[{focusMode:'continuous'},{focusDistance:0.08}]}};
+}
+function scanApplica(c){
+  if(!SCAN_TRACK||!SCAN_TRACK.applyConstraints)return Promise.resolve();
+  try{ return SCAN_TRACK.applyConstraints(c).catch(function(){}); }catch(e){ return Promise.resolve(); }
+}
+function scanCap(){
+  if(!SCAN_TRACK||!SCAN_TRACK.getCapabilities)return {};
+  try{ return SCAN_TRACK.getCapabilities()||{}; }catch(e){ return {}; }
+}
+// Zoom e torcia solo dove il telefono li espone davvero.
+function scanRegola(){
+  const box=document.getElementById('sc-ctrl');
+  if(box)box.innerHTML='';
+  if(!SCAN_TRACK)return;
+  const cap=scanCap();
+  const fm=cap.focusMode||[];
+  if(fm.indexOf('continuous')>=0)scanApplica({advanced:[{focusMode:'continuous'}]});
+  let h='';
+  if(cap.zoom&&(+cap.zoom.max>+cap.zoom.min)){
+    let ora=+cap.zoom.min;
+    try{ ora=+(SCAN_TRACK.getSettings().zoom)||+cap.zoom.min; }catch(e){}
+    h+='<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:160px">'
+     +'<span style="font-size:12px;color:var(--gray)">Zoom</span>'
+     +'<input type="range" id="sc-zoom" min="'+cap.zoom.min+'" max="'+cap.zoom.max+'" '
+     +'step="'+(cap.zoom.step||0.1)+'" value="'+ora+'" oninput="scanZoom()" style="flex:1">'
+     +'</div>';
+  }
+  if(cap.torch)h+='<button class="btn btn-ghost" id="sc-torch" onclick="scanTorcia()">Torcia</button>';
+  if(box)box.innerHTML=h;
+}
+function scanZoom(){
+  const e=document.getElementById('sc-zoom');
+  if(e)scanApplica({advanced:[{zoom:+e.value}]});
+}
+function scanTorcia(){
+  SCAN_TORCIA=!SCAN_TORCIA;
+  scanApplica({advanced:[{torch:SCAN_TORCIA}]});
+  const b=document.getElementById('sc-torch');
+  if(b)b.textContent=SCAN_TORCIA?'Torcia accesa':'Torcia';
+}
+// Tocco sullo schermo: forzo una rimessa a fuoco e torno al fuoco continuo.
+function scanFuoco(){
+  if(!SCAN_TRACK)return;
+  const cap=scanCap(), fm=cap.focusMode||[];
+  const torna=function(){
+    if(fm.indexOf('continuous')>=0)scanApplica({advanced:[{focusMode:'continuous'}]});
+    scanPronto();
+  };
+  if(fm.indexOf('single-shot')>=0){
+    scanMsg('Rimetto a fuoco...');
+    scanApplica({advanced:[{focusMode:'single-shot'}]}).then(function(){setTimeout(torna,900);});
+    return;
+  }
+  if(fm.indexOf('manual')>=0&&cap.focusDistance){
+    scanMsg('Rimetto a fuoco...');
+    scanApplica({advanced:[{focusMode:'manual',focusDistance:cap.focusDistance.min}]})
+      .then(function(){setTimeout(torna,900);});
+    return;
+  }
+  scanPronto();
 }
 function scanAvvia(){
   const v=document.getElementById('sc-video');
@@ -8696,13 +8996,16 @@ function scanAvvia(){
     scanMsg('Questo telefono non mi lascia usare la fotocamera da qui. Scrivi il codice a mano qui sotto.');
     return;
   }
-  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}})
+  navigator.mediaDevices.getUserMedia(scanVincoli())
+  .catch(function(){ return navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}}); })
   .then(function(s){
     SCAN_STREAM=s; v.srcObject=s; v.play();
+    SCAN_TRACK=(s.getVideoTracks()||[])[0]||null;
+    scanRegola();
     if(typeof BarcodeDetector!=='undefined'){
       try{ SCAN_DET=new BarcodeDetector({formats:['qr_code']}); }catch(e){ SCAN_DET=null; }
     }
-    scanMsg('Metti il QR dentro al riquadro.');
+    scanPronto();
     SCAN_TIMER=setInterval(scanFrame,220);
   })
   .catch(function(e){
@@ -8726,13 +9029,14 @@ function scanFrame(){
   // prestito, che guarda i pixel del fotogramma
   if(typeof jsQR!=='function'){ scanCaricaJsQR(); return; }
   const c=document.getElementById('sc-canvas'); if(!c)return;
-  const lato=Math.min(v.videoWidth,v.videoHeight);
-  c.width=380; c.height=380;
+  const lato=Math.round(Math.min(v.videoWidth,v.videoHeight)*0.72);
+  const L=512;
+  c.width=L; c.height=L;
   const ctx=c.getContext('2d');
-  ctx.drawImage(v,(v.videoWidth-lato)/2,(v.videoHeight-lato)/2,lato,lato,0,0,380,380);
+  ctx.drawImage(v,(v.videoWidth-lato)/2,(v.videoHeight-lato)/2,lato,lato,0,0,L,L);
   try{
-    const img=ctx.getImageData(0,0,380,380);
-    const r=jsQR(img.data,380,380,{inversionAttempts:'dontInvert'});
+    const img=ctx.getImageData(0,0,L,L);
+    const r=jsQR(img.data,L,L,{inversionAttempts:'dontInvert'});
     if(r&&r.data)scanTrovato(r.data);
   }catch(e){}
 }
@@ -8885,7 +9189,7 @@ function etApriCosa(c){
     }
     toast('Il carico di questa etichetta non esiste piu&#39;','err'); return;
   }
-  if(c.tipo==='voce'){ navTo('voci'); return; }
+  if(c.tipo==='voce'){ openDettaglio('voce',c.id); return; }
   openDettaglio(c.tipo,c.id);
 }
 // la scorciatoia carico/scarico, per chi ha le mani occupate
@@ -9038,7 +9342,7 @@ function renderReportBolle(){
          +'<td>'+(r.forn||'-')+'</td>'
          +'<td style="font-weight:600">'+att(r.cosa)+'</td>'
          +'<td style="text-align:right;white-space:nowrap">'+(r.importo?('&euro; '+euro(r.importo)):(nOre(r.q)+' '+r.unita))+'</td>'
-         +'<td style="font-family:monospace;font-size:11px">'+(r.commessa||'-')+'</td>'
+         +'<td style="font-family:monospace;font-size:11px">'+(r.commessa?commTxt(r.commessa):'-')+'</td>'
          +'<td style="font-size:11px;color:var(--gray)">'+att(String(r.pezzi||'-').slice(0,60))+'</td>'
          +'<td style="font-size:11px;color:var(--gray)">'+att(r.note||'')+'</td></tr>';
        }).join('')
@@ -9050,12 +9354,12 @@ function csvBolle(){
   const gg=ddtGruppi();
   if(!gg.length){toast('Niente da esportare','err');return;}
   const righe=[[(DDT_GRUPPO==='fornitore'?'Fornitore':'Bolla'),'Data','N. DDT','Data DDT','Fornitore',
-    'Tipo','Materiale','Quantita','Unita','Importo EUR','Commessa','Codici pezzo','Codice etichetta','Note','Registrato da']];
+    'Tipo','Materiale','Quantita','Unita','Importo EUR','Commessa','Nome commessa','Codici pezzo','Codice etichetta','Note','Registrato da']];
   gg.forEach(function(g){
     g.righe.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).forEach(function(r){
       righe.push([g.chiave,dataIt(r.data),r.ddt||'',r.dataDdt?dataIt(r.dataDdt):'',r.forn||'',
         r.tipo,r.cosa,r.q?csvNum(r.q,3):'',r.unita||'',r.importo?csvNum(r.importo,2):'',
-        r.commessa||'',r.pezzi||'',r.codice||'',r.note||'',r.chi||'']);
+        r.commessa||'',nomeCommessa(r.commessa),r.pezzi||'',r.codice||'',r.note||'',r.chi||'']);
     });
   });
   righe.push([]);
@@ -9155,7 +9459,7 @@ function dettaglioStampaOre(list,conPersona){
    +'<th align="left">Tipo</th><th align="left">Commessa</th><th align="left">Descrizione</th>'
    +'<th align="right">Ore</th><th align="right">Km</th><th align="right">Costo</th></tr></thead><tbody>'
    +list.map(r=>'<tr><td>'+dataIt(r.Data)+'</td>'+(conPersona?('<td>'+(r.Persona||'')+'</td>'):'')
-     +'<td>'+tipoOraLabel(r.Tipo)+'</td><td>'+(r.Commessa||'-')+'</td>'
+     +'<td>'+tipoOraLabel(r.Tipo)+'</td><td>'+(r.Commessa?commTxt(r.Commessa):'-')+'</td>'
      +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')+(r.Note?(' <span style="color:#777">'+r.Note+'</span>'):'')+'</td>'
      +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+(+r.Km?nOre(r.Km):'-')+'</td>'
      +'<td align="right">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td></tr>').join('')
@@ -9206,7 +9510,7 @@ function righeCsvOre(list,conPersona){
   list.forEach(function(r){
     const riga=[dataIt(r.Data)];
     if(conPersona)riga.push(r.Persona||'');
-    riga.push(tipoOraLabel(r.Tipo),r.Commessa||'',r.Descrizione||'',r.Destinazione||'',
+    riga.push(tipoOraLabel(r.Tipo),r.Commessa||'',nomeCommessa(r.Commessa),r.Descrizione||'',r.Destinazione||'',
       csvNum(r.Ore,2),csvNum(r.Km,1),csvNum(r.CostoOrario,2),csvNum(r.Costo,2),csvNum(r.Rimborso,2),
       csvNum((+r.Costo||0)+(+r.Rimborso||0),2),r.Note||'',r.InseritoDa||'');
     out.push(riga);
@@ -9216,20 +9520,20 @@ function righeCsvOre(list,conPersona){
 function csvMastrinoPersona(){
   const p=(STATE.personale||[]).filter(x=>x.ID===ORE_PERS)[0]||{};
   const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A});
-  const righe=[['Data','Tipo','Commessa','Descrizione','Destinazione','Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
+  const righe=[['Data','Tipo','Commessa','Nome commessa','Descrizione','Destinazione','Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
   righeCsvOre(list,false).forEach(r=>righe.push(r));
   const t=oreTot(list);
   righe.push([]);
-  righe.push(['TOTALE','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
+  righe.push(['TOTALE','','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
   scaricaCsv('ore-'+String(p.Nome||'persona').toLowerCase().replace(/[^a-z0-9]+/g,'-')+'_'+oggiFile()+'.csv',righe);
 }
 function csvMastrinoCommessa(){
   const list=oreFiltrate({commessa:ORE_COMM,da:ORE_DA,a:ORE_A}).filter(r=>ORE_COMM?true:oreProduttive(r.Tipo));
-  const righe=[['Data','Persona','Tipo','Commessa','Descrizione','Destinazione','Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
+  const righe=[['Data','Persona','Tipo','Commessa','Nome commessa','Descrizione','Destinazione','Ore','Km','Costo orario EUR','Costo ore EUR','Rimborso km EUR','Totale EUR','Note','Inserito da']];
   righeCsvOre(list,true).forEach(r=>righe.push(r));
   const t=oreTot(list);
   righe.push([]);
-  righe.push(['TOTALE','','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
+  righe.push(['TOTALE','','','','','','',csvNum(t.ore,2),csvNum(t.km,1),'',csvNum(t.costo,2),csvNum(t.rimborso,2),csvNum(t.tot,2),'','']);
   scaricaCsv('manodopera-'+(ORE_COMM?String(ORE_COMM).replace(/[^A-Za-z0-9.]+/g,'-'):'tutte')+'_'+oggiFile()+'.csv',righe);
 }
 
@@ -9364,7 +9668,7 @@ function aiBriefing(domanda){
   if(!ordA.length)R.push('(nessuno)');
   ordA.forEach(function(o){
     R.push(o.ID+' | '+String(o.Data||'').slice(0,10)+' | '+(o.Fornitore||'-')+' | '+(o.Stato||'')
-      +' | '+((o.Righe||[]).length)+' | '+(o.Commessa||'-'));
+      +' | '+((o.Righe||[]).length)+' | '+(o.Commessa?commTxtPiano(o.Commessa):'-'));
   });
   const sotto=(STATE.articoli||[]).filter(a=>+a.Stock<=+a.SogliaRiordino);
   R.push('','SOTTO SOGLIA, DA RIORDINARE: '+(sotto.length?sotto.map(a=>a.Nome+' ('+aiNum(a.Stock,2)+' '+(a.UnitaMisura||'')+')').join('; '):'nessuno'));
@@ -9375,7 +9679,7 @@ function aiBriefing(domanda){
     .slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).slice(0,30)
     .forEach(function(m){
       R.push(String(m.Data||'').slice(0,16)+' | '+m.Tipo+' | '+(m.NomeArticolo||'')+' | '+m.Quantita
-        +' | '+(m.UnitaMisura||'')+' | '+(m.Commessa||'-')+' | '+(m.PezzoID||'-')+' | '+(m.Utente||''));
+        +' | '+(m.UnitaMisura||'')+' | '+(m.Commessa?commTxtPiano(m.Commessa):'-')+' | '+(m.PezzoID||'-')+' | '+(m.Utente||''));
     });
 
   R.push('','DETTATURE IN ATTESA DI CONFERMA: '+dettatureInAttesa().length);
@@ -9413,10 +9717,10 @@ function aiBriefing(domanda){
     R.push('','DETTAGLIO DEL MATERIALE "'+nome+'" (pezzo | misure | caricato | residuo | % residuo | commesse | fornitore | data carico)');
     (STATE.pannelli||[]).filter(p=>p.ArticoloID===nome).forEach(p=>R.push('  '+p.ID+' | '
       +(p.Larghezza_mm||'?')+'x'+(p.Altezza_mm||'?')+' mm | '+aiNum(p.M2_originale,2)+' m2 | '+aiNum(p.M2_residuo,2)
-      +' m2 | '+aiNum(p.Residuale_pct,0)+'% | '+(p.Commesse||'-')+' | '+(p.Fornitore||'-')+' | '+String(p.DataCarico||'').slice(0,10)));
+      +' m2 | '+aiNum(p.Residuale_pct,0)+'% | '+(commListaPiano(p.Commesse)||'-')+' | '+(p.Fornitore||'-')+' | '+String(p.DataCarico||'').slice(0,10)));
     (STATE.massicci||[]).filter(p=>p.ArticoloID===nome).forEach(p=>R.push('  '+p.ID+' | '
       +(p.Lunghezza_mm||'?')+'x'+(p.Larghezza_mm||'?')+'x'+(p.Spessore_mm||'?')+' mm | '+aiNum(p.M3_originale,3)+' m3 | '
-      +aiNum(p.M3_residuo,3)+' m3 | - | '+(p.Commesse||'-')+' | '+(p.Fornitore||'-')+' | '+String(p.DataCarico||'').slice(0,10)));
+      +aiNum(p.M3_residuo,3)+' m3 | - | '+(commListaPiano(p.Commesse)||'-')+' | '+(p.Fornitore||'-')+' | '+String(p.DataCarico||'').slice(0,10)));
   }
   return R.join('\n');
 }
@@ -10266,7 +10570,7 @@ function vocTabStorico(admin){
     return '<div style="padding:10px 0;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap">'
      +'<div style="flex:1;min-width:200px"><div style="font-size:13.5px;font-style:italic">&laquo; '+(d.Testo||'')+' &raquo;</div>'
      +'<div style="font-size:11.5px;color:var(--gray);margin-top:2px">'+(d.Utente||'')+' &middot; '+dataIt(d.Data)
-     +(d.Commessa?(' &middot; '+d.Commessa):'')+(d.CreatoDa?(' &middot; '+d.CreatoDa):'')+'</div></div>'
+     +(d.Commessa?(' &middot; '+commTxt(d.Commessa)):'')+(d.CreatoDa?(' &middot; '+d.CreatoDa):'')+'</div></div>'
      +'<div style="white-space:nowrap">'+vocBadge(d.Stato)
      +(admin&&d.Stato!=='confermata'?(' <button class="btn btn-red" onclick="vocElimina(\''+esc(d.ID)+'\')">Elimina</button>'):'')
      +'</div></div>';
@@ -10313,7 +10617,7 @@ function vociCont(){
   // riepilogo per categoria
   const perCat={};let tot=0;
   list.forEach(v=>{const k=v.Categoria||'Altro';perCat[k]=(perCat[k]||0)+(+v.Importo||0);tot+=(+v.Importo||0);});
-  const riep='<div class="card" style="margin-bottom:14px"><div class="card-title">Totale '+(VOCI_COMM?('commessa '+VOCI_COMM):'di tutte le commesse')+'</div>'
+  const riep='<div class="card" style="margin-bottom:14px"><div class="card-title">Totale '+(VOCI_COMM?('commessa '+commTxt(VOCI_COMM)):'di tutte le commesse')+'</div>'
     +Object.keys(perCat).sort().map(k=>'<div class="det-row"><span>'+k+'</span><span>&euro; '+euro(perCat[k])+'</span></div>').join("")
     +'<div class="det-row" style="border-bottom:none"><span style="font-weight:700">Totale</span><span style="font-weight:700">&euro; '+euro(tot)+'</span></div></div>';
   // raggruppa per commessa quando le vedo tutte
@@ -10331,7 +10635,7 @@ function vociCont(){
        +'</div></div></div>';
     }).join("");
     const totC=g[c].reduce((s,v)=>s+(+v.Importo||0),0);
-    return '<div class="card" style="margin-bottom:12px"><div class="card-title">'+(c==='(senza commessa)'?c:('Commessa '+c))+' &nbsp;<span style="font-weight:400;color:var(--gray)">'+g[c].length+' voci &middot; &euro; '+euro(totC)+'</span></div>'+righe+'</div>';
+    return '<div class="card" style="margin-bottom:12px"><div class="card-title">'+(c==='(senza commessa)'?c:('Commessa '+commTxt(c)))+' &nbsp;<span style="font-weight:400;color:var(--gray)">'+g[c].length+' voci &middot; &euro; '+euro(totC)+'</span></div>'+righe+'</div>';
   }).join("");
   return riep+blocchi;
 }
@@ -10534,7 +10838,7 @@ function vmSalva(btn){
 }
 function confEliminaVoce(id){
   const v=(STATE.voci||[]).find(x=>x.ID===id)||{};
-  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina voce</h2><div class="alert alert-red">Eliminare <strong>'+(v.Descrizione||id)+'</strong> dalla commessa '+(v.Commessa||'')+'? Non e reversibile.</div><div id="ev-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaVoce(\''+esc(id)+'\')">Elimina</button></div>');
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina voce</h2><div class="alert alert-red">Eliminare <strong>'+(v.Descrizione||id)+'</strong> dalla commessa '+commTxt(v.Commessa||'')+'? Non e reversibile.</div><div id="ev-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaVoce(\''+esc(id)+'\')">Elimina</button></div>');
 }
 function submitEliminaVoce(id){
   call("eliminaVoce",{id:id}).then(r=>{if(!r.ok){showErr("ev-err",r.err||"Errore");return;}
@@ -11055,7 +11359,7 @@ function openAssegnaItem(tipo,id){
   let info='',qInput='';
   if(tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===id)||{};const lib=Math.max(0,(+a.Stock||0)-impegnatoArt(a));info=a.Nome+' - liberi '+lib+' '+a.UnitaMisura;qInput='<div class="form-group"><label>Quantita da assegnare</label><input type="number" step="any" id="asg-q" value="'+lib+'"></div>';}
   else{const p=(tipo==='pannello'?STATE.pannelli:STATE.massicci).find(x=>x.ID===id)||{};
-    info=id+' - '+nomeTipo(p.ArticoloID)+(String(p.Commesse||'').trim()?(' (ora: '+p.Commesse+')'):'');
+    info=id+' - '+nomeTipo(p.ArticoloID)+(String(p.Commesse||'').trim()?(' (ora: '+commLista(p.Commesse)+')'):'');
     const scarichi=STATE.movimenti.filter(m=>m.PezzoID===id&&m.Tipo==='scarico'&&m.Annullato!=='SI');
     if(scarichi.length)info+='<div style="margin-top:6px;color:var(--accent)">Pezzo gia scaricato: verranno spostati sulla nuova commessa anche i suoi '+scarichi.length+' movimenti, cosi i report tornano subito.</div>';}
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Assegna a commessa</h2>'
@@ -11079,13 +11383,13 @@ function openDestinati(artId,tipo){
     const a=STATE.articoli.find(x=>x.ID===artId)||{};
     const ris=(STATE.riserve||[]).filter(r=>r.ArticoloID===artId&&r.Quantita>0);
     h+='<div style="font-weight:600;margin-bottom:6px">Commesse a cui e destinato</div>';
-    h+=ris.length?ris.map(r=>'<div class="det-row"><span>'+r.Commessa+'</span><span>'+r.Quantita+' '+(a.UnitaMisura||'')+' <button class="btn btn-red" style="margin-left:8px" onclick="togliDestinazione(\'articolo\',\''+esc(artId)+'\',\''+esc(r.Commessa)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessuna commessa destinata.</div>';
+    h+=ris.length?ris.map(r=>'<div class="det-row"><span>'+commTxt(r.Commessa)+'</span><span>'+r.Quantita+' '+(a.UnitaMisura||'')+' <button class="btn btn-red" style="margin-left:8px" onclick="togliDestinazione(\'articolo\',\''+esc(artId)+'\',\''+esc(r.Commessa)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessuna commessa destinata.</div>';
   } else {
     const pezzi=(tipo==='pannello'?STATE.pannelli:STATE.massicci).filter(p=>p.ArticoloID===artId&&String(p.Commesse||"").trim());
-    h+='<div style="font-weight:600;margin-bottom:6px">Pezzi destinati</div>'+(pezzi.length?pezzi.map(p=>'<div class="det-row"><span>'+p.ID+' &rarr; '+p.Commesse+'</span><span><button class="btn btn-red" onclick="togliDestinazione(\''+tipo+'\',\''+esc(p.ID)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun pezzo destinato.</div>');
+    h+='<div style="font-weight:600;margin-bottom:6px">Pezzi destinati</div>'+(pezzi.length?pezzi.map(p=>'<div class="det-row"><span>'+p.ID+' &rarr; '+commLista(p.Commesse)+'</span><span><button class="btn btn-red" onclick="togliDestinazione(\''+tipo+'\',\''+esc(p.ID)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun pezzo destinato.</div>');
   }
   const ordini=(STATE.ordini||[]).filter(o=>(o.Righe||[]).some(r=>r.artId===artId));
-  h+='<div style="font-weight:600;margin:14px 0 6px">Ordini collegati</div>'+(ordini.length?ordini.map(o=>'<div class="det-row" style="cursor:pointer" onclick="closeModal();navTo(\'evasi\')"><span>Ordine '+o.ID+'</span><span>'+(o.Commessa||'-')+' - '+o.Stato+'</span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun ordine collegato.</div>');
+  h+='<div style="font-weight:600;margin:14px 0 6px">Ordini collegati</div>'+(ordini.length?ordini.map(o=>'<div class="det-row" style="cursor:pointer" onclick="closeModal();navTo(\'evasi\')"><span>Ordine '+o.ID+'</span><span>'+(o.Commessa?commTxt(o.Commessa):'-')+' - '+o.Stato+'</span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun ordine collegato.</div>');
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Destinato a commesse</h2>'+h+'</div>');
 }
 function togliDestinazione(tipo,id,commessa){
@@ -11113,19 +11417,36 @@ function openDettaglio(tipo,id){
   } else if(tipo==='pannello'){
     const p=STATE.pannelli.find(x=>x.ID===id);if(!p)return;const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);const pct=+p.Residuale_pct||0;
     head='<div class="det-tag">Pannello</div><h2 style="margin-bottom:14px">'+p.ID+'</h2>'+imgBlock(p.ArticoloID);
-    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Larghezza_mm+' x '+p.Altezza_mm+' mm')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+pct.toFixed(0)+'% - '+(+p.M2_residuo||0).toFixed(4)+' m2</span>')+dr("Originale",(+p.M2_originale||0).toFixed(4)+' m2')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",p.Commesse||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
+    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Larghezza_mm+' x '+p.Altezza_mm+' mm')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+pct.toFixed(0)+'% - '+(+p.M2_residuo||0).toFixed(4)+' m2</span>')+dr("Originale",(+p.M2_originale||0).toFixed(4)+' m2')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",commLista(p.Commesse)||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
     btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoPannello(\''+esc(p.ID)+'\')">Scarico pannello</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaPezzo(\'pannello\',\''+esc(p.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'pannello\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'pannello\',\''+esc(p.ID)+'\')">Elimina pannello</button>';
     hist=histRows(m=>m.PezzoID===id);
   } else if(tipo==='massiccio'){
     const p=STATE.massicci.find(x=>x.ID===id);if(!p)return;const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct=orig>0?(res/orig)*100:0;
     head='<div class="det-tag">Massiccio</div><h2 style="margin-bottom:14px">'+p.ID+'</h2>'+imgBlock(p.ArticoloID);
-    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+res.toFixed(4)+' m3</span>')+dr("Originale",orig.toFixed(4)+' m3')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",p.Commesse||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
+    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+res.toFixed(4)+' m3</span>')+dr("Originale",orig.toFixed(4)+' m3')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",commLista(p.Commesse)||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
     btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico massiccio</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaPezzo(\'massiccio\',\''+esc(p.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'massiccio\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'massiccio\',\''+esc(p.ID)+'\')">Elimina massiccio</button>';
     hist=histRows(m=>m.PezzoID===id);
+  } else if(tipo==='voce'){
+    const v=(STATE.voci||[]).filter(x=>x.ID===id)[0];if(!v)return;
+    head='<div class="det-tag">Altra voce</div><h2 style="margin-bottom:14px">'+att(v.Descrizione||'(senza descrizione)')+'</h2>';
+    rows=dr("Commessa",v.Commessa?commTxt(v.Commessa):'-')
+      +dr("Categoria",v.Categoria||'-')
+      +dr("Stato",badgeStatoVoce(v.Stato))
+      +((v.Quantita!=null&&v.Quantita!=='')?dr("Quantita",nOre(v.Quantita)+' '+att(v.Unita||'')):'')
+      +dr("Importo",(v.Importo!=null&&v.Importo!=='')?('&euro; '+euro(v.Importo)):'-')
+      +dr("Data",dataIt(v.Data))
+      +dr("Fornitore",v.Fornitore||'-')
+      +(v.Ddt?dr("Bolla",att(v.Ddt)+(v.DataDdt?(' del '+dataIt(v.DataDdt)):'')):'')
+      +(v.OrdineID?dr("Ordine nostro",att(v.OrdineID)):'')
+      +(v.NrFattura?dr("Fattura",att(v.NrFattura)):'')
+      +(v.Note?dr("Note",att(v.Note)):'');
+    btns='<button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="closeModal();navTo(\'voci\');setTimeout(function(){openNuovaVoce(\''+esc(id)+'\');},140)">Modifica questa voce</button>'
+      +'<button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();navTo(\'voci\')">Vedi tutte le altre voci</button>'
+      +'<button class="det-btn" style="background:var(--red);color:#fff" onclick="closeModal();confEliminaVoce(\''+esc(id)+'\')">Elimina voce</button>';
   } else if(tipo==='movimento'){
     const m=STATE.movimenti.find(x=>x.ID===id);if(!m)return;
     head='<div class="det-tag">Movimento</div><h2 style="margin-bottom:14px">'+(m.NomeArticolo||'')+'</h2>';
-    rows=dr("Tipo",'<span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span>')+dr("Quantita",'<span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span>')+dr("Data",m.Data)+dr("Operatore",m.Utente||'-')+dr("Fornitore",m.Fornitore||'-')+dr("Commessa",m.Commessa||'-')+(m.PezzoID?dr("Pezzo",m.PezzoID):'')+dr("Note",m.Note||'-')+dr("Stato",m.Annullato==='SI'?'<span style="color:var(--red)">Annullato</span>':'Valido');
+    rows=dr("Tipo",'<span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span>')+dr("Quantita",'<span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span>')+dr("Data",m.Data)+dr("Operatore",m.Utente||'-')+dr("Fornitore",m.Fornitore||'-')+dr("Commessa",m.Commessa?commTxt(m.Commessa):'-')+(m.PezzoID?dr("Pezzo",m.PezzoID):'')+dr("Note",m.Note||'-')+dr("Stato",m.Annullato==='SI'?'<span style="color:var(--red)">Annullato</span>':'Valido');
     btns=m.Annullato==='SI'?'':'<button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="closeModal();openModificaMovimento(\''+esc(m.ID)+'\')">Modifica movimento</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openAnnulla(\''+esc(m.ID)+'\')">Annulla movimento</button>';
   }
   const tracc=traccBlocco(tipo,id);
