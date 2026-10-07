@@ -312,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v98 - Atelier</div>
+  <div id="ver-badge">v99 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -3018,6 +3018,10 @@ function renderOperatorHome(){
   const b=(label,fn,bg,fg)=>'<button style="background:'+bg+';color:'+fg+'" onclick="'+fn+'">'+label+'</button>';
   return '<h1 class="page-title">Ciao '+nome+'</h1>'
    +'<div class="op-sec">Ordini</div><div class="big-op" style="grid-template-columns:1fr"><button style="background:var(--accent-light);color:var(--accent)" onclick="navTo(\'evasi\')">Visualizza ordini evasi</button></div>'
+   +'<div class="op-sec">Le mie ore</div><div class="big-op">'
+     +b("Registra ore","openNuovaOra()","var(--accent-light)","var(--accent)")
+     +b("Il mio storico","navTo('ore');setTimeout(function(){oreTab('registro')},120)","#efebe3","var(--ink)")
+   +'</div>'
    +'<div class="op-sec">Articoli</div><div class="big-op">'+b("Carico","openMovimento('','carico')","var(--green-light)","var(--green)")+b("Scarico","openMovimento('','scarico')","var(--red-light)","var(--red)")+'</div>'
    +'<div class="op-sec">Pannelli</div><div class="big-op">'+b("Carico","openCaricoPannelli()","var(--green-light)","var(--green)")+b("Scarico","openScegliPezzo('pannello')","var(--red-light)","var(--red)")+'</div>'
    +'<div class="op-sec">Massicci</div><div class="big-op">'+b("Carico","openCaricoMassiccio()","var(--green-light)","var(--green)")+b("Scarico","openScegliPezzo('massiccio')","var(--red-light)","var(--red)")+'</div>';
@@ -5568,6 +5572,30 @@ function personaMia(){
   if(!em)return null;
   return (STATE.personale||[]).filter(p=>String(p.Email||'').trim().toLowerCase()===em)[0]||null;
 }
+// Chi sono io quando non sono l'ufficio: il codice della persona a cui e'
+// collegata la mia email. Se non e' collegata a nessuno non sono nessuno, e
+// non devo vedere le ore degli altri: meglio una pagina vuota che quelle
+// dei colleghi.
+function oreMiaID(){
+  if(oreAdmin())return '';
+  const m=personaMia();
+  return m?m.ID:'__nessuno__';
+}
+// Questa riga e' mia? L'ufficio puo' correggere tutto, gli altri solo le proprie.
+function oreMiaRiga(r){
+  if(oreAdmin())return true;
+  if(!r)return false;
+  const m=personaMia();
+  return !!(m&&String(r.PersonaID||'')===String(m.ID));
+}
+// Il cartello da mostrare a chi ha l'utente non collegato a nessuna persona.
+function oreAvvisoNonCollegato(){
+  return '<div class="card" style="margin-top:14px"><div class="alert alert-amber">'
+   +'Il tuo indirizzo email non e&#39; collegato a nessuna persona in elenco, '
+   +'quindi non posso sapere quali ore sono le tue. Chiedi all&#39;ufficio di '
+   +'scrivere la tua email nella tua scheda in <strong>Ore e trasferte &rarr; Persone</strong>.'
+   +'</div></div>';
+}
 function nOre(v){return Number(v||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function oggiISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function primoDelMese(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';}
@@ -5583,6 +5611,10 @@ let ORE_Q='', ORE_TIPO='', ORE_ORD='data';
 
 function oreFiltrate(o){
   o=o||{};
+  // Chi non e' l'ufficio vede soltanto le proprie ore. Lo decido qui, in un
+  // punto solo: cosi' vale per gli elenchi, i totali, l'agenda, le stampe e
+  // i CSV, senza doverci pensare pagina per pagina.
+  if(!oreAdmin())o=Object.assign({},o,{persona:oreMiaID()});
   const da=o.da||'',a=o.a||'';
   // la ricerca libera: tutte le parole scritte devono comparire da qualche parte
   const parole=String(o.q||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -5678,11 +5710,15 @@ function oreTot(list){
   const gg={};
   (list||[]).forEach(function(r){
     const h=+r.Ore||0;t.ore+=h;
+    // Una catena sola: ogni ora sta in una casella e una soltanto, se no
+    // il lavoro normale finiva per sbaglio fra le assenze.
     if(r.Tipo==='lavoro')t.lavoro+=h;
     else if(r.Tipo==='viaggio')t.viaggio+=h;
-    if(oreInCantiere(r))t.cantiere+=h;
     else if(r.Tipo==='interno'||r.Tipo==='progetto_interno')t.interno+=h;
     else t.assenza+=h;
+    // le ore in cantiere sono gia' contate nel lavoro: questo e' solo
+    // il di cui, per poterlo scrivere accanto
+    if(oreInCantiere(r))t.cantiere+=h;
     t.km+=(+r.Km||0);t.costo+=(+r.Costo||0);t.rimborso+=(+r.Rimborso||0);
     gg[String(r.Data||'').slice(0,10)]=1;
   });
@@ -5710,13 +5746,14 @@ function renderOre(){
             :'<div style="color:var(--gray);font-size:13px">Chiedi all\'ufficio di inserirti in elenco: senza non puoi registrare le ore.</div>')
      +'</div>';
   }
-  if(!admin&&ORE_TAB!=='registra'&&ORE_TAB!=='persona')ORE_TAB='registra';
+  // le tre linguette che vede chi non e' l'ufficio: registra, le mie ore, il mio storico
+  if(!admin&&['registra','persona','registro'].indexOf(ORE_TAB)<0)ORE_TAB='registra';
   const tabs=[['registra','Registra ore'],['persona',admin?'Mastrino persona':'Le mie ore']];
   if(admin)tabs.push(['commessa','Mastrino commessa']);
   if(admin)tabs.push(['agenda','Agenda giorno per giorno']);
   if(admin)tabs.push(['mese','Tabella del mese']);
   if(admin)tabs.push(['anno','Riepilogo anno']);
-  tabs.push(['registro','Registro e ricerca']);
+  tabs.push(['registro',admin?'Registro e ricerca':'Tutto il mio storico']);
   if(admin)tabs.push(['personale','Persone']);
   const bar=tabs.map(t=>'<button class="btn '+(ORE_TAB===t[0]?'btn-accent':'btn-ghost')+'" onclick="oreTab(\''+t[0]+'\')">'+t[1]+'</button>').join('');
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">'
@@ -5773,9 +5810,9 @@ function rigaOra(r,mostraPersona){
    +'<div style="font-weight:700">'+nOre(r.Ore)+' h</div>'
    +(tr?('<div style="font-size:11px;color:var(--gray)">'+(r.Tipo==='viaggio'?'di viaggio':'in cantiere')+'</div>'):'')
    +(admin&&((+r.Costo||0)+(+r.Rimborso||0))?('<div style="font-size:12px;color:var(--gray)">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</div>'):'')
-   +'<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
+   +(oreMiaRiga(r)?('<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
    +'<button class="btn btn-accent" onclick="openNuovaOra(\''+esc(r.ID)+'\')">Modifica</button>'
-   +'<button class="btn btn-red" onclick="confEliminaOra(\''+esc(r.ID)+'\')">Elimina</button></div>'
+   +'<button class="btn btn-red" onclick="confEliminaOra(\''+esc(r.ID)+'\')">Elimina</button></div>'):'')
    +'</div></div>';
 }
 
@@ -5925,6 +5962,12 @@ function oreTabPersona(){
   const admin=oreAdmin();
   const persone=(STATE.personale||[]);
   if(admin&&!ORE_PERS)ORE_PERS=(persone.filter(p=>p.Attivo)[0]||persone[0]||{}).ID||'';
+  // per chi non e' l'ufficio questa pagina e' sempre e solo la sua
+  if(!admin){
+    const mio=personaMia();
+    if(!mio)return oreAvvisoNonCollegato();
+    ORE_PERS=mio.ID;
+  }
   const p=persone.filter(x=>x.ID===ORE_PERS)[0];
   let h='';
   if(admin){
@@ -5935,6 +5978,9 @@ function oreTabPersona(){
   h+=oreBarraCerca();
   h+=oreBarraPeriodo();
   if(!p)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Scegli una persona.</div>';
+  if(!admin)h+='<div class="info-box" style="margin-top:14px">Qui vedi <strong>solo le tue ore</strong>. '
+   +'Scegli il periodo qui sopra e in fondo trovi il dettaglio giorno per giorno, '
+   +'dove puoi correggere o cancellare ogni registrazione.</div>';
   const list=oreFiltrate({persona:ORE_PERS,da:ORE_DA,a:ORE_A,q:ORE_Q,tipo:ORE_TIPO});
   const t=oreTot(list);
   h+='<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
@@ -6017,6 +6063,7 @@ function oreRegDescrizione(){
 }
 function oreTabRegistro(){
   const admin=oreAdmin();
+  if(!admin&&!personaMia())return oreAvvisoNonCollegato();
   const persone=(STATE.personale||[]);
   const comms=(STATE.commesse||[]).slice().sort((a,b)=>String(b.ID).localeCompare(String(a.ID)));
   const filtriAttivi=!!(ORE_Q||ORE_PERS||ORE_COMM||ORE_TIPO||ORE_DA||ORE_A);
@@ -6024,19 +6071,25 @@ function oreTabRegistro(){
   let h='<div class="card" style="margin-top:14px">'
    +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">'
    +'<span style="font-size:17px;color:var(--gray)">&#128269;</span>'
-   +'<input id="or-q" value="'+att(ORE_Q)+'" placeholder="Cerca: un nome, una commessa, una destinazione, una parola nelle note..." '
+   +'<input id="or-q" value="'+att(ORE_Q)+'" placeholder="'+(admin
+      ?'Cerca: un nome, una commessa, una destinazione, una parola nelle note...'
+      :'Cerca nelle tue ore: una commessa, una destinazione, una parola nelle note...')+'" '
    +'style="flex:1;padding:11px 12px;font-size:14px" oninput="oreRegImposta(\'q\',this.value)">'
    +(filtriAttivi?'<button class="btn btn-ghost" onclick="oreRegPulisci()">Azzera tutto</button>':'')
    +'</div>'
    +'<div style="font-size:11.5px;color:var(--gray);line-height:1.7">'
-   +'Scrivi più parole per stringere: <em>marica venezia</em> trova le trasferte di Marica a Venezia. '
-   +'Vale su tutto: persona, commessa, tipo di ora, destinazione, descrizione, note, chi ha registrato.'
+   +(admin
+      ?('Scrivi più parole per stringere: <em>marica venezia</em> trova le trasferte di Marica a Venezia. '
+        +'Vale su tutto: persona, commessa, tipo di ora, destinazione, descrizione, note, chi ha registrato.')
+      :('Qui c&#39;e&#39; tutto il tuo storico: <strong>solo le tue ore</strong>, dalla prima all&#39;ultima. '
+        +'Scrivi più parole per stringere: <em>venezia montaggio</em>. '
+        +'Ogni riga si corregge o si cancella dai pulsanti a destra.'))
    +'</div></div>';
 
   // filtri
   h+='<div class="filters" style="gap:8px;flex-wrap:wrap;margin-top:10px">'
-   +'<select onchange="oreRegImposta(\'persona\',this.value)"><option value="">Tutte le persone</option>'
-   +persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===ORE_PERS?' selected':'')+'>'+p.Nome+(p.Attivo?'':' (non in forza)')+'</option>').join('')+'</select>'
+   +(admin?('<select onchange="oreRegImposta(\'persona\',this.value)"><option value="">Tutte le persone</option>'
+   +persone.map(p=>'<option value="'+att(p.ID)+'"'+(p.ID===ORE_PERS?' selected':'')+'>'+p.Nome+(p.Attivo?'':' (non in forza)')+'</option>').join('')+'</select>'):'')
    +'<select onchange="oreRegImposta(\'commessa\',this.value)"><option value="">Tutte le commesse</option>'
    +comms.map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===ORE_COMM?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join('')
    +'<option value="__vuota__"'+(ORE_COMM==='__vuota__'?' selected':'')+'>(senza commessa)</option></select>'
@@ -6806,6 +6859,9 @@ function oreTabPersonale(){
     return '<div class="piece"><div class="piece-body">'
      +'<h4>'+p.Nome+(p.Attivo?'':' <span class="badge badge-gray">non in forza</span>')+'</h4>'
      +'<small>'+(p.Mansione||'&mdash;')+(p.Email?(' &middot; '+p.Email):'')+'</small>'
+     +(p.Email?'':('<div style="font-size:11.5px;color:var(--amber);margin-top:5px;line-height:1.5">'
+        +'Senza email questa persona non puo&#39; entrare nell&#39;app e vedere le proprie ore: '
+        +'scrivi qui la stessa email con cui fa il login.</div>'))
      +'<div style="margin-top:9px;font-size:12.5px;line-height:1.7">'
      +'<div>Costo orario: <strong>&euro; '+euro(p.CostoOrario)+'</strong></div>'
      +'<div>Rimborso km: <strong>&euro; '+euro(p.EuroKm)+'</strong></div>'
@@ -6847,6 +6903,7 @@ function openNuovaOra(id,pre){
   const admin=oreAdmin(),mia=personaMia();
   const persone=(STATE.personale||[]).filter(p=>p.Attivo||(r&&r.PersonaID===p.ID));
   if(!admin&&!mia){toast('Il tuo utente non è collegato a nessuna persona in elenco','err');return;}
+  if(r&&!oreMiaRiga(r)){toast('Questa registrazione non è tua: puoi correggere solo le tue ore','err');return;}
   pre=pre||{};
   const d=r||{Data:(pre.Data||oggiISO()),
     PersonaID:(admin?(pre.PersonaID||(persone[0]||{}).ID||''):mia.ID),
@@ -6914,6 +6971,15 @@ function submitOra(id){
     Descrizione:gv('no-desc').trim(),Note:gv('no-note').trim()};
   if(!d.Data){showErr('no-err','Metti la data.');return;}
   if(!d.PersonaID){showErr('no-err','Scegli la persona.');return;}
+  // La casella della persona e' bloccata per chi non e' l'ufficio, ma non mi
+  // fido della casella: ricontrollo qui, dove si salva davvero.
+  if(!oreAdmin()){
+    const mia=personaMia();
+    if(!mia){showErr('no-err','Il tuo utente non è collegato a nessuna persona in elenco.');return;}
+    d.PersonaID=mia.ID;
+    if(id&&!oreMiaRiga((STATE.ore||[]).filter(x=>x.ID===id)[0])){
+      showErr('no-err','Questa registrazione non è tua: puoi correggere solo le tue ore.');return;}
+  }
   if(tipoOraCommessa(tipo)&&!d.Commessa){showErr('no-err','Per "'+tipoOraLabel(tipo)+'" serve la commessa: è quella che riceve il costo.');return;}
   const h=parseFloat(d.Ore)||0,km=parseFloat(d.Km)||0;
   // le ore passate a lavorare in cantiere: valgono sia quando registro sia
@@ -6981,6 +7047,7 @@ function submitOra(id){
 }
 function confEliminaOra(id){
   const r=(STATE.ore||[]).filter(x=>x.ID===id)[0]||{};
+  if(!oreMiaRiga(r)){toast('Questa registrazione non è tua: puoi cancellare solo le tue ore','err');return;}
   const gem=oreGemella(r);
   const che=(r.Tipo==='viaggio')?' di viaggio':(oreInCantiere(r)?' in cantiere':'');
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina registrazione</h2>'
@@ -6991,6 +7058,8 @@ function confEliminaOra(id){
    +'<div id="eo-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaOra(\''+esc(id)+'\')">Elimina</button></div>');
 }
 function submitEliminaOra(id){
+  if(!oreMiaRiga((STATE.ore||[]).filter(x=>x.ID===id)[0])){
+    showErr('eo-err','Questa registrazione non è tua.');return;}
   call('eliminaOra',{id:id}).then(function(r){
     if(!r||!r.ok){showErr('eo-err','Errore');return;}
     call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast('Registrazione eliminata');oreDopoModifica();});
