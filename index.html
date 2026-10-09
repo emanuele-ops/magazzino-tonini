@@ -312,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v99 - Atelier</div>
+  <div id="ver-badge">v100 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -2120,10 +2120,11 @@ function csvNum(v,dec){
   const n=Number(v); if(isNaN(n))return '';
   return n.toFixed(dec==null?3:dec).replace('.',',');
 }
-function csvPct(usato,nome,unita){
-  const p=pctUsoNum(usato,nome,unita);
+function csvPct(usato,base){
+  const p=pctBaseNum(usato,base);
   return p==null?'':csvNum(p,1);
 }
+function csvPctMov(m){ return csvPct(+m.Quantita||0,baseMovimento(m)); }
 function oggiFile(){const d=new Date(),p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
 function scaricaCsv(nome,righe){
@@ -2147,7 +2148,7 @@ function csvReportScarico(anno,mese){
       out.push([m.Commessa||'(senza commessa)','Materiale',String(m.Data||'').slice(0,16),
         m.NomeArticolo||'',(art&&art.CodiceFornitore)||'',m.PezzoID||'',etichetteDiMovimento(m),
         csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
-        csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);
+        csvPctMov(m),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);
     });
   (STATE.voci||[]).filter(v=>String(v.Data||'').startsWith(pref))
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
@@ -2241,14 +2242,14 @@ function csvReportCommessa(comm){
   // totali per materiale
   const tot={};
   movs.forEach(function(m){const k=m.NomeArticolo+'||'+m.UnitaMisura;
-    tot[k]=tot[k]||{nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cfDi(m),q:0,n:0,pezzi:[],cod:[]};
-    tot[k].q+=(+m.Quantita||0);tot[k].n++;
+    tot[k]=tot[k]||{nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cfDi(m),q:0,n:0,base:0,pezzi:[],cod:[]};
+    tot[k].q+=(+m.Quantita||0);tot[k].n++;tot[k].base+=baseMovimento(m);
     if(m.PezzoID)String(m.PezzoID).split(',').map(x=>x.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});
     etichetteDiMovimento(m).split(' ').filter(Boolean).forEach(c=>{if(tot[k].cod.indexOf(c)<0)tot[k].cod.push(c);});});
   Object.keys(tot).forEach(function(k){const t=tot[k];
     t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
     out.push(['Consumo totale','',t.nome,t.cf,t.pezzi.join(' '),t.cod.join(' '),
-      csvNum(t.q,(t.unita==='pz')?0:3),t.unita||'',csvPct(t.q,t.nome,t.unita),'','','','','',''+t.n+' movimenti','']);});
+      csvNum(t.q,(t.unita==='pz')?0:3),t.unita||'',csvPct(t.q,t.base),'','','','','',''+t.n+' movimenti','']);});
   // altre voci
   (STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))
@@ -2259,7 +2260,7 @@ function csvReportCommessa(comm){
     const bo=bollaDi(m);
     out.push(['Movimento',String(m.Data||'').slice(0,16),m.NomeArticolo||'',cfDi(m),m.PezzoID||'',etichetteDiMovimento(m),
       csvNum(m.Quantita,(m.UnitaMisura==='pz')?0:3),m.UnitaMisura||'',
-      csvPct(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);});
+      csvPctMov(m),'',bo.forn||m.Fornitore||'',bo.ddt||'','','',m.Note||'',m.Utente||'']);});
   // manodopera e trasferte
   oreDiCommessa(comm).slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).forEach(function(r){
     out.push(['Manodopera',dataIt(r.Data),r.Persona||'',tipoOraLabel(r.Tipo),'','',
@@ -2286,10 +2287,10 @@ function csvUtilizzo(){
       const cc=x.comm[c];
       cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).forEach(function(r){
         out.push([x.voce?'Altra voce':'Materiale',x.nome,x.categoria||'',x.unita||'',
-          x.voce?'':csvNum(x.tot,dec), x.voce?'':csvPct(x.tot,x.nome,x.unita), x.voce?csvNum(x.imp,2):'',
+          x.voce?'':csvNum(x.tot,dec), x.voce?'':csvPct(x.tot,x.base), x.voce?csvNum(x.imp,2):'',
           c, x.voce?'':csvNum(cc.q,dec), x.voce?csvNum(cc.imp,2):'',
           String(r.data||'').slice(0,16), csvNum(r.q,dec),
-          x.voce?'':csvPct(r.q,x.nome,x.unita), x.voce?csvNum(r.imp,2):'',
+          x.voce?'':csvPct(r.q,r.base), x.voce?csvNum(r.imp,2):'',
           x.voce?(r.ft||''):(r.pezzo||''), r.forn||'', r.ddt||'', r.chi||'', r.note||'']);
       });
     });
@@ -2326,8 +2327,9 @@ function buildReportScarico(anno,mese){
     const cf=(art&&art.CodiceFornitore)||'';
     const k=m.NomeArticolo+'|'+m.UnitaMisura+'|'+cf;
     byC[c]=byC[c]||{}; byC[c][ms]=byC[c][ms]||{};
-    byC[c][ms][k]=byC[c][ms][k]||{q:0,pezzi:[],artCode:(art&&/^ART-/.test(art.ID))?art.ID:''};
+    byC[c][ms][k]=byC[c][ms][k]||{q:0,base:0,pezzi:[],artCode:(art&&/^ART-/.test(art.ID))?art.ID:''};
     byC[c][ms][k].q+=(+m.Quantita||0);
+    byC[c][ms][k].base+=baseMovimento(m);
     if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(byC[c][ms][k].pezzi.indexOf(p)<0)byC[c][ms][k].pezzi.push(p);});
   });
   // Altre voci dello stesso periodo, raggruppate per commessa
@@ -2353,7 +2355,7 @@ function buildReportScarico(anno,mese){
         Object.keys(byC[c][ms]).forEach(k=>{
           const p=k.split('|'); const cell=byC[c][ms][k];
           const pezzi=cell.pezzi.length?cell.pezzi.join(', '):(cell.artCode||'-');
-          rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td><td align="center">'+pctUsoTxt(cell.q,p[0],p[1])+'</td></tr>';
+          rows+='<tr><td>'+ms+'/'+anno+'</td><td>'+p[0]+'</td><td align="center">'+(p[2]||'-')+'</td><td style="font-size:11px">'+pezzi+'</td><td align="right">'+cell.q.toFixed(3)+' '+p[1]+'</td><td align="center">'+pctBaseTxt(cell.q,cell.base)+'</td></tr>';
         });
       });
       out+='<table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px"><thead><tr style="background:#f0e9e0"><th align="left">Mese</th><th align="left">Materiale</th><th align="center">Cod. forn.</th><th align="left">Codici pezzo</th><th align="right">Quantita</th><th align="center">% del caricato</th></tr></thead><tbody>'+rows+'</tbody></table>';
@@ -2661,13 +2663,14 @@ function vizContenuto(){
   const perMat={};
   scar.forEach(function(m){
     const k=(m.NomeArticolo||m.ArticoloID||'?')+'|'+(m.UnitaMisura||'');
-    perMat[k]=perMat[k]||{nome:m.NomeArticolo||m.ArticoloID||'?',unita:m.UnitaMisura||'',q:0,n:0,comm:{}};
-    perMat[k].q+=(+m.Quantita||0);perMat[k].n++;if(m.Commessa)perMat[k].comm[m.Commessa]=1;});
+    perMat[k]=perMat[k]||{nome:m.NomeArticolo||m.ArticoloID||'?',unita:m.UnitaMisura||'',q:0,n:0,base:0,comm:{}};
+    perMat[k].q+=(+m.Quantita||0);perMat[k].n++;perMat[k].base+=baseMovimento(m);
+    if(m.Commessa)perMat[k].comm[m.Commessa]=1;});
   const topUnita=function(test,dec,tit,sub,col){
     const r=Object.keys(perMat).filter(k=>test(perMat[k].unita)).map(k=>perMat[k])
       .sort((a,b)=>b.q-a.q).slice(0,10)
       .map(x=>({lab:x.nome,val:x.q,txt:nfmt(x.q,dec)+' '+x.unita,
-        extra:x.n+' movimenti su '+Object.keys(x.comm).length+' commesse - '+pctUsoTxt(x.q,x.nome,x.unita)+' del caricato'}));
+        extra:x.n+' movimenti su '+Object.keys(x.comm).length+' commesse - '+pctBaseTxt(x.q,x.base)+' di quello che aveva'}));
     return vizBarre(tit,sub,r,col);
   };
   const perComm={};
@@ -3488,9 +3491,12 @@ function renderReport(){
     +'<div class="op-sec">Materiali sotto soglia</div>'
     +'<div class="card">'+s1+'</div>';
 }
-// ---- QUANTO E' STATO CARICATO A MAGAZZINO, per calcolare la % di utilizzo ----
+// ---- QUANTO E' STATO CARICATO A MAGAZZINO IN TUTTO ----
 // Pannelli e massicci: somma delle superfici/volumi originali dei pezzi.
 // Articoli: somma dei movimenti di carico.
+// ATTENZIONE: questo numero cresce a ogni carico nuovo, quindi NON va usato
+// come base per la percentuale di un singolo consumo (era l'errore della
+// colonna "% del caricato"). Per quella c'e' baseMovimento().
 function caricatoDi(nome,unita){
   const p=STATE.pannelli.filter(x=>x.ArticoloID===nome).reduce((s,x)=>s+(+x.M2_originale||0),0);
   if(p>0)return p;
@@ -3500,15 +3506,71 @@ function caricatoDi(nome,unita){
     &&(x.NomeArticolo===nome||x.ArticoloID===nome)
     &&(!unita||x.UnitaMisura===unita)).reduce((s,x)=>s+(+x.Quantita||0),0);
 }
-function pctUsoTxt(usato,nome,unita){
-  const car=caricatoDi(nome,unita);
-  if(!car)return '-';
-  return (usato/car*100).toFixed(1)+'%';
+// ============================================================
+//  LA PERCENTUALE DI UTILIZZO SI MISURA SULLA COSA, NON SUL MUCCHIO
+//  Dire "ne ho usato il 30%" ha senso solo rispetto a una cosa
+//  precisa: QUEL pezzo, o QUEL lotto arrivato con quella bolla.
+//  Misurarla su tutto il materiale uguale mai entrato in magazzino
+//  era sbagliato: il totale cresce a ogni carico nuovo, e le
+//  percentuali dei movimenti gia' chiusi calavano da sole.
+//  Un massiccio da 0,042 m3 usato tutto resta al 100% per sempre.
+// ============================================================
+// Il lotto da cui e' uscito questo scarico.
+function caricoDiScarico(m){
+  if(!m)return null;
+  // 1) se la riga porta un codice etichetta, l'etichetta sa da quale
+  //    carico preciso arriva: meglio di cosi' non si puo' sapere
+  const codici=String(m.Etichetta||'').split(/[\s,]+/).map(etNorm).filter(Boolean);
+  for(let i=0;i<codici.length;i++){
+    const e=(STATE.etichette||[]).filter(x=>etNorm(x.Codice)===codici[i])[0];
+    if(!e)continue;
+    const c=etCose(e).filter(y=>y.tipo==='carico')[0];
+    if(c){ const mv=movimento(c.id); if(mv)return mv; }
+  }
+  // 2) altrimenti l'ultimo carico dello stesso materiale fatto PRIMA di
+  //    questo scarico: e' il lotto che si stava consumando quel giorno.
+  //    Essendo legato alla data, non cambia piu' quando domani arriva
+  //    merce nuova.
+  const d=String(m.Data||'');
+  const car=(STATE.movimenti||[]).filter(function(x){
+    if(x.Tipo!=='carico'||x.Annullato==='SI'||x.Annullato===true)return false;
+    if(x.ArticoloID!==m.ArticoloID&&x.NomeArticolo!==m.NomeArticolo)return false;
+    if(m.UnitaMisura&&x.UnitaMisura&&x.UnitaMisura!==m.UnitaMisura)return false;
+    return (+x.Quantita||0)>0;
+  }).sort((a,b)=>String(a.Data).localeCompare(String(b.Data)));
+  if(!car.length)return null;
+  let scelto=null;
+  for(let i=0;i<car.length;i++){ if(String(car[i].Data||'')<=d)scelto=car[i]; }
+  return scelto||car[0];
 }
-function pctUsoNum(usato,nome,unita){
-  const car=caricatoDi(nome,unita);
-  return car?(usato/car*100):null;
+// Quanto era grande la cosa da cui questo scarico ha preso.
+function baseMovimento(m){
+  if(!m)return 0;
+  // pannelli e massicci: la misura originale del pezzo, quella con cui e' entrato
+  const ids=String(m.PezzoID||'').split(',').map(x=>x.trim()).filter(Boolean);
+  if(ids.length){
+    let somma=0;
+    ids.forEach(function(id){
+      const p=(STATE.pannelli||[]).filter(x=>x.ID===id)[0];
+      if(p){somma+=(+p.M2_originale||0);return;}
+      const q=(STATE.massicci||[]).filter(x=>x.ID===id)[0];
+      if(q)somma+=(+q.M3_originale||0);
+    });
+    if(somma>0)return somma;
+  }
+  // ferramenta e materiale sfuso: la quantita' del lotto di carico
+  const c=caricoDiScarico(m);
+  return c?(+c.Quantita||0):0;
 }
+function pctBaseNum(usato,base){
+  const b=+base||0;
+  return b?((+usato||0)/b*100):null;
+}
+function pctBaseTxt(usato,base){
+  const p=pctBaseNum(usato,base);
+  return p==null?'-':(p.toFixed(1)+'%');
+}
+function pctMovTxt(m){ return pctBaseTxt(+m.Quantita||0,baseMovimento(m)); }
 function colorePct(p){return p==null?'inherit':(p>=90?'var(--red)':(p>=60?'var(--amber)':'var(--green)'));}
 // ---- UTILIZZO MATERIALI: dove e finito ogni materiale, quanto e quando ----
 function utilizzoDati(filtro){
@@ -3523,24 +3585,28 @@ function utilizzoDati(filtro){
     if(q&&(nome+' '+pezzi.join(' ')+' '+(m.Commessa||'')+' '+(m.ArticoloID||'')+' '+(m.Note||'')+' '+(m.Utente||'')).toLowerCase().indexOf(q)<0)return;
     const a=artDi(m);
     const k=nome+'|'+(m.UnitaMisura||'');
-    g[k]=g[k]||{nome:nome,unita:m.UnitaMisura||'',tot:0,nmov:0,pezziTot:[],forn:[],comm:{},
+    g[k]=g[k]||{nome:nome,unita:m.UnitaMisura||'',tot:0,base:0,nmov:0,pezziTot:[],forn:[],comm:{},
                 codForn:a.CodiceFornitore||'',categoria:a.Categoria||''};
     const x=g[k];
-    x.tot+=(+m.Quantita||0); x.nmov++;
+    // quanto era grande la cosa da cui questo scarico ha preso: la calcolo
+    // una volta sola e me la porto dietro, cosi' i totali si sommano sulla
+    // somma delle basi e non su tutto il materiale uguale mai entrato
+    const bm=baseMovimento(m);
+    x.tot+=(+m.Quantita||0); x.base+=bm; x.nmov++;
     pezzi.forEach(p=>{if(x.pezziTot.indexOf(p)<0)x.pezziTot.push(p);});
     let forn=m.Fornitore||'';
     if(!forn&&pezzi.length){const pz=STATE.pannelli.find(p=>p.ID===pezzi[0])||STATE.massicci.find(p=>p.ID===pezzi[0]);if(pz)forn=pz.Fornitore||'';}
     if(!forn)forn=a.Fornitore||'';
     if(forn&&x.forn.indexOf(forn)<0)x.forn.push(forn);
     const c=m.Commessa||'(senza commessa)';
-    const cc=x.comm[c]=x.comm[c]||{q:0,n:0,pezzi:[],dal:'',al:'',det:[]};
-    cc.q+=(+m.Quantita||0); cc.n++;
+    const cc=x.comm[c]=x.comm[c]||{q:0,base:0,n:0,pezzi:[],dal:'',al:'',det:[]};
+    cc.q+=(+m.Quantita||0); cc.base+=bm; cc.n++;
     pezzi.forEach(p=>{if(cc.pezzi.indexOf(p)<0)cc.pezzi.push(p);});
     const d=String(m.Data||'').slice(0,10);
     if(d){if(!cc.dal||d<cc.dal)cc.dal=d;if(!cc.al||d>cc.al)cc.al=d;}
     const bo=bollaDi(m);
     cc.det.push({data:String(m.Data||'').slice(0,16),q:(+m.Quantita||0),unita:m.UnitaMisura||'',
-      pezzo:pezzi.join(', ')||'-',note:m.Note||'',chi:m.Utente||'',forn:(bo.forn||forn||''),
+      base:bm,pezzo:pezzi.join(', ')||'-',note:m.Note||'',chi:m.Utente||'',forn:(bo.forn||forn||''),
       ddt:bo.ddt||''});
   });
   (STATE.voci||[]).forEach(function(v){
@@ -3589,16 +3655,16 @@ function utilizzoCont(filtro){
       +'<div style="text-align:right;white-space:nowrap"><div style="font-size:18px;font-weight:700;color:var(--accent)">'
       +(x.voce?('&euro; '+euro(x.imp)):(x.tot.toFixed(dec)+' '+x.unita))+'</div>'
       +(x.voce&&x.tot?('<div style="font-size:11.5px;color:var(--gray)">'+x.tot+' '+x.unita+'</div>'):'')
-      +(!x.voce?('<div style="font-size:12px;font-weight:600;margin-top:2px;color:'+colorePct(pctUsoNum(x.tot,x.nome,x.unita))+'">'+pctUsoTxt(x.tot,x.nome,x.unita)+' del caricato</div>'):'')
+      +(!x.voce?('<div style="font-size:12px;font-weight:600;margin-top:2px;color:'+colorePct(pctBaseNum(x.tot,x.base))+'">'+pctBaseTxt(x.tot,x.base)+' di quello che aveva</div>'):'')
       +'</div></div>';
     const righe=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
-      const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(cc.q,x.nome,x.unita);
+      const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctBaseTxt(cc.q,cc.base);
       const tot=(x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' &middot; '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita))
-        +' <span style="font-weight:600;color:'+(x.voce?'var(--gray)':colorePct(pctUsoNum(cc.q,x.nome,x.unita)))+'">'+pctC+'</span>';
+        +' <span style="font-weight:600;color:'+(x.voce?'var(--gray)':colorePct(pctBaseNum(cc.q,cc.base)))+'">'+pctC+'</span>';
       const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Bolla DDT','Fattura','Stato','Note']:['Data','Quantita','%','Pezzi','Fornitore','Bolla DDT','Operatore','Note'];
       const det=cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
-        const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
+        const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctBaseTxt(r.q,r.base);
         const dx=x.voce
           ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):''),pr,(r.q?(r.q+' '+r.unita):''),r.forn,r.ddt,(r.ft?('ft. '+r.ft):''),r.stato,r.note]
           : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo,r.forn,r.ddt,r.chi,r.note];
@@ -3626,19 +3692,19 @@ function stampaUtilizzo(){
     let out='<h3 style="font-size:13.5px;margin:16px 0 2px">'+x.nome
       +(x.voce?(' <span style="font-weight:400;color:#8a6d4e">['+x.categoria+']</span>'):'')
       +' <span style="font-weight:400;color:#777">&mdash; totale '
-      +(x.voce?('&euro; '+euro(x.imp)+(x.tot?(' / '+x.tot+' '+x.unita):'')):(x.tot.toFixed(dec)+' '+x.unita+' &middot; '+pctUsoTxt(x.tot,x.nome,x.unita)+' del caricato'))+'</span></h3>'
+      +(x.voce?('&euro; '+euro(x.imp)+(x.tot?(' / '+x.tot+' '+x.unita):'')):(x.tot.toFixed(dec)+' '+x.unita+' &middot; '+pctBaseTxt(x.tot,x.base)+' di quello che aveva'))+'</span></h3>'
       +'<div style="font-size:10.5px;color:#777;margin-bottom:5px">'+metaDi(x)+'</div>';
     out+=Object.keys(x.comm).sort().map(function(c){
       const cc=x.comm[c];
       const th=x.voce?['Data','Importo','%','Q.ta','Fornitore','Bolla DDT','Fattura','Stato','Note']:['Data','Quantita','%','Codici pezzo','Fornitore','Bolla DDT','Operatore','Note'];
       const rr=cc.det.slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))).map(function(r){
-        const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(r.q,x.nome,x.unita);
+        const pr=x.voce?(x.imp?((r.imp/x.imp*100).toFixed(1)+'%'):'-'):pctBaseTxt(r.q,r.base);
         const dx=x.voce
           ? [dataIt(r.data),(r.imp?('&euro; '+euro(r.imp)):'-'),pr,(r.q?(r.q+' '+r.unita):'-'),r.forn||'-',r.ddt||'-',r.ft||'-',r.stato||'-',r.note||'-']
           : [dataIt(r.data),r.q.toFixed(dec)+' '+r.unita,pr,r.pezzo||'-',r.forn||'-',r.ddt||'-',r.chi||'-',r.note||'-'];
         return '<tr>'+dx.map(function(v,i){return '<td'+(i===1?' align="right"':(i===2?' align="center"':''))+'>'+v+'</td>';}).join("")+'</tr>';
       }).join("");
-      const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctUsoTxt(cc.q,x.nome,x.unita);
+      const pctC=x.voce?(x.imp?((cc.imp/x.imp*100).toFixed(1)+'%'):'-'):pctBaseTxt(cc.q,cc.base);
       const tot=(x.voce?('&euro; '+euro(cc.imp)+(cc.q?(' / '+cc.q+' '+x.unita):'')):(cc.q.toFixed(dec)+' '+x.unita))+' &middot; '+pctC;
       return '<div style="margin:6px 0 10px"><div style="font-size:12px;font-weight:bold;margin-bottom:2px">Commessa '+c
         +' <span style="font-weight:400;color:#777">&mdash; '+tot+' &middot; '+cc.n+(x.voce?' voci':' movimenti')+'</span></div>'
@@ -3657,17 +3723,17 @@ function buildReportCommessa(comm){
   const codeDi=(m)=>{if(m.PezzoID)return m.PezzoID;let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);return (art&&/^ART-/.test(art.ID))?art.ID:'-';};
   // il codice etichetta, quello che legge il gestionale di contabilita'
   const etDi=(m)=>{const c=etichetteDiMovimento(m);return c?c.split(' ').map(etFmt).join(', '):'';};
-  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0,pezzi:[],cod:[]}; etDi(m).split(', ').filter(Boolean).forEach(c=>{if(tot[k].cod.indexOf(c)<0)tot[k].cod.push(c);}); tot[k].q+=(+m.Quantita||0); tot[k].n++; if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
+  const tot={}; movs.forEach(m=>{const cf=cfDi(m);const k=m.NomeArticolo+'||'+m.UnitaMisura+'||'+cf; if(!tot[k])tot[k]={nome:m.NomeArticolo,unita:m.UnitaMisura,cf:cf,q:0,n:0,base:0,pezzi:[],cod:[]}; etDi(m).split(', ').filter(Boolean).forEach(c=>{if(tot[k].cod.indexOf(c)<0)tot[k].cod.push(c);}); tot[k].q+=(+m.Quantita||0); tot[k].n++; tot[k].base+=baseMovimento(m); if(m.PezzoID)String(m.PezzoID).split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{if(tot[k].pezzi.indexOf(p)<0)tot[k].pezzi.push(p);});});
   const righeTot=Object.keys(tot).map(k=>{const t=tot[k];
     // Ordina i codici pezzo (P1014, P1015...) in ordine
     t.pezzi.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
     const nPezzi=t.pezzi.length;
     const codiciCell=nPezzi?('<div style="font-size:11px;color:#555;font-family:monospace">'+t.pezzi.join(', ')+'</div>'):'-';
-    return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+pctUsoTxt(t.q,t.nome,t.unita)+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
+    return '<tr><td>'+t.nome+'</td><td align="center">'+(t.cf||'-')+'</td><td style="text-align:right">'+t.q.toFixed(3)+' '+t.unita+'</td><td style="text-align:center">'+pctBaseTxt(t.q,t.base)+'</td><td style="text-align:center">'+(nPezzi||'-')+'</td><td style="text-align:right">'+t.n+'</td></tr>'
       +(nPezzi?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici pezzi ('+nPezzi+'): </span>'+codiciCell+'</td></tr>':'')
       +((t.cod&&t.cod.length)?'<tr><td colspan="6" style="padding:2px 10px 8px;background:#faf8f4"><span style="font-size:11px;color:#888">Codici etichetta: </span><span style="font-size:11px;color:#555;font-family:monospace">'+t.cod.join(', ')+'</span></td></tr>':'');
   }).join("")||'<tr><td colspan="6" style="color:#888">Nessun consumo registrato</td></tr>';
-  const righeMov=movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+(etDi(m)?('<div style="font-size:10px;color:#777;font-family:monospace">'+etDi(m)+'</div>'):'')+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctUsoTxt(+m.Quantita||0,m.NomeArticolo,m.UnitaMisura)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
+  const righeMov=movs.slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data))).map(m=>'<tr><td>'+String(m.Data||"").slice(0,16)+'</td><td>'+m.NomeArticolo+'</td><td align="center">'+(cfDi(m)||'-')+'</td><td>'+codeDi(m)+(etDi(m)?('<div style="font-size:10px;color:#777;font-family:monospace">'+etDi(m)+'</div>'):'')+'</td><td style="text-align:right">'+m.Quantita+' '+m.UnitaMisura+'</td><td align="center">'+pctMovTxt(m)+'</td><td style="font-size:11px">'+(m.Note||'')+'</td><td>'+(m.Utente||"")+'</td></tr>').join("")||'<tr><td colspan="8" style="color:#888">Nessun movimento</td></tr>';
   // Altre voci di commessa (conto lavorazione, trasporti, pasti, ...)
   const voci=(STATE.voci||[]).filter(v=>v.Commessa===comm)
     .sort((a,b)=>String(a.Categoria).localeCompare(String(b.Categoria))||String(b.Data).localeCompare(String(a.Data)));
