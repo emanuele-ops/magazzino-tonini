@@ -312,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v100 - Atelier</div>
+  <div id="ver-badge">v101 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -2380,7 +2380,7 @@ function buildReportScarico(anno,mese){
       const oo=byO[c].slice().sort((a,b)=>String(b.Data).localeCompare(String(a.Data)));
       const to=oreTot(oo);
       const rr2=oo.map(function(r){
-        return '<tr><td>'+dataIt(r.Data)+'</td><td>'+(r.Persona||'')+'</td><td>'+tipoOraLabel(r.Tipo)+'</td>'
+        return '<tr><td>'+dataIt(r.Data)+'</td><td>'+(r.Persona||'')+'</td><td>'+tipoOraLabelRiga(r)+'</td>'
          +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')+'</td>'
          +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+((+r.Km)?nOre(r.Km):'-')+'</td>'
          +'<td align="right">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td></tr>';}).join('');
@@ -3770,7 +3770,7 @@ function buildReportCommessa(comm){
        +'</td><td align="right">&euro; '+euro(x.costo)+'</td><td align="right">&euro; '+euro(x.rimborso)
        +'</td><td align="right">&euro; '+euro(x.tot)+'</td></tr>';}).join('');
     const rd=oreC.map(function(r){
-      return '<tr><td>'+dataIt(r.Data)+'</td><td>'+(r.Persona||'')+'</td><td>'+tipoOraLabel(r.Tipo)+'</td>'
+      return '<tr><td>'+dataIt(r.Data)+'</td><td>'+(r.Persona||'')+'</td><td>'+tipoOraLabelRiga(r)+'</td>'
        +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')
        +(r.Note?(' <span style="color:#777">'+r.Note+'</span>'):'')+'</td>'
        +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+((+r.Km)?nOre(r.Km):'-')+'</td>'
@@ -5591,29 +5591,64 @@ function oreProduttive(t){return t==='lavoro'||t==='viaggio';}
 //  e far correggere insieme.
 // ============================================================
 function oreDestNorm(x){return String(x||'').trim().toLowerCase();}
-// una riga di lavoro con una destinazione e' lavoro fatto in cantiere,
-// non in officina
-function oreInCantiere(r){return !!(r&&r.Tipo==='lavoro'&&oreDestNorm(r.Destinazione));}
-function oreStessaTrasferta(a,b){
+// La destinazione e' facoltativa: quasi sempre quella casella resta vuota.
+// Due righe vanno d'accordo se la destinazione e' la stessa, oppure se una
+// delle due non l'ha scritta. Una trasferta non deve sparire solo perche'
+// nessuno ha digitato il nome del cantiere.
+function oreDestOk(a,b){
+  const x=oreDestNorm(a),y=oreDestNorm(b);
+  return (!x||!y)?true:(x===y);
+}
+// Stesso giorno, stessa persona, stessa commessa: e' la stessa uscita.
+function oreStessoGiro(a,b){
   if(!a||!b||a.ID===b.ID)return false;
   return String(a.Data||'').slice(0,10)===String(b.Data||'').slice(0,10)
     && a.PersonaID===b.PersonaID
-    && String(a.Commessa||'')===String(b.Commessa||'')
-    && oreDestNorm(a.Destinazione)===oreDestNorm(b.Destinazione);
+    && String(a.Commessa||'')===String(b.Commessa||'');
+}
+function oreStessaTrasferta(a,b){
+  return oreStessoGiro(a,b)&&oreDestOk(a.Destinazione,b.Destinazione);
+}
+// Fra piu' candidati preferisco quello con la stessa destinazione scritta.
+function oreMiglioreAbbinamento(lista,r){
+  if(!lista.length)return null;
+  const d=oreDestNorm(r&&r.Destinazione);
+  if(d){const e=lista.filter(x=>oreDestNorm(x.Destinazione)===d)[0]; if(e)return e;}
+  return lista[0];
+}
+// Il viaggio che accompagna queste ore di lavoro, se c'e'.
+function oreViaggioDi(r){
+  if(!r||r.Tipo!=='lavoro')return null;
+  return oreMiglioreAbbinamento((STATE.ore||[])
+    .filter(x=>x.Tipo==='viaggio'&&oreStessaTrasferta(r,x)),r);
+}
+// Ore di lavoro fatte fuori, non in officina.
+// Lo sono se c'e' scritta una destinazione, ma anche - ed e' il caso
+// normale, visto che la destinazione quasi nessuno la scrive - se quel
+// giorno, su quella commessa, quella persona ha registrato un viaggio:
+// se sei andato fin la', il lavoro l'hai fatto la'.
+function oreInCantiere(r){
+  if(!r||r.Tipo!=='lavoro')return false;
+  if(oreDestNorm(r.Destinazione))return true;
+  return !!oreViaggioDi(r);
 }
 // l'altra meta' della trasferta: dal viaggio il cantiere, dal cantiere il viaggio
 function oreGemella(r){
   if(!r)return null;
-  let cerco='';
-  if(r.Tipo==='viaggio')cerco='lavoro';
-  else if(oreInCantiere(r))cerco='viaggio';
-  else return null;
-  const c=(STATE.ore||[]).filter(function(x){
-    if(x.Tipo!==cerco)return false;
-    if(cerco==='lavoro'&&!oreInCantiere(x))return false;
-    return oreStessaTrasferta(r,x);
-  });
-  return c[0]||null;
+  if(r.Tipo==='viaggio'){
+    return oreMiglioreAbbinamento((STATE.ore||[])
+      .filter(x=>x.Tipo==='lavoro'&&oreStessaTrasferta(r,x)),r);
+  }
+  if(r.Tipo==='lavoro')return oreViaggioDi(r);
+  return null;
+}
+// Come si chiama questa riga quando la guardi: il tipo da solo non basta,
+// 8 ore in officina e 8 ore in cantiere non sono la stessa cosa.
+function tipoOraLabelRiga(r){
+  if(!r)return '';
+  if(r.Tipo==='viaggio')return 'Trasferta - viaggio';
+  if(oreInCantiere(r))return 'Trasferta - lavoro in cantiere';
+  return tipoOraLabel(r.Tipo);
 }
 // {viaggio, lavoro}: null se la riga non c'entra con le trasferte
 function oreTrasferta(r){
@@ -5693,7 +5728,7 @@ function oreFiltrate(o){
     else if(o.commessa&&r.Commessa!==o.commessa)return false;
     if(o.tipo&&r.Tipo!==o.tipo)return false;
     if(parole.length){
-      const paglia=[dataIt(r.Data),r.Persona,r.Commessa,tipoOraLabel(r.Tipo),r.Descrizione,
+      const paglia=[dataIt(r.Data),r.Persona,r.Commessa,tipoOraLabel(r.Tipo),tipoOraLabelRiga(r),r.Descrizione,
         r.Destinazione,r.Note,r.InseritoDa,nomeCommessa(r.Commessa),
         r.Ore,r.Km].join(' ').toLowerCase();
       for(let i=0;i<parole.length;i++)if(paglia.indexOf(parole[i])<0)return false;
@@ -6062,7 +6097,7 @@ function oreTabPersona(){
   if(!list.length)return h+'<div class="card" style="margin-top:14px;color:var(--gray)">Nessuna ora in questo periodo.</div>';
   const baseP={persona:ORE_PERS,da:ORE_DA,a:ORE_A,q:ORE_Q};
   h+=tabellaPerChiave(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',admin,t.produttive,'commessa',baseP);
-  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore,'tipo',baseP);
+  h+=tabellaPerChiave(list,tipoOraLabelRiga,'Tipo di ora',admin,t.ore,'tipo',baseP);
   h+='<div class="card"><div class="card-title">Dettaglio giorno per giorno</div>'
    +'<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Ogni riga si modifica o si cancella da qui.</div>'
    +list.map(r=>rigaOra(r,false)).join('')+'</div>';
@@ -6091,7 +6126,7 @@ function oreTabCommessa(){
   const baseC={commessa:ORE_COMM,da:ORE_DA,a:ORE_A,q:ORE_Q};
   if(!ORE_COMM)h+=tabellaPerChiave(list,r=>r.Commessa,'Commesse',admin,t.ore,'commessa',baseC);
   h+=tabellaPerChiave(list,r=>r.Persona,'Persone',admin,t.ore,'persona',baseC);
-  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore,'tipo',baseC);
+  h+=tabellaPerChiave(list,tipoOraLabelRiga,'Tipo di ora',admin,t.ore,'tipo',baseC);
   h+='<div class="card"><div class="card-title">Dettaglio</div>'
    +'<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Ogni riga si modifica o si cancella da qui.</div>'
    +list.map(r=>rigaOra(r,true)).join('')+'</div>';
@@ -6204,7 +6239,7 @@ function oreTabRegistro(){
     h+='<tr style="border-top:1px solid var(--border)">'
      +'<td style="padding:7px 5px;white-space:nowrap">'+dataIt(r.Data)+'</td>'
      +'<td>'+(r.Persona||'')+'</td>'
-     +'<td style="color:'+tp[2]+'">'+tp[1]+'</td>'
+     +'<td style="color:'+tp[2]+'">'+tipoOraLabelRiga(r)+'</td>'
      +'<td style="white-space:nowrap">'+(r.Commessa?commTxt(r.Commessa):'<span style="color:var(--gray)">-</span>')+'</td>'
      +'<td style="color:var(--gray)">'+(r.Descrizione||'')
        +(r.Destinazione?(' <span style="color:var(--accent)">('+r.Destinazione+')</span>'):'')
@@ -6227,7 +6262,7 @@ function oreTabRegistro(){
   // raggruppamenti utili sul risultato
   h+=tabellaPerChiave(list,r=>r.Persona,'Persone',admin,t.ore);
   h+=tabellaPerChiave(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',admin,t.produttive);
-  h+=tabellaPerChiave(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',admin,t.ore);
+  h+=tabellaPerChiave(list,tipoOraLabelRiga,'Tipo di ora',admin,t.ore);
 
   return h+oreScaricaTutto();
 }
@@ -6262,7 +6297,7 @@ function stampaRegistroOre(){
    +'<tr><td style="color:#777">Totale con rimborsi</td><td style="font-weight:700">&euro; '+euro(t.tot)+'</td></tr></table>'
    +tabellaStampaOre(list,r=>r.Persona,'Persone',t.ore)
    +tabellaStampaOre(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',t.produttive)
-   +tabellaStampaOre(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',t.ore)
+   +tabellaStampaOre(list,tipoOraLabelRiga,'Tipo di ora',t.ore)
    +dettaglioStampaOre(list,true)+'</div>');
 }
 function csvRegistroOre(){
@@ -6996,7 +7031,10 @@ function openNuovaOra(id,pre){
    +'passate a lavorare. Scrivile separate e l&#39;app tiene <strong>due righe</strong>, '
    +'cos&igrave; nei mastrini il viaggio non si confonde con il lavoro. '
    +'Se metti <strong>0</strong> in una delle due, quella riga viene tolta.</div></div>'
-   +'<div class="form-group" id="no-box-dest"><label>Destinazione</label><input id="no-dest" value="'+att(d.Destinazione)+'" placeholder="es. cantiere Venezia"></div>'
+   +'<div class="form-group" id="no-box-dest"><label>Destinazione (facoltativa)</label>'
+   +'<input id="no-dest" value="'+att(d.Destinazione)+'" placeholder="es. cantiere Venezia">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Serve solo per ricordarti dove sei andato: '
+   +'anche se la lasci vuota, viaggio e ore in cantiere restano legati come una trasferta sola.</div></div>'
    +'<div class="form-group"><label>Cosa hai fatto</label><input id="no-desc" value="'+att(d.Descrizione)+'" placeholder="es. montaggio ante cucina"></div>'
    +'<div class="form-group"><label>Note</label><input id="no-note" value="'+att(d.Note)+'"></div>'
    +'<div id="no-err"></div>'
@@ -9594,7 +9632,7 @@ function dettaglioStampaOre(list,conPersona){
    +'<th align="left">Tipo</th><th align="left">Commessa</th><th align="left">Descrizione</th>'
    +'<th align="right">Ore</th><th align="right">Km</th><th align="right">Costo</th></tr></thead><tbody>'
    +list.map(r=>'<tr><td>'+dataIt(r.Data)+'</td>'+(conPersona?('<td>'+(r.Persona||'')+'</td>'):'')
-     +'<td>'+tipoOraLabel(r.Tipo)+'</td><td>'+(r.Commessa?commTxt(r.Commessa):'-')+'</td>'
+     +'<td>'+tipoOraLabelRiga(r)+'</td><td>'+(r.Commessa?commTxt(r.Commessa):'-')+'</td>'
      +'<td>'+(r.Descrizione||'')+(r.Destinazione?(' <span style="color:#777">('+r.Destinazione+')</span>'):'')+(r.Note?(' <span style="color:#777">'+r.Note+'</span>'):'')+'</td>'
      +'<td align="right">'+nOre(r.Ore)+'</td><td align="right">'+(+r.Km?nOre(r.Km):'-')+'</td>'
      +'<td align="right">&euro; '+euro((+r.Costo||0)+(+r.Rimborso||0))+'</td></tr>').join('')
@@ -9621,7 +9659,7 @@ function stampaMastrinoPersona(){
    +'<tr><td style="color:#777">Costo manodopera</td><td style="font-weight:700">&euro; '+euro(t.costo)+'</td></tr>'
    +'<tr><td style="color:#777">Totale con rimborsi</td><td style="font-weight:700">&euro; '+euro(t.tot)+'</td></tr></table>'
    +tabellaStampaOre(list.filter(r=>oreProduttive(r.Tipo)),r=>r.Commessa,'Commesse',t.produttive)
-   +tabellaStampaOre(list,r=>tipoOraLabel(r.Tipo),'Tipo di ora',t.ore)
+   +tabellaStampaOre(list,tipoOraLabelRiga,'Tipo di ora',t.ore)
    +dettaglioStampaOre(list,false)+'</div>');
 }
 function stampaMastrinoCommessa(){
