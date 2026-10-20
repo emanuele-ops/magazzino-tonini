@@ -312,7 +312,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v102 - Atelier</div>
+  <div id="ver-badge">v105 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -448,7 +448,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function loadAll() {
   try{var sl=document.getElementById("side-logo");if(sl)sl.src=LOGO_IMG;}catch(e){}
   const sc = fn => call(fn).catch(e => ({ __err: String((e && e.message) || e) }));
-  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve"),sc("getVoci"),sc("getPersonale"),sc("getOre"),sc("getDettature")])
+  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve"),sc("getConfig"),sc("getVoci"),sc("getPersonale"),sc("getOre"),sc("getDettature")])
   .then(res => {
     const errs = [];
     const ok = (v,name,def) => { if (v && v.__err) { errs.push(name); return def; } return (v==null?def:v); };
@@ -464,10 +464,11 @@ function loadAll() {
     STATE.ordini    = ok(res[9],"Ordini",[]);
     STATE.utente    = ok(res[10],"Utente",{});
     STATE.riserve   = ok(res[11],"Riserve",[]);
-    STATE.voci      = ok(res[12],"Altre voci",[]);
-    STATE.personale = ok(res[13],"Personale",[]);
-    STATE.ore       = ok(res[14],"Ore",[]);
-    STATE.dettature = ok(res[15],"Dettature",[]);
+    STATE.config    = ok(res[12],"Impostazioni",[]);
+    STATE.voci      = ok(res[13],"Altre voci",[]);
+    STATE.personale = ok(res[14],"Personale",[]);
+    STATE.ore       = ok(res[15],"Ore",[]);
+    STATE.dettature = ok(res[16],"Dettature",[]);
     const u = STATE.utente || {};
     // Login Supabase
     if (u.autorizzato === "__login__") {
@@ -584,6 +585,7 @@ function submitBulk(){
   });
 }
 function renderPage(p){
+  fornScorda();   // l'elenco dei fornitori si ricalcola a ogni pagina
   applicaDensita();
   const m=document.getElementById("main-content");
   if(p==="dashboard")m.innerHTML=(STATE.utente.Ruolo==="operator")?renderOperatorHome():renderDashboard();
@@ -2046,10 +2048,10 @@ function refreshApp(){
   const btn=document.getElementById("btn-refresh"); if(btn)btn.classList.add("spin-on");
   const cur=STATE.pagina||"dashboard";
   const sc=fn=>call(fn).catch(()=>[]);
-  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getRiserve"),sc("getVoci"),sc("getPersonale"),sc("getOre"),sc("getDettature")])
-  .then(([a,p,m,mv,c,f,fb,md,im,or,ri,vc,pe,oe,de])=>{
+  Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getRiserve"),sc("getConfig"),sc("getVoci"),sc("getPersonale"),sc("getOre"),sc("getDettature")])
+  .then(([a,p,m,mv,c,f,fb,md,im,or,ri,cf,vc,pe,oe,de])=>{
     STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];
-    STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.voci=vc||[];STATE.personale=pe||[];STATE.ore=oe||[];STATE.dettature=de||[];
+    STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.config=cf||[];STATE.voci=vc||[];STATE.personale=pe||[];STATE.ore=oe||[];STATE.dettature=de||[];
     caricaEtichette().then(function(){renderPage(cur);});
     renderPage(cur);toast("Dati aggiornati");
   })
@@ -2074,9 +2076,13 @@ function destinatoMassicci(artId){return STATE.massicci.filter(p=>p.ArticoloID==
 // -- DASHBOARD admin/office --
 function riordiniRaggruppati(){
   const sotto=STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino);
-  const emailDi={}; STATE.fornitori.forEach(f=>emailDi[String(f.Nome).trim().toLowerCase()]=f.Email||"");
+  const emailDi={}; STATE.fornitori.forEach(f=>{const k=fornNorm(f.Nome); if(k&&!emailDi[k])emailDi[k]=f.Email||"";});
   const g={};
-  sotto.forEach(a=>{const forn=a.Fornitore||"(senza fornitore)";if(!g[forn])g[forn]={fornitore:forn,email:emailDi[String(forn).trim().toLowerCase()]||"",articoli:[]};g[forn].articoli.push(a);});
+  // raggruppo per ditta, non per come e' scritta: "Pavanello" e "pavanello"
+  // sono lo stesso fornitore e devono fare un ordine solo
+  sotto.forEach(a=>{const forn=fornChiave(a.Fornitore);
+    if(!g[forn])g[forn]={fornitore:forn,email:emailDi[fornNorm(forn)]||"",articoli:[]};
+    g[forn].articoli.push(a);});
   return Object.keys(g).map(k=>g[k]);
 }
 function renderReorderBody(){
@@ -2769,7 +2775,8 @@ function vizContenuto(){
 
   // ---------- D. fornitori, rotazione, persone ----------
   const perForn={};
-  STATE.pannelli.forEach(p=>{const f=p.Fornitore||'(non indicato)';perForn[f]=perForn[f]||{n:0,mq:0,res:0};
+  STATE.pannelli.forEach(p=>{const f=String(p.Fornitore||'').trim()?fornChiave(p.Fornitore):'(non indicato)';
+    perForn[f]=perForn[f]||{n:0,mq:0,res:0};
     perForn[f].n++;perForn[f].mq+=(+p.M2_originale||0);perForn[f].res+=(+p.M2_residuo||0);});
   const fornRows=Object.keys(perForn).map(k=>({lab:k,val:perForn[k].mq,txt:nfmt(perForn[k].mq,2)+' m2',
     extra:perForn[k].n+' pannelli - ancora a magazzino '+nfmt(perForn[k].res,2)+' m2'}))
@@ -3110,11 +3117,7 @@ function fornDoppioni(){
 }
 // quante righe porta con se' ogni scrittura: serve per scegliere quale tenere
 function fornQuanteRighe(nome){
-  let n=0;
-  ['articoli','pannelli','massicci','movimenti','voci','ordini'].forEach(function(t){
-    (STATE[t]||[]).forEach(function(r){ if(String(r.Fornitore||'').trim()===nome)n++; });
-  });
-  return n;
+  return fornIndice().conta[String(nome||'').trim()]||0;
 }
 function fornBoxDoppioni(){
   const gruppi=fornDoppioni();
@@ -3144,12 +3147,55 @@ function fornBoxDoppioni(){
      +'</div></div>';
   }).join('');
   return '<div class="card" style="margin-bottom:14px;border-color:var(--amber)">'
-   +'<div class="card-title">Lo stesso fornitore scritto in modi diversi ('+gruppi.length+')</div>'
+   +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<div class="card-title" style="margin:0">Lo stesso fornitore scritto in modi diversi ('+gruppi.length+')</div>'
+   +'<button class="btn btn-accent" onclick="fornUnisciTutti()">Sistema tutti</button></div>'
    +'<div style="font-size:12px;color:var(--gray);line-height:1.6;margin-bottom:4px">'
    +'Nei grafici e nei report questi contano come ditte separate. Scegli la scrittura giusta '
    +'e uniscili: le righe non si perdono, cambia solo il nome scritto sopra. Il numero accanto '
    +'a ogni nome dice quante righe lo usano.</div>'
    +blocchi+'</div>';
+}
+// Sistema tutti i gruppi in un colpo, tenendo per ognuno il nome gia'
+// proposto (quello in anagrafica, o il piu' usato).
+function fornUnisciTutti(){
+  const gruppi=fornDoppioni();
+  if(!gruppi.length){toast('Non ci sono doppioni');return;}
+  const piano=gruppi.map(function(g,i){
+    const sel=document.getElementById('fd-'+i);
+    const giusto=(sel&&sel.value)||g.nomi[0];
+    return {a:giusto,da:g.nomi.filter(function(n){return n!==giusto;})};
+  }).filter(function(x){return x.da.length;});
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Sistema tutti i fornitori</h2>'
+   +'<div class="alert alert-amber">Unisco <strong>'+piano.length+'</strong> gruppi: '
+   +'per ognuno tengo il nome che vedi gi&agrave; scelto nella tendina.</div>'
+   +'<div style="max-height:40vh;overflow:auto;font-size:12.5px">'
+   +piano.map(function(x){return '<div class="det-row"><span style="color:var(--gray)">'
+      +att(x.da.join(', '))+'</span><span>&rarr; <strong>'+att(x.a)+'</strong></span></div>';}).join('')
+   +'</div>'
+   +'<div class="info-box">Nessuna riga viene cancellata: cambia solo il nome del fornitore '
+   +'su schede, carichi, bolle, voci e ordini. Non si torna indietro con un tasto: '
+   +'se vuoi essere tranquillo scarica prima un Backup.</div>'
+   +'<div id="fu-err"></div>'
+   +'<button class="btn-primary" onclick=\'fornUnisciTuttiVai('+att(JSON.stringify(piano)).replace(/'/g,'&#39;')+')\'>Sistema tutti</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button></div>');
+}
+function fornUnisciTuttiVai(piano){
+  if(!piano||!piano.length){closeModal();return;}
+  toast('Sistemo i fornitori...');
+  let righe=0;
+  const passo=function(i){
+    if(i>=piano.length){
+      toast('Fatto: '+righe+' righe sistemate');
+      fornScorda(); refreshApp(); closeModal(); return;
+    }
+    call('unisciFornitori',{a:piano[i].a,da:piano[i].da}).then(function(r){
+      if(r&&r.ok)righe+=(r.righe||0);
+      passo(i+1);
+    }).catch(function(e){ showErr('fu-err',String((e&&e.message)||e)); });
+  };
+  passo(0);
 }
 function fornUnisci(i){
   const sel=document.getElementById('fd-'+i); if(!sel)return;
@@ -3698,6 +3744,7 @@ function utilizzoDati(filtro){
     let forn=m.Fornitore||'';
     if(!forn&&pezzi.length){const pz=STATE.pannelli.find(p=>p.ID===pezzi[0])||STATE.massicci.find(p=>p.ID===pezzi[0]);if(pz)forn=pz.Fornitore||'';}
     if(!forn)forn=a.Fornitore||'';
+    if(forn)forn=fornChiave(forn);
     if(forn&&x.forn.indexOf(forn)<0)x.forn.push(forn);
     const c=m.Commessa||'(senza commessa)';
     const cc=x.comm[c]=x.comm[c]||{q:0,base:0,n:0,pezzi:[],dal:'',al:'',det:[]};
@@ -4143,6 +4190,7 @@ function renderOrdini(){
    +'<div class="filters"><select id="ord-comm" onchange="ordSelComm(this.value)">'+(opt||'<option value="">Nessuna commessa</option>')+'</select>'
    +'<button class="btn btn-ghost" onclick="openNuovaCommessa()">+ Commessa</button>'
    +'<button class="btn btn-accent" onclick="openAddFabbisogno()">+ Aggiungi materiale</button>'
+   +'<button class="btn btn-green" onclick="openImportaFabbisogni()">Importa fabbisogni iMOS</button>'
    +'<button class="btn btn-ghost" onclick="openOrdineGenerico()">+ Ordine generico</button></div>'
    +'<div class="filters"><input id="ord-q" value="'+att(ORD_Q)+'" placeholder="Cerca materiale, fornitore, codice, nota..." oninput="ordCerca(this.value)"></div>'
    +'<div id="ord-cont">'+ordiniCont()+'</div>';
@@ -4218,6 +4266,9 @@ function fabQtaTxt(gr){
   return (String(n).indexOf('.')>=0?nOre(n):n)+' '+(gr.unita||'');
 }
 function dispoFab(f){
+  // Un'altra voce (verniciatura, trasporto, conto lavorazione...) non si
+  // tiene a magazzino: non c'e' niente da assegnare, si ordina e basta.
+  if(f.__voce)return {ok:false,libero:0,testo:'altra voce: non sta a magazzino'};
   if(f.Tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===f.ArticoloID);const st=a?+a.Stock:0;const imp=a?impegnatoArt(a):0;const lib=Math.max(0,st-imp);const u=a?a.UnitaMisura:(f.UnitaMisura||'');return {ok:lib>=(+f.Quantita||0),libero:lib,testo:'a mag. '+st+' '+u+' - destinati '+imp+' - liberi '+lib};}
   if(f.Tipo==='pannello'){const lib=STATE.pannelli.filter(p=>p.ArticoloID===f.ArticoloID&&!String(p.Commesse||'').trim()).reduce((s,p)=>s+(+p.M2_residuo||0),0);const need=((+f.Dim1||0)/1000)*((+f.Dim2||0)/1000)*(+f.NumPezzi||0);return {ok:lib>=need,libero:lib,testo:'liberi '+lib.toFixed(2)+' / serve '+need.toFixed(2)+' m2'};}
   const lib=STATE.massicci.filter(p=>p.ArticoloID===f.ArticoloID&&!String(p.Commesse||'').trim()).reduce((s,p)=>s+(+p.M3_residuo||0),0);const need=((+f.Dim1||0)/1000)*((+f.Dim2||0)/1000)*((+f.Dim3||0)/1000)*(+f.NumPezzi||0);return {ok:lib>=need,libero:lib,testo:'liberi '+lib.toFixed(3)+' / serve '+need.toFixed(3)+' m3'};
@@ -4235,6 +4286,7 @@ function assegnatoReale(f){
 // Stato effettivo calcolato dalla realta (non dal flag salvato)
 function statoEffettivo(f){
   if(f.Stato==='ricevuto')return 'ricevuto';
+  if(f.__voce)return (f.Stato==='ordinato')?'ordinato':'da_ordinare';
   const ass=assegnatoReale(f);
   if(f.Tipo==='articolo'){
     const need=parseFloat(f.Quantita)||0;
@@ -4259,6 +4311,12 @@ function azioniFab(f){
   const d=dispoFab(f), st=statoEffettivo(f);
   let act='';
   if(st==='ricevuto')return '';
+  if(f.__voce){
+    return '<button class="btn btn-ghost" onclick="openNuovaVoce(\''+esc(f.ID)+'\')">Modifica</button> '
+     +'<button class="btn btn-green" onclick="riceviVoceOrdine(\''+esc(f.ID)+'\')">Ricevuta</button> '
+     +((st==='da_ordinare')?('<button class="btn btn-ghost" onclick="statoVoceOrdine(\''+esc(f.ID)+'\',\'ordinato\')">Segna ordinata</button> '):'')
+     +'<button class="btn btn-red" onclick="confEliminaVoce(\''+esc(f.ID)+'\')">Elimina</button>';
+  }
   if(st==='assegnato'){
     act+='<button class="btn btn-ghost" onclick="disassegnaFab(\''+esc(f.ID)+'\')">Annulla assegnazione</button> '
       +'<button class="btn btn-red" onclick="eliminaFab(\''+esc(f.ID)+'\')">Elimina</button>';
@@ -4305,7 +4363,7 @@ function cardFab(gr,griglia){
    +(gr.righe.length>1?(' <span style="color:var(--accent)">(somma di '+gr.righe.length+' richieste)</span>'):'')
    +(mis?(' &middot; '+mis):'')+'</div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:4px">'
-   +(f.Fornitore?('forn: '+att(f.Fornitore)+' &middot; '):'')+d.testo+'</div>'
+   +(f.Fornitore?('forn: '+att(fornChiave(f.Fornitore))+' &middot; '):'')+d.testo+'</div>'
    +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">'+badges+' '+db+'</div>';
   // nei blocchi le singole richieste stanno chiuse, se no la scheda e' un muro
   const corpo=(gr.righe.length>1)
@@ -4322,11 +4380,17 @@ function cardFab(gr,griglia){
 function ordiniCont(){
   if(!FAB_COMM)return '<div class="card" style="color:var(--gray)">Crea o seleziona una commessa.</div>';
   let list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM);
+  // le altre voci messe negli ordini stanno in questo elenco insieme ai
+  // materiali: sono roba da ordinare anche loro
+  list=list.concat(vociDaOrdinare(FAB_COMM).map(function(v){
+    return {__voce:true,ID:v.ID,Commessa:v.Commessa,Descrizione:v.Descrizione,Categoria:v.Categoria,
+            Quantita:v.Quantita,Unita:v.Unita,Fornitore:v.Fornitore,Note:v.Note,Stato:v.Stato};
+  }));
   if(ORD_Q){
     const q=ORD_Q.toLowerCase();
     list=list.filter(function(f){
       const a=(STATE.articoli||[]).find(x=>x.ID===f.ArticoloID)||{};
-      return [f.Descrizione,f.Fornitore,f.ArticoloID,f.Note,a.Nome,a.CodiceFornitore]
+      return [f.Descrizione,f.Fornitore,f.ArticoloID,f.Note,f.Categoria,a.Nome,a.CodiceFornitore]
         .join(' ').toLowerCase().indexOf(q)>=0;
     });
   }
@@ -4348,12 +4412,11 @@ function ordiniCont(){
        +nDoppi+' erano ripetuti e sono stati messi insieme con la quantita&#39; sommata. '
        +'Al fornitore va una riga sola.</div>')
     : '';
+  // nel riordino finiscono materiali e altre voci insieme, raggruppati per ditta
   const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale');
-  const gruppi={}; daOrd.forEach(f=>{const fo=f.Fornitore||'(senza fornitore)';(gruppi[fo]=gruppi[fo]||[]).push(f);});
-  // le "altre voci" marcate per gli ordini entrano nello stesso raggruppamento per fornitore
-  vociDaOrdinare(FAB_COMM).forEach(v=>{const fo=v.Fornitore||'(senza fornitore)';(gruppi[fo]=gruppi[fo]||[]).push({__voce:true,ID:v.ID,Descrizione:v.Descrizione,Categoria:v.Categoria,Quantita:v.Quantita,Unita:v.Unita,Note:v.Note});});
+  const gruppi={}; daOrd.forEach(f=>{const fo=fornChiave(f.Fornitore);(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
-    const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===fo.trim().toLowerCase())||{}).Email||'';
+    const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(fo))||{}).Email||'';
     return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
      +raggruppaFab(gruppi[fo]).map(function(g){
         const mis=fabMisura(g.primo);
@@ -4365,12 +4428,353 @@ function ordiniCont(){
   }).join("");
   return '<div class="card" style="margin-bottom:16px"><div class="card-title">Materiali della commessa '+FAB_COMM+'</div>'+nota+rows+'</div>'+(ordini?'<div class="op-sec">Riordino per questa commessa</div>'+ordini:'');
 }
+// ============================================================
+//  IMPORTARE I FABBISOGNI DA iMOS
+//  Il foglio "Fabbisogni" elenca quello che serve per il mobile:
+//  pannelli, superfici, bordi e ferramenta, con i nomi di iMOS.
+//  Quei nomi non sono i nostri: la prima volta glieli abbini a
+//  mano, da li' in poi l'app se li ricorda e tu devi solo
+//  confermare.
+// ============================================================
+var IMOS_RIGHE=[];      // le righe lette dal foglio, pronte da confermare
+var IMOS_FILE='';
+
+function imosNorm(x){
+  // i metri quadri e i metri cubi nelle intestazioni sono scritti con
+  // l'apice: li riporto a "m2" e "m3", se no la colonna non si trova
+  return String(x==null?'':x).toLowerCase()
+    .replace(/²/g,'2').replace(/³/g,'3')
+    .replace(/[^a-z0-9àèéìòù]+/g,' ').replace(/\s+/g,' ').trim();
+}
+// ---- la memoria degli abbinamenti, salvata nelle impostazioni ----
+function imosMappa(){
+  const r=(STATE.config||[]).filter(function(c){return c.Chiave==='imos_abbinamenti';})[0];
+  if(!r||!r.Valore)return {};
+  try{ return JSON.parse(r.Valore)||{}; }catch(e){ return {}; }
+}
+function imosSalvaMappa(m){
+  const txt=JSON.stringify(m||{});
+  const r=(STATE.config||[]).filter(function(c){return c.Chiave==='imos_abbinamenti';})[0];
+  if(r)r.Valore=txt; else (STATE.config=STATE.config||[]).push({Chiave:'imos_abbinamenti',Valore:txt});
+  return call('salvaConfig',{Chiave:'imos_abbinamenti',Valore:txt});
+}
+function imosDimentica(chiave){
+  const m=imosMappa();
+  if(m[chiave]){ delete m[chiave]; imosSalvaMappa(m); toast('Abbinamento dimenticato'); }
+}
+
+// ---- leggere il foglio ----
+// Le sezioni del foglio iMOS, con l'unita' di misura di ognuna.
+var IMOS_SEZIONI=[
+  {titolo:'materiali',       etichetta:'Materiali',       unita:'m2'},
+  {titolo:'superfici',       etichetta:'Superfici',       unita:'m2'},
+  {titolo:'bordi',           etichetta:'Bordi',           unita:'m'},
+  {titolo:'pezzi prefiniti', etichetta:'Pezzi prefiniti', unita:'pz'}
+];
+function imosCella(r,i){ return (i==null||i<0)?'':(r[i]==null?'':r[i]); }
+function imosNum(v){
+  if(v==null||v==='')return 0;
+  const n=parseFloat(String(v).replace(',','.'));
+  return isNaN(n)?0:n;
+}
+// nella riga di intestazione cerco la colonna che si chiama cosi'
+function imosCol(riga,nomi){
+  for(let i=0;i<riga.length;i++){
+    const t=imosNorm(riga[i]);
+    if(!t)continue;
+    for(let k=0;k<nomi.length;k++){ if(t===nomi[k]||t.indexOf(nomi[k])===0)return i; }
+  }
+  return -1;
+}
+function imosLeggiFoglio(mat){
+  const out=[];
+  let sez=null, col=null;
+  for(let r=0;r<mat.length;r++){
+    const riga=mat[r]||[];
+    const testo=riga.map(function(c){return imosNorm(c);}).filter(Boolean).join(' | ');
+    if(!testo){ continue; }
+    // comincia una sezione nuova?
+    const trovata=IMOS_SEZIONI.filter(function(x){
+      return riga.some(function(c){return imosNorm(c)===x.titolo;});
+    })[0];
+    if(trovata){ sez=trovata; col=null; continue; }
+    if(imosNorm(riga.join(' ')).indexOf('riepilogo commesse')>=0){ sez=null; col=null; continue; }
+    if(!sez)continue;
+    // la riga delle intestazioni della sezione
+    if(col===null){
+      const iNome=imosCol(riga,['nome']);
+      if(iNome<0)continue;
+      col={
+        nome:iNome,
+        qta:imosCol(riga,['q ta','qta','q t']),
+        desc:imosCol(riga,['descrizione 1','descrizione']),
+        prod:imosCol(riga,['produttore','produtt']),
+        cod:imosCol(riga,['nr articolo','nr elemento','nr ordine']),
+        sp:imosCol(riga,['sp nom','alt nom']),
+        mq:imosCol(riga,['m2','m²']),
+        mc:imosCol(riga,['m3','m³']),
+        lung:imosCol(riga,['lung'])
+      };
+      continue;
+    }
+    // "Bordo riportato" e simili: sottotitoli dentro la sezione, li salto
+    const nome=String(imosCella(riga,col.nome)||'').trim();
+    if(!nome)continue;
+    if(imosNorm(nome)===sez.titolo)continue;
+    // tre decimali bastano per ordinare: 2,42279615998268 m2 non si ordina
+    const r3=function(n){return Math.round((+n||0)*1000)/1000;};
+    const q = r3(sez.unita==='pz' ? imosNum(imosCella(riga,col.qta))
+            : sez.unita==='m'  ? imosNum(imosCella(riga,col.lung))
+            : imosNum(imosCella(riga,col.mq)));
+    const mc = r3(imosNum(imosCella(riga,col.mc)));
+    if(!q&&!mc)continue;
+    out.push({
+      sez:sez.etichetta,
+      nome:nome,
+      desc:String(imosCella(riga,col.desc)||'').trim(),
+      prod:String(imosCella(riga,col.prod)||'').trim(),
+      cod:String(imosCella(riga,col.cod)||'').trim(),
+      sp:String(imosCella(riga,col.sp)||'').trim(),
+      q:q||mc,
+      unita:q?sez.unita:'m3',
+      mc:mc
+    });
+  }
+  return out;
+}
+
+// ---- abbinare la riga a un nostro materiale ----
+function imosChiave(r){ return imosNorm(r.sez)+'|'+imosNorm(r.nome); }
+function imosIndovina(r){
+  const m=imosMappa(), k=imosChiave(r);
+  // 1) me lo ricordo da una volta scorsa
+  if(m[k]&&m[k].art){
+    const a=(STATE.articoli||[]).filter(function(x){return x.ID===m[k].art;})[0];
+    if(a)return {art:a.ID,come:'ricordato'};
+  }
+  // 2) il codice del fornitore scritto su iMOS
+  if(r.cod){
+    const c=imosNorm(r.cod);
+    const a=(STATE.articoli||[]).filter(function(x){return imosNorm(x.CodiceFornitore)===c&&c;})[0];
+    if(a)return {art:a.ID,come:'codice fornitore'};
+  }
+  // 3) il nome o la descrizione uguali
+  const cand=[imosNorm(r.desc),imosNorm(r.nome)].filter(Boolean);
+  for(let i=0;i<cand.length;i++){
+    const a=(STATE.articoli||[]).filter(function(x){return imosNorm(x.Nome)===cand[i];})[0];
+    if(a)return {art:a.ID,come:'stesso nome'};
+  }
+  // 4) il nostro nome contenuto nella descrizione iMOS (o viceversa)
+  let best=null,punti=0;
+  (STATE.articoli||[]).forEach(function(x){
+    const n=imosNorm(x.Nome); if(n.length<4)return;
+    cand.forEach(function(c){
+      if(!c)return;
+      let p=0;
+      if(c===n)p=100;
+      else if(c.indexOf(n)>=0||n.indexOf(c)>=0)p=60+Math.min(30,n.length);
+      if(p>punti){punti=p;best=x.ID;}
+    });
+  });
+  if(best&&punti>=70)return {art:best,come:'somiglianza'};
+  return {art:'',come:''};
+}
+
+// ---- la finestra ----
+function openImportaFabbisogni(){
+  if(!FAB_COMM){toast('Scegli prima la commessa','err');return;}
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=function(){
+    const f=inp.files[0]; if(!f)return;
+    IMOS_FILE=f.name;
+    const rd=new FileReader();
+    rd.onload=function(){
+      let righe=[];
+      try{
+        const wb=XLSX.read(new Uint8Array(rd.result),{type:'array'});
+        wb.SheetNames.forEach(function(n){
+          const mat=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''});
+          righe=righe.concat(imosLeggiFoglio(mat));
+        });
+      }catch(e){ toast('Non riesco a leggere il file: '+((e&&e.message)||e),'err'); return; }
+      if(!righe.length){ toast('Nel file non ho trovato righe di fabbisogno','err'); return; }
+      IMOS_RIGHE=righe.map(function(r){
+        const g=imosIndovina(r);
+        return Object.assign({},r,{art:g.art,come:g.come,usa:true});
+      });
+      imosFinestra();
+    };
+    rd.readAsArrayBuffer(f);
+  };
+  inp.click();
+}
+function imosOpzArticoli(sel){
+  const list=(STATE.articoli||[]).slice().sort(function(a,b){return String(a.Nome).localeCompare(String(b.Nome));});
+  return '<option value="">- da scegliere -</option>'
+   +list.map(function(a){
+      return '<option value="'+att(a.ID)+'"'+(a.ID===sel?' selected':'')+'>'+att(a.Nome)
+        +(a.UnitaMisura?(' ('+att(a.UnitaMisura)+')'):'')+'</option>';
+    }).join('')
+   +'<option value="__nuovo__"'+(sel==='__nuovo__'?' selected':'')+'>+ Crea un materiale nuovo con questo nome</option>';
+}
+function imosBadge(come){
+  if(!come)return '<span class="badge badge-amber">da scegliere</span>';
+  if(come==='ricordato')return '<span class="badge badge-green">ricordato</span>';
+  if(come==='somiglianza')return '<span class="badge badge-amber">forse questo</span>';
+  return '<span class="badge badge-accent">'+att(come)+'</span>';
+}
+function imosFinestra(){
+  const daScegliere=IMOS_RIGHE.filter(function(r){return r.usa&&!r.art;}).length;
+  const righe=IMOS_RIGHE.map(function(r,i){
+    return '<div style="padding:10px 0;border-top:1px solid var(--border)">'
+     +'<div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'
+     +'<label style="display:flex;align-items:center;gap:6px;cursor:pointer;min-width:120px">'
+     +'<input type="checkbox" '+(r.usa?'checked':'')+' onchange="imosUsa('+i+',this.checked)" '
+     +'style="width:17px;height:17px;accent-color:var(--accent)">'
+     +'<span class="badge badge-gray">'+att(r.sez)+'</span></label>'
+     +'<div style="flex:1;min-width:230px">'
+     +'<div style="font-weight:600;font-size:13.5px">'+att(r.desc||r.nome)+'</div>'
+     +'<div style="font-size:11.5px;color:var(--gray)">'+att(r.nome)
+       +(r.sp?(' &middot; sp. '+att(r.sp)):'')
+       +(r.prod?(' &middot; '+att(fornChiave(r.prod))):'')
+       +(r.cod?(' &middot; cod. '+att(r.cod)):'')+'</div>'
+     +'</div>'
+     +'<div style="min-width:120px;text-align:right">'
+     +'<input type="number" step="any" value="'+att(r.q)+'" onchange="imosQta('+i+',this.value)" '
+     +'style="width:92px;text-align:right;display:inline-block"> '
+     +'<span style="font-size:12px;color:var(--gray)">'+att(r.unita)+'</span></div>'
+     +'</div>'
+     +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">'
+     +imosBadge(r.come)
+     +'<select onchange="imosScegli('+i+',this.value)" style="flex:1;min-width:230px">'
+     +imosOpzArticoli(r.art)+'</select>'
+     +(r.come==='ricordato'
+        ? ('<a onclick="imosScorda('+i+')" style="font-size:11.5px;color:var(--accent);'
+           +'text-decoration:underline;cursor:pointer">cambia per sempre</a>')
+        : '')
+     +'</div></div>';
+  }).join('');
+  openModal('<div class="modal" style="width:min(820px,96vw)">'
+   +'<button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Fabbisogni da iMOS</h2>'
+   +'<div class="info-box">Dal file <strong>'+att(IMOS_FILE)+'</strong> ho letto <strong>'
+   +IMOS_RIGHE.length+' righe</strong>, che finiscono nella commessa <strong>'+commTxt(FAB_COMM)+'</strong>.<br>'
+   +'Controlla a quale dei tuoi materiali corrisponde ogni riga: quello che scegli oggi '
+   +'<strong>me lo ricordo</strong>, e la prossima volta trovi gi&agrave; tutto abbinato.</div>'
+   +(daScegliere?('<div class="alert alert-amber">'+daScegliere+' righe non so ancora abbinarle: '
+      +'scegli tu il materiale, oppure togli la spunta per saltarle.</div>'):'')
+   +'<div style="max-height:52vh;overflow:auto">'+righe+'</div>'
+   +'<div id="im-err"></div>'
+   +'<button class="btn-primary" onclick="imosConferma()">Aggiungi alla commessa</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button>'
+   +'</div>');
+}
+function imosUsa(i,v){ if(IMOS_RIGHE[i])IMOS_RIGHE[i].usa=!!v; }
+function imosQta(i,v){ if(IMOS_RIGHE[i])IMOS_RIGHE[i].q=parseFloat(String(v).replace(',','.'))||0; }
+function imosScegli(i,v){
+  if(!IMOS_RIGHE[i])return;
+  IMOS_RIGHE[i].art=v;
+  IMOS_RIGHE[i].come=v?'scelto da te':'';
+  imosFinestra();
+}
+function imosScorda(i){
+  const r=IMOS_RIGHE[i]; if(!r)return;
+  imosDimentica(imosChiave(r));
+  r.art=''; r.come='';
+  imosFinestra();
+}
+// ---- confermare: crea le richieste e impara gli abbinamenti ----
+function imosConferma(){
+  const scelte=IMOS_RIGHE.filter(function(r){return r.usa;});
+  if(!scelte.length){showErr('im-err','Non hai spuntato nessuna riga.');return;}
+  const senza=scelte.filter(function(r){return !r.art;});
+  if(senza.length){showErr('im-err',senza.length+' righe non hanno ancora un materiale: scegliglielo o togli la spunta.');return;}
+  toast('Aggiungo '+scelte.length+' righe...');
+  const mappa=imosMappa();
+  let fatte=0;
+  const passo=function(i){
+    if(i>=scelte.length){
+      imosSalvaMappa(mappa);
+      call('getFabbisogno').then(function(fb){
+        STATE.fabbisogni=fb||[];
+        closeModal();
+        toast('Aggiunte '+fatte+' righe alla commessa');
+        renderPage(STATE.pagina);
+      });
+      return;
+    }
+    const r=scelte[i];
+    const metti=function(artId){
+      mappa[imosChiave(r)]={art:artId,nome:r.nome,sez:r.sez};
+      const a=(STATE.articoli||[]).filter(function(x){return x.ID===artId;})[0]||{};
+      call('aggiungiFabbisogno',{
+        Commessa:FAB_COMM, Tipo:'articolo', ArticoloID:artId,
+        Descrizione:a.Nome||r.desc||r.nome,
+        Quantita:r.q, UnitaMisura:a.UnitaMisura||r.unita,
+        Fornitore:fornSalva(r.prod||a.Fornitore||''),
+        Stato:'da_ordinare',
+        Note:'da iMOS: '+r.nome+(r.cod?(' - cod. '+r.cod):'')+(r.mc?(' - '+nfmt(r.mc,3)+' m3'):'')
+      }).then(function(){ fatte++; passo(i+1); })
+        .catch(function(e){ showErr('im-err',String((e&&e.message)||e)); });
+    };
+    if(r.art==='__nuovo__'){
+      call('salvaArticolo',{Nome:r.desc||r.nome,Categoria:r.sez,UnitaMisura:r.unita,
+        Fornitore:fornSalva(r.prod||''),Stock:0,IsPannello:(r.unita==='m2')}).then(function(x){
+        if(!x||!x.ok){showErr('im-err','Non riesco a creare il materiale');return;}
+        call('getArticoli').then(function(aa){ STATE.articoli=aa||[]; metti(x.id); });
+      });
+    } else metti(r.art);
+  };
+  passo(0);
+}
+// Una voce ordinata che arriva: resta dov'e', in Altre voci, e passa a
+// "ricevuto". Da li' in poi conta nei costi della commessa.
+function riceviVoceOrdine(id){
+  const v=(STATE.voci||[]).filter(x=>x.ID===id)[0]; if(!v)return;
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Voce ricevuta</h2>'
+   +'<div class="info-box"><strong>'+att(v.Descrizione||'')+'</strong>'
+   +(v.Fornitore?(' &middot; '+att(fornChiave(v.Fornitore))):'')+'<br>'
+   +'La segno come <strong>ricevuta</strong>: la trovi in <strong>Altre voci</strong> '
+   +'della commessa '+commTxt(v.Commessa)+'.</div>'
+   +'<div class="form-row"><div class="form-group"><label>Importo (se lo sai gia&#39;)</label>'
+   +'<input type="number" step="any" id="rv-imp" value="'+att(v.Importo==null?'':v.Importo)+'"></div>'
+   +'<div class="form-group"><label>N. fattura</label><input id="rv-ft" value="'+att(v.NrFattura||'')+'"></div></div>'
+   +'<div class="form-row"><div class="form-group"><label>Bolla / DDT</label><input id="rv-ddt" value="'+att(v.Ddt||'')+'"></div>'
+   +'<div class="form-group"><label>Data bolla</label><input type="date" id="rv-dddt" value="'+att(String(v.DataDdt||'').slice(0,10))+'"></div></div>'
+   +'<div id="rv-err"></div>'
+   +'<button class="btn-primary" onclick="submitRiceviVoce(\''+esc(id)+'\')">Segna ricevuta</button></div>');
+}
+function submitRiceviVoce(id){
+  const v=(STATE.voci||[]).filter(x=>x.ID===id)[0]; if(!v)return;
+  const d=Object.assign({},v,{Stato:'ricevuto',
+    Importo:(gv('rv-imp')===''?v.Importo:gv('rv-imp')),
+    NrFattura:gv('rv-ft').trim(), Ddt:gv('rv-ddt').trim(),
+    DataDdt:gv('rv-dddt')||null});
+  call('salvaVoce',d).then(function(r){
+    if(!r||!r.ok){showErr('rv-err',(r&&r.err)||'Errore');return;}
+    call('getVoci').then(function(vc){STATE.voci=vc||[];closeModal();
+      toast('Voce ricevuta: la trovi in Altre voci');renderPage(STATE.pagina);});
+  }).catch(function(e){showErr('rv-err',String((e&&e.message)||e));});
+}
+function statoVoceOrdine(id,stato){
+  const v=(STATE.voci||[]).filter(x=>x.ID===id)[0]; if(!v)return;
+  call('salvaVoce',Object.assign({},v,{Stato:stato})).then(function(){
+    call('getVoci').then(function(vc){STATE.voci=vc||[];toast('Segnata '+stato);renderPage(STATE.pagina);});
+  });
+}
 function openAddFabbisogno(){
   if(!FAB_COMM){toast("Seleziona prima una commessa","err");return;}
   FAB_EDIT_ID=null;
   comboInit('fb',[]);
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Aggiungi materiale</h2>'
-   +'<div class="toggle"><button id="fb-ta" class="on-accent" onclick="fbTipo(\'articolo\')">Articolo</button><button id="fb-tp" onclick="fbTipo(\'pannello\')">Pannello</button><button id="fb-tm" onclick="fbTipo(\'massiccio\')">Massiccio</button></div>'
+   +'<div class="toggle"><button id="fb-ta" class="on-accent" onclick="fbTipo(\'articolo\')">Articolo</button><button id="fb-tp" onclick="fbTipo(\'pannello\')">Pannello</button><button id="fb-tm" onclick="fbTipo(\'massiccio\')">Massiccio</button>'
+   +'<button id="fb-tv" onclick="apriVoceDaOrdine()">Altra voce</button></div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin:-6px 0 10px">'
+   +'<strong>Altra voce</strong> per quello che non entra a magazzino: verniciatura, '
+   +'conto lavorazione, trasporto, noleggi. Va nell&#39;ordine come le altre righe e, '
+   +'quando la ricevi, resta fra le <strong>Altre voci</strong> della commessa.</div>'
    +'<input type="hidden" id="fb-tipo" value="articolo">'
    +'<div class="form-group"><label>Tipo / materiale *</label>'+comboHTML('fb','Cerca o scrivi nuovo...','','')+'<div style="font-size:11px;color:var(--gray);margin-top:4px">Scegli un tipo esistente o scrivi un nome nuovo.</div></div>'
    +'<div id="fb-art" class="form-group"><label>Quantita *</label><input type="number" step="any" id="fb-qta" placeholder="0"></div>'
@@ -4421,6 +4825,18 @@ function usaNome(inputId,nome,hintId,tipo){
   const el=document.getElementById(inputId);
   if(el)el.value=nome;
   hintNome(inputId,hintId,tipo);
+}
+// "Altra voce" non e' un materiale di magazzino: apro direttamente la
+// finestra delle voci, gia' impostata sulla commessa e sugli ordini.
+function apriVoceDaOrdine(){
+  const comm=FAB_COMM;
+  closeModal();
+  setTimeout(function(){
+    openNuovaVoce('',{Commessa:comm,Stato:'da_ordinare',InOrdine:true});
+    const c=document.getElementById('nv-comm'); if(c)c.value=comm;
+    const o=document.getElementById('nv-ord'); if(o)o.checked=true;
+    const st=document.getElementById('nv-stato'); if(st)st.value='da_ordinare';
+  },120);
 }
 function fbTipo(t){
   document.getElementById("fb-tipo").value=t;
@@ -4568,10 +4984,10 @@ function confermaSceltaCodici(fabId){
     });
 }
 function inviaOrdComm(forn){
-  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&((f.Fornitore||'(senza fornitore)')===forn));
+  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn));
   const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===forn.trim().toLowerCase())||{}).Email||'';
   if(!em){toast("Imposta prima l'email del fornitore","err");openFornitore(forn);return;}
-  const voci=vociDaOrdinare(FAB_COMM).filter(v=>(v.Fornitore||'(senza fornitore)')===forn);
+  const voci=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn);
   if(!list.length&&!voci.length){toast("Nessun materiale da ordinare","err");return;}
   const righe=list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
     .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
@@ -4584,14 +5000,14 @@ function inviaOrdComm(forn){
   });
 }
 function stampaOrdineCommessa(forn){
-  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&((f.Fornitore||'(senza fornitore)')===forn));
+  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn));
   const oggi=new Date().toLocaleDateString('it-IT');
   const fornObj=(STATE.fornitori||[]).find(f=>String(f.Nome).trim().toLowerCase()===String(forn).trim().toLowerCase())||{};
   const email=fornObj.Email||'';
   const tel=fornObj.Telefono||'';
   // Lo stesso materiale chiesto piu' volte (una lista per armadio) deve
   // arrivare al fornitore come UNA riga con la quantita' sommata.
-  const vociForn=vociDaOrdinare(FAB_COMM).filter(v=>(v.Fornitore||'(senza fornitore)')===forn)
+  const vociForn=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn)
     .map(v=>({__voce:true,ID:v.ID,Descrizione:v.Descrizione,Categoria:v.Categoria,
               Quantita:v.Quantita,Unita:v.Unita,Note:v.Note}));
   const righe=raggruppaFab(list.concat(vociForn)).map(function(g){
@@ -5018,15 +5434,56 @@ function fornNorm(x){
     .replace(/\b(s\s?r\s?l\s?s?|s\s?p\s?a|s\s?n\s?c|s\s?a\s?s|societa|ditta|di|the)\b/g,' ')
     .replace(/\s+/g,' ').trim();
 }
-// Tutti i nomi che girano davvero: l'anagrafica piu' quelli scritti
-// a mano nelle schede, nei carichi, nelle bolle e negli ordini.
-function fornElenco(){
-  const m={};
-  (STATE.fornitori||[]).forEach(function(f){const n=String(f.Nome||'').trim(); if(n)m[n]=1;});
-  ['articoli','pannelli','massicci','movimenti','voci','ordini'].forEach(function(t){
-    (STATE[t]||[]).forEach(function(r){const n=String(r.Fornitore||'').trim(); if(n)m[n]=1;});
+// L'indice di tutti i fornitori che girano davvero: l'anagrafica piu' i
+// nomi scritti a mano nelle schede, nei carichi, nelle bolle, nelle voci
+// e negli ordini. Per ogni ditta tiene da parte il "nome buono", quello
+// da mostrare quando la stessa ditta e' scritta in piu' modi.
+var FORN_CACHE=null;
+function fornScorda(){ FORN_CACHE=null; }
+function fornIndice(){
+  if(FORN_CACHE)return FORN_CACHE;
+  const conta={},inAna={};
+  (STATE.fornitori||[]).forEach(function(f){
+    const n=String(f.Nome||'').trim(); if(n){conta[n]=conta[n]||0; inAna[n]=1;}
   });
-  return Object.keys(m).sort(function(a,b){return a.localeCompare(b);});
+  ['articoli','pannelli','massicci','movimenti','voci','ordini'].forEach(function(t){
+    (STATE[t]||[]).forEach(function(r){
+      const n=String(r.Fornitore||'').trim(); if(n)conta[n]=(conta[n]||0)+1;
+    });
+  });
+  const nomi=Object.keys(conta).sort(function(a,b){return a.localeCompare(b);});
+  // il nome buono: prima quello in anagrafica, poi quello usato su piu'
+  // righe, e a pari merito quello che comincia con la maiuscola
+  const buono={};
+  nomi.forEach(function(n){
+    const k=fornNorm(n); if(!k)return;
+    const p=buono[k];
+    if(!p){buono[k]=n;return;}
+    const pa=inAna[p]?1:0, na=inAna[n]?1:0;
+    if(na!==pa){ if(na>pa)buono[k]=n; return; }
+    if(conta[n]!==conta[p]){ if(conta[n]>conta[p])buono[k]=n; return; }
+    const maiP=/^[A-ZÀ-Ý]/.test(p)?1:0, maiN=/^[A-ZÀ-Ý]/.test(n)?1:0;
+    if(maiN>maiP)buono[k]=n;
+  });
+  FORN_CACHE={conta:conta,nomi:nomi,buono:buono,inAna:inAna};
+  return FORN_CACHE;
+}
+function fornElenco(){ return fornIndice().nomi; }
+// Il nome con cui va chiamata questa ditta: uno solo, sempre lo stesso,
+// anche se nelle righe vecchie e' scritta in quattro modi.
+function fornCanonico(nome){
+  const v=String(nome||'').trim();
+  const k=fornNorm(v);
+  if(!k)return v;
+  return fornIndice().buono[k]||v;
+}
+// La chiave con cui raggruppare: due scritture della stessa ditta devono
+// finire nello stesso mucchio, in ogni elenco e in ogni grafico, anche
+// prima di averle unite dalla pagina Fornitori.
+function fornChiave(nome){
+  const v=String(nome||'').trim();
+  if(!v)return '(senza fornitore)';
+  return fornCanonico(v)||v;
 }
 // Il nome gia' conosciuto che corrisponde a come l'hai scritto:
 // cosi' "sartor legnami srl" ritrova "Sartor Legnami".
@@ -5082,6 +5539,7 @@ function fornUsa(id,nome){
 // bene, se e' nuovo lo metto in anagrafica cosi' la prossima volta
 // si propone da solo.
 function fornSalva(nome){
+  fornScorda();
   const v=String(nome||'').trim();
   if(!v)return '';
   const usa=fornUguale(v)||v;
@@ -5089,6 +5547,7 @@ function fornSalva(nome){
   if(!inAna){
     STATE.fornitori=(STATE.fornitori||[]);
     STATE.fornitori.push({Nome:usa,Email:'',Telefono:'',Note:''});
+    fornScorda();
     try{
       call('salvaFornitore',{Nome:usa}).then(function(){
         call('getFornitori').then(function(f){ if(f&&f.length)STATE.fornitori=f; }).catch(function(){});
@@ -11009,9 +11468,10 @@ function vociCont(){
   }).join("");
   return riep+blocchi;
 }
-function openNuovaVoce(id){
+function openNuovaVoce(id,pre){
   const v=id?(STATE.voci||[]).find(x=>x.ID===id):null;
-  const d=v||{Commessa:VOCI_COMM,Data:new Date().toISOString().slice(0,10),Categoria:"",Stato:"solo_costo"};
+  const d=v||Object.assign({Commessa:VOCI_COMM,Data:new Date().toISOString().slice(0,10),
+    Categoria:"",Stato:"solo_costo"},pre||{});
   const optC=(STATE.commesse||[]).map(c=>'<option value="'+att(c.ID)+'"'+(c.ID===d.Commessa?' selected':'')+'>'+c.ID+(c.Nome&&c.Nome!==c.ID?(' - '+c.Nome):'')+'</option>').join("");
   // il prezzo unitario non e' una colonna del database: quando riapro una voce
   // lo ricavo dividendo il totale per la quantita', cosi' non ho dovuto
@@ -11778,19 +12238,19 @@ function openDettaglio(tipo,id){
   if(tipo==='articolo'){
     const a=STATE.articoli.find(x=>x.ID===id);if(!a)return;const s=+a.Stock<=+a.SogliaRiordino;
     head='<div class="det-tag">Articolo</div><h2 style="margin-bottom:14px">'+a.Nome+'</h2>'+imgBlock(a.ID);
-    rows=dr("Codice",a.ID)+dr("Categoria",a.Categoria)+dr("Stock attuale",'<span style="'+(s?'color:var(--red)':'')+'">'+a.Stock+' '+a.UnitaMisura+'</span>')+(impegnatoArt(a)>0?'<div class="det-row" style="cursor:pointer" onclick="openDestinati(\''+esc(a.ID)+'\',\'articolo\')"><span>Destinati a commesse</span><span style="color:var(--accent);text-decoration:underline">'+impegnatoArt(a)+' '+a.UnitaMisura+' &rsaquo;</span></div>':'')+dr("Soglia",a.SogliaRiordino+' '+a.UnitaMisura+' ('+a.TipoRiordino+')')+dr("Fornitore",(a.Fornitore||'-')+(a.CodiceFornitore?' - '+a.CodiceFornitore:''))+(a.Note?dr("Note",a.Note):'');
+    rows=dr("Codice",a.ID)+dr("Categoria",a.Categoria)+dr("Stock attuale",'<span style="'+(s?'color:var(--red)':'')+'">'+a.Stock+' '+a.UnitaMisura+'</span>')+(impegnatoArt(a)>0?'<div class="det-row" style="cursor:pointer" onclick="openDestinati(\''+esc(a.ID)+'\',\'articolo\')"><span>Destinati a commesse</span><span style="color:var(--accent);text-decoration:underline">'+impegnatoArt(a)+' '+a.UnitaMisura+' &rsaquo;</span></div>':'')+dr("Soglia",a.SogliaRiordino+' '+a.UnitaMisura+' ('+a.TipoRiordino+')')+dr("Fornitore",(a.Fornitore?att(fornChiave(a.Fornitore)):'-')+(a.CodiceFornitore?' - '+a.CodiceFornitore:''))+(a.Note?dr("Note",a.Note):'');
     btns='<button class="det-btn" style="background:var(--green-light);color:var(--green)" onclick="closeModal();openMovimento(\''+esc(a.ID)+'\',\'carico\')">Carico</button><button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openMovimento(\''+esc(a.ID)+'\',\'scarico\')">Scarico</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaArticolo(\''+esc(a.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'articolo\',\''+esc(a.ID)+'\')">Assegna a commessa</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'articolo\',\''+esc(a.ID)+'\')">Elimina elemento</button>';
     hist=histRows(m=>m.ArticoloID===id&&!m.PezzoID);
   } else if(tipo==='pannello'){
     const p=STATE.pannelli.find(x=>x.ID===id);if(!p)return;const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);const pct=+p.Residuale_pct||0;
     head='<div class="det-tag">Pannello</div><h2 style="margin-bottom:14px">'+p.ID+'</h2>'+imgBlock(p.ArticoloID);
-    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Larghezza_mm+' x '+p.Altezza_mm+' mm')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+pct.toFixed(0)+'% - '+(+p.M2_residuo||0).toFixed(4)+' m2</span>')+dr("Originale",(+p.M2_originale||0).toFixed(4)+' m2')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",commLista(p.Commesse)||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
+    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Larghezza_mm+' x '+p.Altezza_mm+' mm')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+pct.toFixed(0)+'% - '+(+p.M2_residuo||0).toFixed(4)+' m2</span>')+dr("Originale",(+p.M2_originale||0).toFixed(4)+' m2')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore?att(fornChiave(p.Fornitore)):'-')+dr("Commesse",commLista(p.Commesse)||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
     btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoPannello(\''+esc(p.ID)+'\')">Scarico pannello</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaPezzo(\'pannello\',\''+esc(p.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'pannello\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'pannello\',\''+esc(p.ID)+'\')">Elimina pannello</button>';
     hist=histRows(m=>m.PezzoID===id);
   } else if(tipo==='massiccio'){
     const p=STATE.massicci.find(x=>x.ID===id);if(!p)return;const art=STATE.articoli.find(a=>a.ID===p.ArticoloID);const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct=orig>0?(res/orig)*100:0;
     head='<div class="det-tag">Massiccio</div><h2 style="margin-bottom:14px">'+p.ID+'</h2>'+imgBlock(p.ArticoloID);
-    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+res.toFixed(4)+' m3</span>')+dr("Originale",orig.toFixed(4)+' m3')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore||'-')+dr("Commesse",commLista(p.Commesse)||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
+    rows=dr("Tipo",art?art.Nome:p.ArticoloID)+dr("Dimensioni",p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3')+dr("Residuo",'<span style="color:'+colorPct(pct)+'">'+res.toFixed(4)+' m3</span>')+dr("Originale",orig.toFixed(4)+' m3')+(p.Note?dr("Note",p.Note):'')+dr("Fornitore",p.Fornitore?att(fornChiave(p.Fornitore)):'-')+dr("Commesse",commLista(p.Commesse)||'-')+dr("Caricato il",String(p.DataCarico||'').slice(0,10)||'-');
     btns='<button class="det-btn" style="background:var(--red-light);color:var(--red)" onclick="closeModal();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico massiccio</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openModificaPezzo(\'massiccio\',\''+esc(p.ID)+'\')">Modifica anagrafica</button><button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="openAssegnaItem(\'massiccio\',\''+esc(p.ID)+'\')">'+(String(p.Commesse||'').trim()?'Cambia / togli commessa':'Assegna a commessa')+'</button><button class="det-btn" style="background:var(--red);color:#fff" onclick="confElimina(\'massiccio\',\''+esc(p.ID)+'\')">Elimina massiccio</button>';
     hist=histRows(m=>m.PezzoID===id);
   } else if(tipo==='voce'){
@@ -11813,7 +12273,7 @@ function openDettaglio(tipo,id){
   } else if(tipo==='movimento'){
     const m=STATE.movimenti.find(x=>x.ID===id);if(!m)return;
     head='<div class="det-tag">Movimento</div><h2 style="margin-bottom:14px">'+(m.NomeArticolo||'')+'</h2>';
-    rows=dr("Tipo",'<span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span>')+dr("Quantita",'<span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span>')+dr("Data",m.Data)+dr("Operatore",m.Utente||'-')+dr("Fornitore",m.Fornitore||'-')+dr("Commessa",m.Commessa?commTxt(m.Commessa):'-')+(m.PezzoID?dr("Pezzo",m.PezzoID):'')+dr("Note",m.Note||'-')+dr("Stato",m.Annullato==='SI'?'<span style="color:var(--red)">Annullato</span>':'Valido');
+    rows=dr("Tipo",'<span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+m.Tipo+'</span>')+dr("Quantita",'<span style="color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</span>')+dr("Data",m.Data)+dr("Operatore",m.Utente||'-')+dr("Fornitore",m.Fornitore?att(fornChiave(m.Fornitore)):'-')+dr("Commessa",m.Commessa?commTxt(m.Commessa):'-')+(m.PezzoID?dr("Pezzo",m.PezzoID):'')+dr("Note",m.Note||'-')+dr("Stato",m.Annullato==='SI'?'<span style="color:var(--red)">Annullato</span>':'Valido');
     btns=m.Annullato==='SI'?'':'<button class="det-btn" style="background:var(--accent-light);color:var(--accent)" onclick="closeModal();openModificaMovimento(\''+esc(m.ID)+'\')">Modifica movimento</button><button class="det-btn" style="background:#efebe3;color:var(--gray)" onclick="closeModal();openAnnulla(\''+esc(m.ID)+'\')">Annulla movimento</button>';
   }
   const tracc=traccBlocco(tipo,id);
