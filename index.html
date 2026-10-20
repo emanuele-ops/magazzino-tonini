@@ -112,6 +112,9 @@
   .filters input,.filters select{padding:10px 12px;border:1px solid var(--border);border-radius:11px;font-size:13px;background:#fff;outline:none}
   .filters input{flex:1;min-width:140px}
   .filters input:focus,.filters select:focus{border-color:var(--accent)}
+  .im-cerca{flex:1;min-width:240px}
+  .im-cerca input[id$="-q"]{width:100%}
+  #im-righe .combo-list{max-height:260px}
   .combo-list{position:absolute;z-index:60;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:10px;margin-top:3px;max-height:220px;overflow:auto;box-shadow:0 8px 22px rgba(60,45,30,.16)}
   .combo-item{padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)}
   .combo-item:last-child{border-bottom:none}
@@ -312,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v105 - Atelier</div>
+  <div id="ver-badge">v107 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4193,6 +4196,7 @@ function renderOrdini(){
    +'<button class="btn btn-green" onclick="openImportaFabbisogni()">Importa fabbisogni iMOS</button>'
    +'<button class="btn btn-ghost" onclick="openOrdineGenerico()">+ Ordine generico</button></div>'
    +'<div class="filters"><input id="ord-q" value="'+att(ORD_Q)+'" placeholder="Cerca materiale, fornitore, codice, nota..." oninput="ordCerca(this.value)"></div>'
+   +ordRecap()
    +'<div id="ord-cont">'+ordiniCont()+'</div>';
 }
 function ordSelComm(c){FAB_COMM=c;document.getElementById("ord-cont").innerHTML=ordiniCont();}
@@ -4377,6 +4381,117 @@ function cardFab(gr,griglia){
    +(foto?('<div>'+foto+'</div>'):'')
    +'<div style="flex:1;min-width:0">'+testa+corpo+'</div></div>';
 }
+// ============================================================
+//  A CHE PUNTO SONO GLI ORDINI
+//  In cima a "Crea ordine": cosa hai preparato e non ancora
+//  mandato, su quale commessa, e cosa e' gia' partito. Senza
+//  dover entrare in ogni commessa per scoprirlo.
+// ============================================================
+var ORD_RECAP_APERTO=false;
+function ordRigheCommessa(comm){
+  const mat=(STATE.fabbisogni||[]).filter(function(f){return f.Commessa===comm;});
+  const voci=vociDaOrdinare(comm).map(function(v){
+    return {__voce:true,ID:v.ID,Commessa:v.Commessa,Descrizione:v.Descrizione,Categoria:v.Categoria,
+            Quantita:v.Quantita,Unita:v.Unita,Fornitore:v.Fornitore,Note:v.Note,Stato:v.Stato};
+  });
+  return mat.concat(voci);
+}
+// tutte le righe ancora da ordinare, di tutte le commesse
+function ordTutteDaOrdinare(){
+  const out=[];
+  (STATE.commesse||[]).forEach(function(c){
+    ordRigheCommessa(c.ID).forEach(function(f){
+      const st=statoEffettivo(f);
+      if(st==='da_ordinare'||st==='parziale')out.push(f);
+    });
+  });
+  return out;
+}
+function ordRecapDati(){
+  const per={};
+  const tocca=function(c){
+    if(!per[c])per[c]={comm:c,daOrd:0,ordinate:0,forn:{},inviati:0};
+    return per[c];
+  };
+  (STATE.commesse||[]).forEach(function(c){
+    ordRigheCommessa(c.ID).forEach(function(f){
+      const st=statoEffettivo(f);
+      if(st==='da_ordinare'||st==='parziale'){
+        const x=tocca(c.ID); x.daOrd++; x.forn[fornChiave(f.Fornitore)]=1;
+      } else if(st==='ordinato'){ tocca(c.ID).ordinate++; }
+    });
+  });
+  (STATE.ordini||[]).forEach(function(o){
+    if(String(o.Stato||'').toLowerCase()==='ricevuto')return;
+    const c=o.Commessa||''; if(!c)return;
+    tocca(c).inviati++;
+  });
+  return Object.keys(per).map(function(k){return per[k];})
+    .sort(function(a,b){return (b.daOrd-a.daOrd)||String(a.comm).localeCompare(String(b.comm));});
+}
+// l'elenco completo, raggruppato per fornitore, con la commessa accanto
+function ordRecapDettaglio(){
+  const tutte=ordTutteDaOrdinare();
+  if(!tutte.length)return '<div style="font-size:13px;color:var(--gray);padding:8px 0">Non c&#39;e&#39; niente da ordinare.</div>';
+  const g={};
+  tutte.forEach(function(f){ const k=fornChiave(f.Fornitore); (g[k]=g[k]||[]).push(f); });
+  return Object.keys(g).sort().map(function(k){
+    const righe=raggruppaFab(g[k]).map(function(gr){
+      const comm=gr.righe.map(function(x){return x.Commessa;})
+        .filter(function(v,i,a){return a.indexOf(v)===i;});
+      return '<div style="display:flex;gap:10px;padding:4px 0;font-size:12.5px;flex-wrap:wrap">'
+       +'<span style="flex:1;min-width:190px">'+att(gr.primo.Descrizione||'')
+       +(gr.primo.__voce?' <span class="badge badge-accent">altra voce</span>':'')+'</span>'
+       +'<strong style="white-space:nowrap">'+fabQtaTxt(gr)+'</strong>'
+       +'<span style="color:var(--gray);min-width:160px;text-align:right">'
+       +comm.map(function(c){return commTxt(c);}).join(', ')+'</span></div>';
+    }).join('');
+    return '<div style="padding:8px 0;border-top:1px solid var(--border)">'
+     +'<div style="font-weight:600;font-size:13px;margin-bottom:2px">'+att(k)
+     +' <span style="font-weight:400;color:var(--gray)">('+g[k].length+' righe)</span></div>'
+     +righe+'</div>';
+  }).join('');
+}
+function ordRecapTog(){ ORD_RECAP_APERTO=!ORD_RECAP_APERTO; renderPage('ordini'); }
+function ordRecap(){
+  const dati=ordRecapDati();
+  if(!dati.length)return '';
+  let totDa=0,totInv=0;
+  dati.forEach(function(d){ totDa+=d.daOrd; totInv+=d.inviati; });
+  const righe=dati.map(function(d){
+    const nf=Object.keys(d.forn).length;
+    const parti=[];
+    if(d.daOrd)parti.push('<strong style="color:var(--amber)">'+d.daOrd+' da ordinare</strong>'
+      +(nf?(' presso '+nf+' '+(nf===1?'fornitore':'fornitori')):''));
+    if(d.ordinate)parti.push(d.ordinate+' segnate ordinate');
+    if(d.inviati)parti.push('<span style="color:var(--accent)">'+d.inviati+' '
+      +(d.inviati===1?'ordine inviato':'ordini inviati')+'</span> da ricevere');
+    const aperta=(d.comm===FAB_COMM);
+    return '<div class="alert-row" style="border-top:1px solid var(--border)" '
+     +'onclick="ordSelComm(\''+esc(d.comm)+'\')">'
+     +'<span style="font-weight:600'+(aperta?';color:var(--accent)':'')+'">'
+     +commTxt(d.comm)+(aperta?' <span class="badge badge-accent">aperta</span>':'')+'</span>'
+     +'<span style="font-size:12.5px;color:var(--gray);text-align:right">'+parti.join(' &middot; ')+'</span></div>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:14px">'
+   +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<div class="card-title" style="margin:0">A che punto sono gli ordini</div>'
+   +'<button class="btn btn-ghost" onclick="ordRecapTog()">'
+   +(ORD_RECAP_APERTO?'Nascondi l&#39;elenco':'Vedi tutto quello da ordinare')+'</button></div>'
+   +'<div style="font-size:12px;color:var(--gray);margin:4px 0 2px">'
+   +(totDa?('<strong>'+totDa+' righe preparate e non ancora inviate</strong>'):'Niente da preparare')
+   +(totInv?(' &middot; '+totInv+' ordini gi&agrave; partiti, in attesa di arrivare'):'')
+   +'. Tocca una commessa per aprirla.</div>'
+   +righe
+   +(ORD_RECAP_APERTO
+      ? ('<div style="margin-top:10px;border-top:2px solid var(--accent-light);padding-top:6px">'
+         +'<div style="font-size:12px;color:var(--gray);margin-bottom:4px">'
+         +'Tutto quello che c&#39;&egrave; da ordinare, di <strong>tutte le commesse</strong>, '
+         +'raggruppato per fornitore.</div>'
+         +ordRecapDettaglio()+'</div>')
+      : '')
+   +'</div>';
+}
 function ordiniCont(){
   if(!FAB_COMM)return '<div class="card" style="color:var(--gray)">Crea o seleziona una commessa.</div>';
   let list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM);
@@ -4438,6 +4553,8 @@ function ordiniCont(){
 // ============================================================
 var IMOS_RIGHE=[];      // le righe lette dal foglio, pronte da confermare
 var IMOS_FILE='';
+var IMOS_MOBILE='';     // il nome del mobile, che finisce su ogni riga
+var IMOS_RID=0;         // un numero fisso per riga, cosi' si possono togliere
 
 function imosNorm(x){
   // i metri quadri e i metri cubi nelle intestazioni sono scritti con
@@ -4448,7 +4565,8 @@ function imosNorm(x){
 }
 // ---- la memoria degli abbinamenti, salvata nelle impostazioni ----
 function imosMappa(){
-  const r=(STATE.config||[]).filter(function(c){return c.Chiave==='imos_abbinamenti';})[0];
+  if(!Array.isArray(STATE.config))STATE.config=[];
+  const r=STATE.config.filter(function(c){return c.Chiave==='imos_abbinamenti';})[0];
   if(!r||!r.Valore)return {};
   try{ return JSON.parse(r.Valore)||{}; }catch(e){ return {}; }
 }
@@ -4599,9 +4717,12 @@ function openImportaFabbisogni(){
         });
       }catch(e){ toast('Non riesco a leggere il file: '+((e&&e.message)||e),'err'); return; }
       if(!righe.length){ toast('Nel file non ho trovato righe di fabbisogno','err'); return; }
+      // il nome del mobile: lo indovino dal nome del file, poi lo correggi tu
+      IMOS_MOBILE=String(f.name||'').replace(/\.[^.]+$/,'').replace(/[_]+/g,' ').trim();
+      IMOS_RID=0;
       IMOS_RIGHE=righe.map(function(r){
         const g=imosIndovina(r);
-        return Object.assign({},r,{art:g.art,come:g.come,usa:true});
+        return Object.assign({},r,{art:g.art,come:g.come,usa:true,rid:(++IMOS_RID)});
       });
       imosFinestra();
     };
@@ -4609,87 +4730,167 @@ function openImportaFabbisogni(){
   };
   inp.click();
 }
-function imosOpzArticoli(sel){
-  const list=(STATE.articoli||[]).slice().sort(function(a,b){return String(a.Nome).localeCompare(String(b.Nome));});
-  return '<option value="">- da scegliere -</option>'
-   +list.map(function(a){
-      return '<option value="'+att(a.ID)+'"'+(a.ID===sel?' selected':'')+'>'+att(a.Nome)
-        +(a.UnitaMisura?(' ('+att(a.UnitaMisura)+')'):'')+'</option>';
-    }).join('')
-   +'<option value="__nuovo__"'+(sel==='__nuovo__'?' selected':'')+'>+ Crea un materiale nuovo con questo nome</option>';
+// Le cose fra cui scegliere: articoli, pannelli e massicci insieme,
+// con il nome per intero e la foto. Il tipo e' scritto davanti.
+function imosItems(){
+  const cP={};(STATE.pannelli||[]).forEach(function(p){cP[p.ArticoloID]=1;});
+  const cM={};(STATE.massicci||[]).forEach(function(p){cM[p.ArticoloID]=1;});
+  const out=(STATE.articoli||[]).slice()
+    .sort(function(a,b){return String(a.Nome).localeCompare(String(b.Nome));})
+    .map(function(a){
+      const genere=(a.Categoria==='Pannelli'||a.IsPannello==='SI'||cP[a.ID])?'Pannello'
+                  :((a.Categoria==='Massello'||cM[a.ID])?'Massiccio':'Articolo');
+      return {id:a.ID,
+        label:'['+genere+'] '+a.Nome
+          +(a.UnitaMisura?(' - '+a.UnitaMisura):'')
+          +(a.CodiceFornitore?(' - cod. '+a.CodiceFornitore):'')
+          +(a.Fornitore?(' - '+fornChiave(a.Fornitore)):''),
+        img:imgUrlFor(a.ID)};
+    });
+  out.push({id:'__nuovo__',label:'+ Crea un materiale nuovo con questo nome',img:''});
+  return out;
 }
 function imosBadge(come){
   if(!come)return '<span class="badge badge-amber">da scegliere</span>';
   if(come==='ricordato')return '<span class="badge badge-green">ricordato</span>';
+  if(come==='scelto da te')return '<span class="badge badge-green">scelto da te</span>';
+  if(come==='a mano')return '<span class="badge badge-accent">riga tua</span>';
   if(come==='somiglianza')return '<span class="badge badge-amber">forse questo</span>';
   return '<span class="badge badge-accent">'+att(come)+'</span>';
 }
+function imosDaRid(rid){ return IMOS_RIGHE.filter(function(x){return x.rid===rid;})[0]||null; }
+function imosEtichetta(r){
+  const it=imosItems().filter(function(x){return x.id===r.art;})[0];
+  return it?it.label:'';
+}
+// Una riga sola. La disegno da sola, cosi' scegliere un materiale non
+// ridisegna tutta la finestra e non ti fa saltare in cima all'elenco.
+function imosRigaHtml(r){
+  const base='im'+r.rid;
+  comboInit(base,imosItems(),new Function('imosScegli('+r.rid+',comboVal("'+base+'"))'));
+  return '<div id="im-r-'+r.rid+'" style="padding:10px 0;border-top:1px solid var(--border)">'
+   +'<div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'
+   +'<label style="display:flex;align-items:center;gap:6px;cursor:pointer;min-width:118px">'
+   +'<input type="checkbox" '+(r.usa?'checked':'')+' onchange="imosUsa('+r.rid+',this.checked)" '
+   +'style="width:17px;height:17px;accent-color:var(--accent)">'
+   +'<span class="badge badge-gray">'+att(r.sez)+'</span></label>'
+   +'<div style="flex:1;min-width:220px">'
+   +'<div style="font-weight:600;font-size:13.5px">'+att(r.desc||r.nome||'(riga nuova)')+'</div>'
+   +'<div style="font-size:11.5px;color:var(--gray)">'+att(r.nome||'')
+     +(r.sp?(' &middot; sp. '+att(r.sp)):'')
+     +(r.prod?(' &middot; '+att(fornChiave(r.prod))):'')
+     +(r.cod?(' &middot; cod. '+att(r.cod)):'')+'</div></div>'
+   +'<div style="min-width:150px;text-align:right;white-space:nowrap">'
+   +'<input type="number" step="any" value="'+att(r.q)+'" onchange="imosQta('+r.rid+',this.value)" '
+   +'style="width:88px;text-align:right;display:inline-block"> '
+   +'<input value="'+att(r.unita)+'" onchange="imosUnita('+r.rid+',this.value)" '
+   +'style="width:48px;display:inline-block;text-align:center" title="unita di misura"> '
+   +'<button class="btn btn-red" onclick="imosElimina('+r.rid+')" title="Togli questa riga">&times;</button>'
+   +'</div></div>'
+   +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">'
+   +'<span id="im-b-'+r.rid+'">'+imosBadge(r.come)+'</span>'
+   +'<div class="im-cerca">'+comboHTML(base,'Cerca fra articoli, pannelli e massicci...',r.art,imosEtichetta(r))+'</div>'
+   +'<a id="im-s-'+r.rid+'" onclick="imosScorda('+r.rid+')" style="font-size:11.5px;color:var(--accent);'
+   +'text-decoration:underline;cursor:pointer;display:'+(r.come==='ricordato'?'inline':'none')+'">cambia per sempre</a>'
+   +'</div></div>';
+}
+function imosConta(){
+  const e=document.getElementById('im-conta'); if(!e)return;
+  const n=IMOS_RIGHE.filter(function(r){return r.usa&&!r.art;}).length;
+  const tot=IMOS_RIGHE.filter(function(r){return r.usa;}).length;
+  e.innerHTML=n
+    ? ('<div class="alert alert-amber">'+n+' righe su '+tot+' non so ancora abbinarle: '
+       +'scegli tu il materiale, togli la spunta oppure elimina la riga con la &times;.</div>')
+    : ('<div class="alert alert-green">Tutte e '+tot+' le righe sono abbinate: puoi confermare.</div>');
+}
 function imosFinestra(){
-  const daScegliere=IMOS_RIGHE.filter(function(r){return r.usa&&!r.art;}).length;
-  const righe=IMOS_RIGHE.map(function(r,i){
-    return '<div style="padding:10px 0;border-top:1px solid var(--border)">'
-     +'<div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">'
-     +'<label style="display:flex;align-items:center;gap:6px;cursor:pointer;min-width:120px">'
-     +'<input type="checkbox" '+(r.usa?'checked':'')+' onchange="imosUsa('+i+',this.checked)" '
-     +'style="width:17px;height:17px;accent-color:var(--accent)">'
-     +'<span class="badge badge-gray">'+att(r.sez)+'</span></label>'
-     +'<div style="flex:1;min-width:230px">'
-     +'<div style="font-weight:600;font-size:13.5px">'+att(r.desc||r.nome)+'</div>'
-     +'<div style="font-size:11.5px;color:var(--gray)">'+att(r.nome)
-       +(r.sp?(' &middot; sp. '+att(r.sp)):'')
-       +(r.prod?(' &middot; '+att(fornChiave(r.prod))):'')
-       +(r.cod?(' &middot; cod. '+att(r.cod)):'')+'</div>'
-     +'</div>'
-     +'<div style="min-width:120px;text-align:right">'
-     +'<input type="number" step="any" value="'+att(r.q)+'" onchange="imosQta('+i+',this.value)" '
-     +'style="width:92px;text-align:right;display:inline-block"> '
-     +'<span style="font-size:12px;color:var(--gray)">'+att(r.unita)+'</span></div>'
-     +'</div>'
-     +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">'
-     +imosBadge(r.come)
-     +'<select onchange="imosScegli('+i+',this.value)" style="flex:1;min-width:230px">'
-     +imosOpzArticoli(r.art)+'</select>'
-     +(r.come==='ricordato'
-        ? ('<a onclick="imosScorda('+i+')" style="font-size:11.5px;color:var(--accent);'
-           +'text-decoration:underline;cursor:pointer">cambia per sempre</a>')
-        : '')
-     +'</div></div>';
-  }).join('');
-  openModal('<div class="modal" style="width:min(820px,96vw)">'
+  let rid=0;
+  IMOS_RIGHE.forEach(function(r){ if(r.rid==null)r.rid=(++rid); else rid=Math.max(rid,r.rid); });
+  IMOS_RID=rid;
+  const optC=(STATE.commesse||[]).slice().sort(function(a,b){return String(b.ID).localeCompare(String(a.ID));})
+    .map(function(c){return '<option value="'+att(c.ID)+'"'+(c.ID===FAB_COMM?' selected':'')+'>'
+      +att(c.ID)+(c.Nome&&c.Nome!==c.ID?(' - '+att(c.Nome)):'')+'</option>';}).join('');
+  openModal('<div class="modal" style="width:min(900px,96vw)">'
    +'<button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Fabbisogni da iMOS</h2>'
-   +'<div class="info-box">Dal file <strong>'+att(IMOS_FILE)+'</strong> ho letto <strong>'
-   +IMOS_RIGHE.length+' righe</strong>, che finiscono nella commessa <strong>'+commTxt(FAB_COMM)+'</strong>.<br>'
-   +'Controlla a quale dei tuoi materiali corrisponde ogni riga: quello che scegli oggi '
-   +'<strong>me lo ricordo</strong>, e la prossima volta trovi gi&agrave; tutto abbinato.</div>'
-   +(daScegliere?('<div class="alert alert-amber">'+daScegliere+' righe non so ancora abbinarle: '
-      +'scegli tu il materiale, oppure togli la spunta per saltarle.</div>'):'')
-   +'<div style="max-height:52vh;overflow:auto">'+righe+'</div>'
+   +'<div class="info-box">Dal file <strong>'+att(IMOS_FILE||'(righe a mano)')+'</strong> ho letto <strong>'
+   +IMOS_RIGHE.length+' righe</strong>. Quello che abbini oggi <strong>me lo ricordo</strong>: '
+   +'la prossima volta lo trovi gi&agrave; fatto.</div>'
+   +'<div class="form-row">'
+   +'<div class="form-group"><label>Commessa</label>'
+   +'<select id="im-comm" onchange="imosCommessa(this.value)">'+optC+'</select></div>'
+   +'<div class="form-group"><label>Mobile / elemento</label>'
+   +'<input id="im-mobile" value="'+att(IMOS_MOBILE)+'" placeholder="es. D02 PARETE" '
+   +'oninput="IMOS_MOBILE=this.value">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Finisce nelle '
+   +'<strong>Note</strong> di ogni riga, come quando lo scrivi a mano in '
+   +'&laquo;Aggiungi materiale&raquo;: &egrave; cos&igrave; che nell&#39;elenco della commessa '
+   +'si capisce di che mobile sono.</div></div>'
+   +'</div>'
+   +'<div id="im-conta"></div>'
+   +'<div id="im-righe" style="max-height:48vh;overflow:auto">'
+   +IMOS_RIGHE.map(imosRigaHtml).join('')+'</div>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="imosAggiungiRiga()">'
+   +'+ Aggiungi una riga a mano</button>'
    +'<div id="im-err"></div>'
    +'<button class="btn-primary" onclick="imosConferma()">Aggiungi alla commessa</button>'
    +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button>'
    +'</div>');
+  imosConta();
 }
-function imosUsa(i,v){ if(IMOS_RIGHE[i])IMOS_RIGHE[i].usa=!!v; }
-function imosQta(i,v){ if(IMOS_RIGHE[i])IMOS_RIGHE[i].q=parseFloat(String(v).replace(',','.'))||0; }
-function imosScegli(i,v){
-  if(!IMOS_RIGHE[i])return;
-  IMOS_RIGHE[i].art=v;
-  IMOS_RIGHE[i].come=v?'scelto da te':'';
-  imosFinestra();
+function imosCommessa(v){
+  FAB_COMM=v;
+  const e=document.querySelector('#im-comm');
+  if(e)e.value=v;
+  toast('Le righe andranno su '+commTxtPiano(v));
 }
-function imosScorda(i){
-  const r=IMOS_RIGHE[i]; if(!r)return;
+function imosUsa(rid,v){ const r=imosDaRid(rid); if(r){r.usa=!!v; imosConta();} }
+function imosQta(rid,v){ const r=imosDaRid(rid); if(r)r.q=parseFloat(String(v).replace(',','.'))||0; }
+function imosUnita(rid,v){ const r=imosDaRid(rid); if(r)r.unita=String(v||'').trim(); }
+function imosElimina(rid){
+  IMOS_RIGHE=IMOS_RIGHE.filter(function(x){return x.rid!==rid;});
+  const e=document.getElementById('im-r-'+rid); if(e)e.parentNode.removeChild(e);
+  imosConta();
+}
+// scegliere un materiale aggiorna SOLO questa riga: niente salto in cima
+function imosScegli(rid,v){
+  const r=imosDaRid(rid); if(!r)return;
+  r.art=v||'';
+  r.come=r.art?'scelto da te':'';
+  const b=document.getElementById('im-b-'+rid); if(b)b.innerHTML=imosBadge(r.come);
+  const s=document.getElementById('im-s-'+rid); if(s)s.style.display='none';
+  imosConta();
+}
+function imosScorda(rid){
+  const r=imosDaRid(rid); if(!r)return;
   imosDimentica(imosChiave(r));
   r.art=''; r.come='';
-  imosFinestra();
+  const base='im'+rid;
+  const q=document.getElementById(base+'-q'); if(q)q.value='';
+  const h=document.getElementById(base+'-val'); if(h)h.value='';
+  const b=document.getElementById('im-b-'+rid); if(b)b.innerHTML=imosBadge('');
+  const s=document.getElementById('im-s-'+rid); if(s)s.style.display='none';
+  imosConta();
+}
+// una riga in piu', scritta da te: utile per quello che iMOS non sa
+function imosAggiungiRiga(){
+  const r={rid:(++IMOS_RID),sez:'A mano',nome:'',desc:'',prod:'',cod:'',sp:'',
+           q:1,unita:'pz',mc:0,art:'',come:'a mano',usa:true,manuale:true};
+  IMOS_RIGHE.push(r);
+  const box=document.getElementById('im-righe');
+  if(box){ box.insertAdjacentHTML('beforeend',imosRigaHtml(r)); box.scrollTop=box.scrollHeight; }
+  imosConta();
+  const q=document.getElementById('im'+r.rid+'-q'); if(q)q.focus();
 }
 // ---- confermare: crea le richieste e impara gli abbinamenti ----
 function imosConferma(){
   const scelte=IMOS_RIGHE.filter(function(r){return r.usa;});
   if(!scelte.length){showErr('im-err','Non hai spuntato nessuna riga.');return;}
+  if(!FAB_COMM){showErr('im-err','Scegli la commessa.');return;}
   const senza=scelte.filter(function(r){return !r.art;});
-  if(senza.length){showErr('im-err',senza.length+' righe non hanno ancora un materiale: scegliglielo o togli la spunta.');return;}
+  if(senza.length){showErr('im-err',senza.length+' righe non hanno ancora un materiale: scegliglielo, togli la spunta o eliminale.');return;}
+  const comm=FAB_COMM;
+  const mobile=String(IMOS_MOBILE||'').trim();
   toast('Aggiungo '+scelte.length+' righe...');
   const mappa=imosMappa();
   let fatte=0;
@@ -4699,27 +4900,36 @@ function imosConferma(){
       call('getFabbisogno').then(function(fb){
         STATE.fabbisogni=fb||[];
         closeModal();
-        toast('Aggiunte '+fatte+' righe alla commessa');
+        toast('Aggiunte '+fatte+' righe'+(mobile?(' di "'+mobile+'"'):'')+' alla commessa');
         renderPage(STATE.pagina);
       });
       return;
     }
     const r=scelte[i];
     const metti=function(artId){
-      mappa[imosChiave(r)]={art:artId,nome:r.nome,sez:r.sez};
+      if(!r.manuale)mappa[imosChiave(r)]={art:artId,nome:r.nome,sez:r.sez};
       const a=(STATE.articoli||[]).filter(function(x){return x.ID===artId;})[0]||{};
+      const dett=[];
+      if(r.nome)dett.push('da iMOS: '+r.nome);
+      if(r.cod)dett.push('cod. '+r.cod);
+      if(r.mc)dett.push(nfmt(r.mc,3)+' m3');
       call('aggiungiFabbisogno',{
-        Commessa:FAB_COMM, Tipo:'articolo', ArticoloID:artId,
+        Commessa:comm, Tipo:'articolo', ArticoloID:artId,
         Descrizione:a.Nome||r.desc||r.nome,
-        Quantita:r.q, UnitaMisura:a.UnitaMisura||r.unita,
+        Quantita:r.q, UnitaMisura:r.unita||a.UnitaMisura||'',
         Fornitore:fornSalva(r.prod||a.Fornitore||''),
         Stato:'da_ordinare',
-        Note:'da iMOS: '+r.nome+(r.cod?(' - cod. '+r.cod):'')+(r.mc?(' - '+nfmt(r.mc,3)+' m3'):'')
+        // La nota e' la stessa cosa che scrivi a mano in "Aggiungi materiale":
+        // il nome del mobile. E' cosi' che nell'elenco della commessa si capisce
+        // a quale armadio appartiene la riga. Il dettaglio iMOS lo metto solo
+        // quando il mobile non l'hai scritto.
+        Note:(mobile||dett.join(' - '))
       }).then(function(){ fatte++; passo(i+1); })
         .catch(function(e){ showErr('im-err',String((e&&e.message)||e)); });
     };
     if(r.art==='__nuovo__'){
-      call('salvaArticolo',{Nome:r.desc||r.nome,Categoria:r.sez,UnitaMisura:r.unita,
+      const nome=r.desc||r.nome||('materiale '+(i+1));
+      call('salvaArticolo',{Nome:nome,Categoria:r.sez==='A mano'?'Altro':r.sez,UnitaMisura:r.unita,
         Fornitore:fornSalva(r.prod||''),Stock:0,IsPannello:(r.unita==='m2')}).then(function(x){
         if(!x||!x.ok){showErr('im-err','Non riesco a creare il materiale');return;}
         call('getArticoli').then(function(aa){ STATE.articoli=aa||[]; metti(x.id); });
@@ -4781,7 +4991,11 @@ function openAddFabbisogno(){
    +'<div id="fb-pan" style="display:none"><div class="form-row"><div class="form-group"><label>Largh. mm (opz.)</label><input type="number" id="fb-w"></div><div class="form-group"><label>Alt. mm (opz.)</label><input type="number" id="fb-h"></div></div><div class="form-group"><label>N. pezzi *</label><input type="number" id="fb-np" value="1"></div></div>'
    +'<div id="fb-mas" style="display:none"><div class="form-row-3"><div class="form-group"><label>Lungh.</label><input type="number" id="fb-l"></div><div class="form-group"><label>Largh.</label><input type="number" id="fb-mw"></div><div class="form-group"><label>Spess.</label><input type="number" id="fb-s"></div></div><div class="form-group"><label>N. pezzi *</label><input type="number" id="fb-mnp" value="1"></div></div>'
    +fornGruppo('fb-forn','Fornitore','')
-   +'<div class="form-group"><label>Note (per questo materiale)</label><input id="fb-nota" placeholder="es. urgente, finitura..."></div>'
+   +'<div class="form-group"><label>Note / mobile (per questo materiale)</label>'
+   +'<input id="fb-nota" placeholder="es. D08 BAGNO, urgente, finitura...">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Qui di solito scrivi il '
+   +'<strong>mobile</strong>: cos&igrave; nell&#39;elenco della commessa si vede a quale '
+   +'appartiene questa riga.</div></div>'
    +'<div id="fb-err"></div><button class="btn-primary" onclick="submitFabbisogno()">Aggiungi alla lista</button></div>');
   fbTipo('articolo');
 }
