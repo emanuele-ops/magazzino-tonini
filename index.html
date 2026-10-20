@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v107 - Atelier</div>
+  <div id="ver-badge">v108 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4576,6 +4576,31 @@ function imosSalvaMappa(m){
   if(r)r.Valore=txt; else (STATE.config=STATE.config||[]).push({Chiave:'imos_abbinamenti',Valore:txt});
   return call('salvaConfig',{Chiave:'imos_abbinamenti',Valore:txt});
 }
+// Tutti i materiali che hai gia' usato per questo nome iMOS, dal piu'
+// recente. Se nel tempo ne hai abbinati di diversi li tengo tutti e te
+// li propongo: scegli tu quale va bene questa volta.
+function imosRicordi(r){
+  const v=imosMappa()[imosChiave(r)];
+  if(!v)return [];
+  let usi=Array.isArray(v.usi)?v.usi.slice():(v.art?[{art:v.art,n:1,ultimo:''}]:[]);
+  usi=usi.filter(function(u){return (STATE.articoli||[]).some(function(a){return a.ID===u.art;});});
+  usi.sort(function(a,b){
+    return String(b.ultimo||'').localeCompare(String(a.ultimo||'')) || ((+b.n||0)-(+a.n||0));
+  });
+  return usi;
+}
+// Segna che oggi, per questo nome, hai scelto questo materiale.
+function imosImpara(mappa,r,artId){
+  const k=imosChiave(r), v=mappa[k]||{};
+  let usi=Array.isArray(v.usi)?v.usi.slice():(v.art?[{art:v.art,n:1,ultimo:''}]:[]);
+  // l'ora intera, non solo il giorno: se cambi idea due volte nello
+  // stesso pomeriggio, l'ultima scelta deve restare l'ultima
+  const oggi=new Date().toISOString();
+  const gia=usi.filter(function(u){return u.art===artId;})[0];
+  if(gia){ gia.n=(+gia.n||0)+1; gia.ultimo=oggi; }
+  else usi.push({art:artId,n:1,ultimo:oggi});
+  mappa[k]={art:artId,nome:r.nome,sez:r.sez,usi:usi};
+}
 function imosDimentica(chiave){
   const m=imosMappa();
   if(m[chiave]){ delete m[chiave]; imosSalvaMappa(m); toast('Abbinamento dimenticato'); }
@@ -4664,12 +4689,9 @@ function imosLeggiFoglio(mat){
 // ---- abbinare la riga a un nostro materiale ----
 function imosChiave(r){ return imosNorm(r.sez)+'|'+imosNorm(r.nome); }
 function imosIndovina(r){
-  const m=imosMappa(), k=imosChiave(r);
-  // 1) me lo ricordo da una volta scorsa
-  if(m[k]&&m[k].art){
-    const a=(STATE.articoli||[]).filter(function(x){return x.ID===m[k].art;})[0];
-    if(a)return {art:a.ID,come:'ricordato'};
-  }
+  // 1) me lo ricordo da una volta scorsa (se ne ho piu' d'uno, l'ultimo usato)
+  const ric=imosRicordi(r);
+  if(ric.length)return {art:ric[0].art,come:'ricordato'};
   // 2) il codice del fornitore scritto su iMOS
   if(r.cod){
     const c=imosNorm(r.cod);
@@ -4759,6 +4781,38 @@ function imosBadge(come){
   return '<span class="badge badge-accent">'+att(come)+'</span>';
 }
 function imosDaRid(rid){ return IMOS_RIGHE.filter(function(x){return x.rid===rid;})[0]||null; }
+function imosNomeArt(id){
+  const a=(STATE.articoli||[]).filter(function(x){return x.ID===id;})[0];
+  return a?a.Nome:id;
+}
+// La fila di bottoncini con i materiali gia' usati per questo nome.
+// Compare solo quando ce n'e' piu' d'uno: li' c'e' da scegliere.
+function imosRicordiHtml(r){
+  const ric=imosRicordi(r);
+  if(ric.length<2)return '';
+  return '<div id="im-ric-'+r.rid+'" style="display:flex;gap:6px;align-items:center;'
+   +'flex-wrap:wrap;margin-top:6px">'
+   +'<span style="font-size:11.5px;color:var(--gray)">Gi&agrave; usati per <strong>'
+   +att(r.nome||r.desc)+'</strong>:</span>'
+   +ric.map(function(u){
+      const scelto=(u.art===r.art);
+      return '<button class="btn '+(scelto?'btn-accent':'btn-ghost')+'" '
+       +'style="font-size:11.5px;padding:4px 9px" '
+       +'onclick="imosUsaRicordo('+r.rid+',\''+esc(u.art)+'\')">'
+       +att(imosNomeArt(u.art))
+       +' <span style="opacity:.7">'+((+u.n>1)?(u.n+' volte'):'1 volta')+'</span></button>';
+    }).join('')
+   +'</div>';
+}
+function imosUsaRicordo(rid,artId){
+  const r=imosDaRid(rid); if(!r)return;
+  const base='im'+rid;
+  const it=imosItems().filter(function(x){return x.id===artId;})[0];
+  const q=document.getElementById(base+'-q'); if(q)q.value=it?it.label:artId;
+  const h=document.getElementById(base+'-val'); if(h)h.value=artId;
+  imosScegli(rid,artId);
+}
+
 function imosEtichetta(r){
   const it=imosItems().filter(function(x){return x.id===r.art;})[0];
   return it?it.label:'';
@@ -4791,8 +4845,10 @@ function imosRigaHtml(r){
    +'<span id="im-b-'+r.rid+'">'+imosBadge(r.come)+'</span>'
    +'<div class="im-cerca">'+comboHTML(base,'Cerca fra articoli, pannelli e massicci...',r.art,imosEtichetta(r))+'</div>'
    +'<a id="im-s-'+r.rid+'" onclick="imosScorda('+r.rid+')" style="font-size:11.5px;color:var(--accent);'
-   +'text-decoration:underline;cursor:pointer;display:'+(r.come==='ricordato'?'inline':'none')+'">cambia per sempre</a>'
-   +'</div></div>';
+   +'text-decoration:underline;cursor:pointer;display:'+(r.come==='ricordato'?'inline':'none')+'">dimentica</a>'
+   +'</div>'
+   +'<div id="im-ricbox-'+r.rid+'">'+imosRicordiHtml(r)+'</div>'
+   +'</div>';
 }
 function imosConta(){
   const e=document.getElementById('im-conta'); if(!e)return;
@@ -4815,7 +4871,8 @@ function imosFinestra(){
    +'<h2>Fabbisogni da iMOS</h2>'
    +'<div class="info-box">Dal file <strong>'+att(IMOS_FILE||'(righe a mano)')+'</strong> ho letto <strong>'
    +IMOS_RIGHE.length+' righe</strong>. Quello che abbini oggi <strong>me lo ricordo</strong>: '
-   +'la prossima volta lo trovi gi&agrave; fatto.</div>'
+   +'la prossima volta lo trovi gi&agrave; fatto. Se per lo stesso nome hai usato materiali '
+   +'diversi, te li propongo tutti e scegli con un clic.</div>'
    +'<div class="form-row">'
    +'<div class="form-group"><label>Commessa</label>'
    +'<select id="im-comm" onchange="imosCommessa(this.value)">'+optC+'</select></div>'
@@ -4859,6 +4916,7 @@ function imosScegli(rid,v){
   r.come=r.art?'scelto da te':'';
   const b=document.getElementById('im-b-'+rid); if(b)b.innerHTML=imosBadge(r.come);
   const s=document.getElementById('im-s-'+rid); if(s)s.style.display='none';
+  const rb=document.getElementById('im-ricbox-'+rid); if(rb)rb.innerHTML=imosRicordiHtml(r);
   imosConta();
 }
 function imosScorda(rid){
@@ -4870,6 +4928,7 @@ function imosScorda(rid){
   const h=document.getElementById(base+'-val'); if(h)h.value='';
   const b=document.getElementById('im-b-'+rid); if(b)b.innerHTML=imosBadge('');
   const s=document.getElementById('im-s-'+rid); if(s)s.style.display='none';
+  const rb=document.getElementById('im-ricbox-'+rid); if(rb)rb.innerHTML='';
   imosConta();
 }
 // una riga in piu', scritta da te: utile per quello che iMOS non sa
@@ -4907,7 +4966,7 @@ function imosConferma(){
     }
     const r=scelte[i];
     const metti=function(artId){
-      if(!r.manuale)mappa[imosChiave(r)]={art:artId,nome:r.nome,sez:r.sez};
+      if(!r.manuale)imosImpara(mappa,r,artId);
       const a=(STATE.articoli||[]).filter(function(x){return x.ID===artId;})[0]||{};
       const dett=[];
       if(r.nome)dett.push('da iMOS: '+r.nome);
