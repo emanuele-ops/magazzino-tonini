@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v108 - Atelier</div>
+  <div id="ver-badge">v110 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -503,6 +503,9 @@ function loadAll() {
       if (RIGA_ORDINE) setTimeout(function(){ openRicevoRiga(RIGA_ORDINE.ordine, RIGA_ORDINE.riga); }, 250);
       else if (QR_TARGET) setTimeout(function(){ apriDaCodice(QR_TARGET); }, 250);
     });
+    // rimetto il fornitore giusto sulle righe importate con la marca al posto
+    // del fornitore: lo faccio da solo, una volta, senza chiedere niente
+    try { setTimeout(riparaFornitoriAuto, 900); } catch(e){}
   })
   .catch(e => {
     const m=document.getElementById("main-content");
@@ -1816,6 +1819,17 @@ async function call(fn, args) {
     if (fn === "aggiornaStatoFabbisogno") {
       await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(args.id), { stato: args.stato });
       return { ok: true };
+    }
+    if (fn === "sistemaFornitoreFabbisogni") {
+      // Rimette il fornitore giusto su righe gia' salvate. Non tocca altro.
+      const righe = args.righe || [];
+      let n = 0;
+      for (const r of righe) {
+        if (!r || !r.id) continue;
+        await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(r.id), { fornitore: r.fornitore || "" });
+        n++;
+      }
+      return { ok: true, n: n };
     }
     if (fn === "eliminaFabbisogno") {
       await sbDelete("fabbisogni", "id=eq." + encodeURIComponent(args.id));
@@ -3229,7 +3243,7 @@ function fornUnisciVai(giusto,altriTxt){
 function renderFornitori(){
   const list=(STATE.fornitori||[]).slice().sort((a,b)=>String(a.Nome).localeCompare(String(b.Nome)));
   const rows=list.map(f=>'<div class="card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-weight:600">'+f.Nome+'</div><div style="font-size:12px;color:var(--gray)">'+(f.Email?f.Email:'<span style="color:var(--red)">nessuna email</span>')+(f.Telefono?(' - '+f.Telefono):'')+'</div></div><div style="display:flex;gap:6px"><button class="btn btn-accent" onclick="openFornitore(\''+esc(f.Nome)+'\')">Modifica</button><button class="btn btn-red" onclick="confEliminaFornitore(\''+esc(f.Nome)+'\')">Elimina</button></div></div>').join("")||'<div class="card" style="color:var(--gray)">Nessun fornitore.</div>';
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Fornitori</h1><button class="btn btn-accent" onclick="openNuovoFornitore()">+ Nuovo fornitore</button></div>'+fornBoxDoppioni()+rows;
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h1 class="page-title" style="margin:0">Fornitori</h1><button class="btn btn-accent" onclick="openNuovoFornitore()">+ Nuovo fornitore</button></div>'+fornBoxDoppioni()+fornBoxInutili()+rows;
 }
 function openNuovoFornitore(){
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuovo fornitore</h2>'
@@ -4196,6 +4210,7 @@ function renderOrdini(){
    +'<button class="btn btn-green" onclick="openImportaFabbisogni()">Importa fabbisogni iMOS</button>'
    +'<button class="btn btn-ghost" onclick="openOrdineGenerico()">+ Ordine generico</button></div>'
    +'<div class="filters"><input id="ord-q" value="'+att(ORD_Q)+'" placeholder="Cerca materiale, fornitore, codice, nota..." oninput="ordCerca(this.value)"></div>'
+   +fabFornBox()
    +ordRecap()
    +'<div id="ord-cont">'+ordiniCont()+'</div>';
 }
@@ -4388,6 +4403,142 @@ function cardFab(gr,griglia){
 //  dover entrare in ogni commessa per scoprirlo.
 // ============================================================
 var ORD_RECAP_APERTO=false;
+// ============================================================
+//  RIMETTERE IL FORNITORE GIUSTO
+//  L'importazione iMOS (fino alla v108) scriveva sulla riga la
+//  MARCA invece del fornitore: Blum, CAMAR, HAFELE al posto di
+//  Pavanello. Qui trovo quelle righe e le rimetto a posto
+//  prendendo il fornitore dal materiale di magazzino.
+// ============================================================
+function fabFornDiversi(){
+  const out=[];
+  (STATE.fabbisogni||[]).forEach(function(f){
+    if(String(f.Stato||'')==='ricevuto')return;
+    const a=(STATE.articoli||[]).filter(function(x){return x.ID===f.ArticoloID;})[0];
+    if(!a||!String(a.Fornitore||'').trim())return;
+    if(fornChiave(f.Fornitore)===fornChiave(a.Fornitore))return;
+    out.push({id:f.ID,desc:f.Descrizione||a.Nome,comm:f.Commessa,
+              ora:String(f.Fornitore||'').trim()||'(vuoto)',giusto:a.Fornitore});
+  });
+  return out;
+}
+// ------------------------------------------------------------
+//  La riparazione automatica, con il freno a mano tirato.
+//  Tocco una riga solo se ci sono TUTTE queste condizioni:
+//   - non e' ancora stata ricevuta;
+//   - il materiale di magazzino ha un fornitore scritto;
+//   - sulla riga c'e' scritto un fornitore diverso;
+//   - quel nome non e' il fornitore di NESSUN articolo, pezzo,
+//     movimento, voce o ordine (cioe' non e' un fornitore vero);
+//   - e in anagrafica non ha un indirizzo email.
+//  Blum, CAMAR, HAFELE, Grass, imos rientrano tutti qui dentro.
+//  Un fornitore vero che hai scelto tu non ci rientra mai.
+// ------------------------------------------------------------
+function fabFornDaRiparare(){
+  const emailDi={};
+  (STATE.fornitori||[]).forEach(function(f){
+    emailDi[fornNorm(f.Nome)]=String(f.Email||'').trim();
+  });
+  return fabFornDiversi().filter(function(x){
+    if(x.ora==='(vuoto)')return false;
+    if(fornQuanteRighe(x.ora)>0)return false;
+    if(emailDi[fornNorm(x.ora)])return false;
+    return true;
+  });
+}
+var FORN_RIPARATO=false;
+function riparaFornitoriAuto(){
+  if(FORN_RIPARATO)return;
+  // se hai una finestra aperta aspetto: non voglio chiudertela in faccia
+  if(document.querySelector('.modal')){ setTimeout(riparaFornitoriAuto,5000); return; }
+  fornScorda();
+  const list=fabFornDaRiparare();
+  if(!list.length){FORN_RIPARATO=true;return;}
+  FORN_RIPARATO=true;
+  const nomi=[];
+  list.forEach(function(x){ if(nomi.indexOf(x.ora)<0)nomi.push(x.ora); });
+  call('sistemaFornitoreFabbisogni',{righe:list.map(function(x){return {id:x.id,fornitore:x.giusto};})})
+  .then(function(r){
+    if(!r||!r.ok)return;
+    call('getFabbisogno').then(function(fb){
+      STATE.fabbisogni=fb||[]; fornScorda();
+      toast('Sistemate '+(r.n||0)+' righe: '+nomi.join(', ')+' erano marche, non fornitori');
+      if(!document.querySelector('.modal'))renderPage(STATE.pagina);
+    });
+  }).catch(function(){});
+}
+function fabFornBox(){
+  const list=fabFornDiversi();
+  if(!list.length)return '';
+  const per={};
+  list.forEach(function(x){ (per[x.ora+' → '+x.giusto]=per[x.ora+' → '+x.giusto]||[]).push(x); });
+  const righe=Object.keys(per).sort().map(function(k){
+    const g=per[k];
+    return '<div style="padding:7px 0;border-top:1px solid var(--border)">'
+     +'<div style="font-size:13px"><strong>'+att(g[0].ora)+'</strong> &rarr; <strong>'
+     +att(g[0].giusto)+'</strong> <span style="color:var(--gray)">('+g.length+' righe)</span></div>'
+     +'<div style="font-size:11.5px;color:var(--gray)">'
+     +g.slice(0,4).map(function(x){return att(x.desc);}).join(' &middot; ')
+     +(g.length>4?(' &middot; e altre '+(g.length-4)):'')+'</div></div>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:14px;border-color:var(--amber)">'
+   +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<div class="card-title" style="margin:0">Righe con un fornitore diverso da quello del materiale ('+list.length+')</div>'
+   +'<button class="btn btn-accent" onclick="fabFornSistema()">Metti il fornitore del materiale</button></div>'
+   +'<div style="font-size:12px;color:var(--gray);line-height:1.6;margin-bottom:2px">'
+   +'Capita con le righe importate da iMOS prima della v109: ci finiva la <strong>marca</strong> '
+   +'(Blum, CAMAR, HAFELE) invece di chi te la vende. Qui sotto cosa diventerebbe cosa. '
+   +'Se una riga la ordini davvero da un altro fornitore, lasciala stare e correggi solo quella '
+   +'con <em>Modifica</em>.</div>'
+   +righe+'</div>';
+}
+function fabFornSistema(){
+  const list=fabFornDiversi();
+  if(!list.length){toast('Niente da sistemare');return;}
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Rimetto il fornitore del materiale</h2>'
+   +'<div class="alert alert-amber">Cambio il fornitore su <strong>'+list.length+' righe</strong> '
+   +'non ancora ricevute, mettendo quello scritto sul materiale di magazzino.</div>'
+   +'<div class="info-box">Non tocco le quantita, le commesse e nemmeno le righe gia ricevute. '
+   +'Se vuoi essere tranquillo scarica prima un Backup.</div>'
+   +'<div id="ff-err"></div>'
+   +'<button class="btn-primary" onclick="fabFornSistemaVai()">Sistema</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button></div>');
+}
+function fabFornSistemaVai(){
+  const list=fabFornDiversi();
+  toast('Sistemo '+list.length+' righe...');
+  call('sistemaFornitoreFabbisogni',{righe:list.map(function(x){return {id:x.id,fornitore:x.giusto};})})
+  .then(function(r){
+    if(!r||!r.ok){showErr('ff-err',(r&&r.err)||'Errore');return;}
+    call('getFabbisogno').then(function(fb){
+      STATE.fabbisogni=fb||[]; fornScorda(); closeModal();
+      toast('Sistemate '+(r.n||0)+' righe'); renderPage(STATE.pagina);
+    });
+  }).catch(function(e){showErr('ff-err',String((e&&e.message)||e));});
+}
+// I fornitori rimasti in anagrafica che non compaiono su nessuna riga:
+// tipicamente le marche finite li' per sbaglio.
+function fornSenzaRighe(){
+  return (STATE.fornitori||[]).map(function(f){return String(f.Nome||'').trim();})
+    .filter(function(n){return n&&fornQuanteRighe(n)===0;})
+    .sort(function(a,b){return a.localeCompare(b);});
+}
+function fornBoxInutili(){
+  const list=fornSenzaRighe();
+  if(!list.length)return '';
+  return '<div class="card" style="margin-bottom:14px">'
+   +'<div class="card-title">Fornitori che non compaiono su nessuna riga ('+list.length+')</div>'
+   +'<div style="font-size:12px;color:var(--gray);line-height:1.6;margin-bottom:6px">'
+   +'Nessun articolo, pezzo, movimento, voce o ordine li nomina. Spesso sono <strong>marche</strong> '
+   +'finite qui per sbaglio con l&#39;importazione iMOS. Puoi toglierli senza perdere niente.</div>'
+   +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
+   +list.map(function(n){
+      return '<button class="btn btn-ghost" onclick="confEliminaFornitore(\''+esc(n)+'\')">'
+       +att(n)+' &times;</button>';
+    }).join('')
+   +'</div></div>';
+}
 function ordRigheCommessa(comm){
   const mat=(STATE.fabbisogni||[]).filter(function(f){return f.Commessa===comm;});
   const voci=vociDaOrdinare(comm).map(function(v){
@@ -4832,7 +4983,7 @@ function imosRigaHtml(r){
    +'<div style="font-weight:600;font-size:13.5px">'+att(r.desc||r.nome||'(riga nuova)')+'</div>'
    +'<div style="font-size:11.5px;color:var(--gray)">'+att(r.nome||'')
      +(r.sp?(' &middot; sp. '+att(r.sp)):'')
-     +(r.prod?(' &middot; '+att(fornChiave(r.prod))):'')
+     +(r.prod?(' &middot; marca '+att(r.prod)):'')
      +(r.cod?(' &middot; cod. '+att(r.cod)):'')+'</div></div>'
    +'<div style="min-width:150px;text-align:right;white-space:nowrap">'
    +'<input type="number" step="any" value="'+att(r.q)+'" onchange="imosQta('+r.rid+',this.value)" '
@@ -4872,7 +5023,10 @@ function imosFinestra(){
    +'<div class="info-box">Dal file <strong>'+att(IMOS_FILE||'(righe a mano)')+'</strong> ho letto <strong>'
    +IMOS_RIGHE.length+' righe</strong>. Quello che abbini oggi <strong>me lo ricordo</strong>: '
    +'la prossima volta lo trovi gi&agrave; fatto. Se per lo stesso nome hai usato materiali '
-   +'diversi, te li propongo tutti e scegli con un clic.</div>'
+   +'diversi, te li propongo tutti e scegli con un clic.<br>'
+   +'Il <strong>fornitore</strong> lo prendo dal materiale di magazzino, non da iMOS: '
+   +'la colonna &laquo;Produttore&raquo; del foglio &egrave; la <strong>marca</strong> '
+   +'(Blum, Hettich, CAMAR...), non chi te la vende.</div>'
    +'<div class="form-row">'
    +'<div class="form-group"><label>Commessa</label>'
    +'<select id="im-comm" onchange="imosCommessa(this.value)">'+optC+'</select></div>'
@@ -4976,7 +5130,11 @@ function imosConferma(){
         Commessa:comm, Tipo:'articolo', ArticoloID:artId,
         Descrizione:a.Nome||r.desc||r.nome,
         Quantita:r.q, UnitaMisura:r.unita||a.UnitaMisura||'',
-        Fornitore:fornSalva(r.prod||a.Fornitore||''),
+        // Attenzione: la colonna "Produttore" di iMOS e' la MARCA (Blum,
+        // Hettich, CAMAR...), non chi ti vende la roba. Il fornitore e'
+        // quello scritto sul materiale di magazzino: Blum lo compri da
+        // Pavanello. Se il materiale non ce l'ha, lascio vuoto e lo metti tu.
+        Fornitore:(a.Fornitore?fornSalva(a.Fornitore):''),
         Stato:'da_ordinare',
         // La nota e' la stessa cosa che scrivi a mano in "Aggiungi materiale":
         // il nome del mobile. E' cosi' che nell'elenco della commessa si capisce
@@ -4989,7 +5147,7 @@ function imosConferma(){
     if(r.art==='__nuovo__'){
       const nome=r.desc||r.nome||('materiale '+(i+1));
       call('salvaArticolo',{Nome:nome,Categoria:r.sez==='A mano'?'Altro':r.sez,UnitaMisura:r.unita,
-        Fornitore:fornSalva(r.prod||''),Stock:0,IsPannello:(r.unita==='m2')}).then(function(x){
+        Fornitore:'',Stock:0,IsPannello:(r.unita==='m2')}).then(function(x){
         if(!x||!x.ok){showErr('im-err','Non riesco a creare il materiale');return;}
         call('getArticoli').then(function(aa){ STATE.articoli=aa||[]; metti(x.id); });
       });
