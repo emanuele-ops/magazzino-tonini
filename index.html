@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v110 - Atelier</div>
+  <div id="ver-badge">v111 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -1864,7 +1864,7 @@ async function call(fn, args) {
     }
     if (fn === "emettiOrdineCommessa") {
       const id = await nextNumeroOrdine();
-      await sbPost("ordini", { id, data: nowStr(), commessa: args.commessa || "", fornitore: args.fornitore || "", stato: "emesso", righe: JSON.stringify(args.righe || []), note: "", email: args.email || "" });
+      await sbPost("ordini", { id, data: nowStr(), commessa: args.commessa || "", fornitore: args.fornitore || "", stato: "emesso", righe: JSON.stringify(args.righe || []), note: args.note || "", email: args.email || "" });
       // Segna i fabbisogni come ordinati
       for (const a of (args.righe || [])) {
         if (a.fabId) await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(a.fabId), { stato: "ordinato" }).catch(()=>{});
@@ -4214,7 +4214,13 @@ function renderOrdini(){
    +ordRecap()
    +'<div id="ord-cont">'+ordiniCont()+'</div>';
 }
-function ordSelComm(c){FAB_COMM=c;document.getElementById("ord-cont").innerHTML=ordiniCont();}
+function ordSelComm(c){
+  // cambio cantiere: il filtro del mobile di prima non c'entra piu' niente
+  if(c!==FAB_COMM)ORD_MOB='';
+  FAB_COMM=c;
+  const e=document.getElementById("ord-cont");
+  if(e)e.innerHTML=ordiniCont(); else renderPage('ordini');
+}
 function ordCerca(v){
   ORD_Q=v;
   const c=document.getElementById("ord-cont");
@@ -4558,6 +4564,62 @@ function ordTutteDaOrdinare(){
   });
   return out;
 }
+// ============================================================
+//  ORDINARE UN MOBILE PER VOLTA
+//  Dentro una commessa ci sono piu' mobili, e il mobile e' quello
+//  che scrivi nelle Note ("D08 BAGNO"). Qui si sceglie di quale
+//  mobile fare la lista, cosi' gli ordini escono distinti e
+//  scaglionati nel tempo invece che tutti insieme.
+// ============================================================
+var ORD_MOB='';            // '' = tutto il cantiere
+var ORD_MOB_VUOTO='__senza__';
+function fabMobile(f){ return String((f&&f.Note)||'').trim(); }
+function fabMobileChiave(f){ return fabMobile(f)||ORD_MOB_VUOTO; }
+// i mobili presenti fra le righe ancora da ordinare della commessa
+function ordMobili(comm){
+  const g={};
+  ordRigheCommessa(comm).forEach(function(f){
+    const st=statoEffettivo(f);
+    if(st!=='da_ordinare'&&st!=='parziale')return;
+    const k=fabMobileChiave(f);
+    g[k]=(g[k]||0)+1;
+  });
+  return Object.keys(g).sort(function(a,b){
+    if(a===ORD_MOB_VUOTO)return 1;
+    if(b===ORD_MOB_VUOTO)return -1;
+    return a.localeCompare(b);
+  }).map(function(k){return {mob:k,n:g[k]};});
+}
+// il filtro: '' prende tutto
+function ordMobOk(f){
+  if(!ORD_MOB)return true;
+  return fabMobileChiave(f)===ORD_MOB;
+}
+function ordMobNome(k){ return k===ORD_MOB_VUOTO?'(senza mobile)':k; }
+function ordMobSel(v){ ORD_MOB=v; renderPage('ordini'); }
+function ordBarraMobili(){
+  const list=ordMobili(FAB_COMM);
+  if(list.length<2)return '';
+  const tot=list.reduce(function(s,x){return s+x.n;},0);
+  const btn=function(v,testo,n){
+    const on=(ORD_MOB===v);
+    return '<button class="btn '+(on?'btn-accent':'btn-ghost')+'" onclick="ordMobSel(\''+esc(v)+'\')">'
+     +att(testo)+' <span style="opacity:.7">'+n+'</span></button>';
+  };
+  return '<div class="card" style="margin-bottom:14px">'
+   +'<div class="card-title">Di quale mobile vuoi fare l&#39;ordine</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px">'
+   +'&Egrave; il nome che hai scritto nelle <strong>Note</strong> delle righe. '
+   +'Scegliendone uno, le liste per fornitore qui sotto, i PDF e gli invii '
+   +'contengono <strong>solo quel mobile</strong>.</div>'
+   +'<div class="filters" style="gap:6px">'
+   +btn('','Tutto il cantiere',tot)
+   +list.map(function(x){return btn(x.mob,ordMobNome(x.mob),x.n);}).join('')
+   +'</div></div>';
+}
+function ordMobEtichetta(){
+  return ORD_MOB?(' - '+ordMobNome(ORD_MOB)):'';
+}
 function ordRecapDati(){
   const per={};
   const tocca=function(c){
@@ -4679,7 +4741,7 @@ function ordiniCont(){
        +'Al fornitore va una riga sola.</div>')
     : '';
   // nel riordino finiscono materiali e altre voci insieme, raggruppati per ditta
-  const daOrd=list.filter(f=>statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale');
+  const daOrd=list.filter(f=>(statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale')&&ordMobOk(f));
   const gruppi={}; daOrd.forEach(f=>{const fo=fornChiave(f.Fornitore);(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(fo))||{}).Email||'';
@@ -4692,7 +4754,10 @@ function ordiniCont(){
          +(g.primo.__voce?' <span class="badge badge-accent">altra voce</span>':'')+'</div>';
       }).join("")+'</div>';
   }).join("");
-  return '<div class="card" style="margin-bottom:16px"><div class="card-title">Materiali della commessa '+FAB_COMM+'</div>'+nota+rows+'</div>'+(ordini?'<div class="op-sec">Riordino per questa commessa</div>'+ordini:'');
+  return '<div class="card" style="margin-bottom:16px"><div class="card-title">Materiali della commessa '+FAB_COMM+'</div>'+nota+rows+'</div>'+(ordini?('<div class="op-sec">Riordino per questa commessa'+att(ordMobEtichetta())+'</div>'
+     +ordBarraMobili()+ordini)
+   :(ordMobili(FAB_COMM).length?(ordBarraMobili()
+     +'<div class="card" style="color:var(--gray)">Niente da ordinare per questo mobile.</div>'):''));
 }
 // ============================================================
 //  IMPORTARE I FABBISOGNI DA iMOS
@@ -5415,30 +5480,31 @@ function confermaSceltaCodici(fabId){
     });
 }
 function inviaOrdComm(forn){
-  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn));
+  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn)&&ordMobOk(f));
   const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===forn.trim().toLowerCase())||{}).Email||'';
   if(!em){toast("Imposta prima l'email del fornitore","err");openFornitore(forn);return;}
-  const voci=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn);
+  const voci=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn&&ordMobOk(v));
   if(!list.length&&!voci.length){toast("Nessun materiale da ordinare","err");return;}
   const righe=list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
     .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
   toast("Invio in corso...");
-  call("emettiOrdineCommessa",{commessa:FAB_COMM,fornitore:forn,email:em,righe:righe}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
+  call("emettiOrdineCommessa",{commessa:FAB_COMM,fornitore:forn,email:em,righe:righe,
+    note:(ORD_MOB?ordMobNome(ORD_MOB):'')}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
     Promise.all(voci.map(v=>call("aggiornaStatoVoce",{id:v.ID,stato:'ordinato',ordineId:r.id}))).then(()=>{
-      toast("Ordine registrato per "+forn+" (esporta il PDF per inviarlo)");
+      toast("Ordine registrato per "+forn+(ORD_MOB?(' - '+ordMobNome(ORD_MOB)):'')+" (esporta il PDF per inviarlo)");
       Promise.all([call("getFabbisogno"),call("getOrdini"),call("getVoci")]).then(([fb,or,vc])=>{STATE.fabbisogni=fb||[];STATE.ordini=or||[];STATE.voci=vc||[];renderPage(STATE.pagina);});
     });
   });
 }
 function stampaOrdineCommessa(forn){
-  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn));
+  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn)&&ordMobOk(f));
   const oggi=new Date().toLocaleDateString('it-IT');
   const fornObj=(STATE.fornitori||[]).find(f=>String(f.Nome).trim().toLowerCase()===String(forn).trim().toLowerCase())||{};
   const email=fornObj.Email||'';
   const tel=fornObj.Telefono||'';
   // Lo stesso materiale chiesto piu' volte (una lista per armadio) deve
   // arrivare al fornitore come UNA riga con la quantita' sommata.
-  const vociForn=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn)
+  const vociForn=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn&&ordMobOk(v))
     .map(v=>({__voce:true,ID:v.ID,Descrizione:v.Descrizione,Categoria:v.Categoria,
               Quantita:v.Quantita,Unita:v.Unita,Note:v.Note}));
   const righe=raggruppaFab(list.concat(vociForn)).map(function(g){
@@ -5468,7 +5534,9 @@ function stampaOrdineCommessa(forn){
   stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d">'
    +'<div style="display:flex;justify-content:space-between;border-bottom:2px solid #8a6d4e;padding-bottom:10px;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700;color:#8a6d4e">Atelier Tonini</div><div style="font-size:13px;color:#777">Ordine n. '+numOrd+' - commessa '+FAB_COMM+'</div></div><div style="font-size:12px;color:#777">'+oggi+'</div></div>'
    +fornBox
-   +'<p style="font-size:13px">Spett.le <strong>'+forn+'</strong>, per la commessa <strong>'+FAB_COMM+'</strong> Vi richiediamo i seguenti materiali:</p>'
+   +'<p style="font-size:13px">Spett.le <strong>'+forn+'</strong>, per la commessa <strong>'+FAB_COMM+'</strong>'
+   +(ORD_MOB?(' &ndash; <strong>'+att(ordMobNome(ORD_MOB))+'</strong>'):'')
+   +' Vi richiediamo i seguenti materiali:</p>'
    +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. gestionale</th><th align="center">Cod. fornitore</th><th align="center">Quantita</th></tr></thead><tbody>'+righe+'</tbody></table>'
    +'<p style="margin-top:18px">Cordiali saluti,<br>Atelier Tonini</p></div>');
 }
