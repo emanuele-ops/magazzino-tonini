@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v112 - Atelier</div>
+  <div id="ver-badge">v113 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4688,6 +4688,23 @@ function ordBarraMobili(){
 function ordMobEtichetta(){
   return ORD_MOB?(' - '+ordMobNome(ORD_MOB)):'';
 }
+// ============================================================
+//  COSA C'E' DA ORDINARE: UNA RISPOSTA SOLA
+//  Il blocco a video, il PDF e l'invio devono contenere le
+//  stesse identiche righe. Prima ognuno se le filtrava per conto
+//  suo e il PDF finiva per avere dentro anche la roba gia'
+//  ordinata o gia' presa da magazzino: righe che a video non
+//  vedevi. Da qui in poi passano tutti di qui.
+// ============================================================
+function ordDaOrdinare(comm,forn){
+  return ordRigheCommessa(comm||FAB_COMM).filter(function(f){
+    const st=statoEffettivo(f);
+    if(st!=='da_ordinare'&&st!=='parziale')return false;   // niente gia' ordinato o assegnato
+    if(!ordMobOk(f))return false;                          // il mobile scelto in alto
+    if(forn&&fornChiave(f.Fornitore)!==forn)return false;  // la ditta di questo blocco
+    return true;
+  });
+}
 function ordRecapDati(){
   const per={};
   const tocca=function(c){
@@ -4809,11 +4826,15 @@ function ordiniCont(){
        +'Al fornitore va una riga sola.</div>')
     : '';
   // nel riordino finiscono materiali e altre voci insieme, raggruppati per ditta
-  const daOrd=list.filter(f=>(statoEffettivo(f)==='da_ordinare'||statoEffettivo(f)==='parziale')&&ordMobOk(f));
+  // La casella di ricerca filtra solo l'elenco qui sopra. Il riordino no:
+  // deve essere identico a quello che esce nel PDF e nell'invio.
+  const daOrd=ordDaOrdinare(FAB_COMM,'');
   const gruppi={}; daOrd.forEach(f=>{const fo=fornChiave(f.Fornitore);(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(fo))||{}).Email||'';
     return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
+     +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:4px">'
+     +raggruppaFab(gruppi[fo]).length+' righe nel PDF e nell&#39;invio</div>'
      +raggruppaFab(gruppi[fo]).map(function(g){
         const mis=fabMisura(g.primo);
         return '<div style="font-size:12.5px;color:var(--gray);padding:3px 0">'
@@ -5634,10 +5655,11 @@ function confermaSceltaCodici(fabId){
     });
 }
 function inviaOrdComm(forn){
-  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn)&&ordMobOk(f));
-  const em=(STATE.fornitori.find(x=>String(x.Nome).trim().toLowerCase()===forn.trim().toLowerCase())||{}).Email||'';
+  const tutte=ordDaOrdinare(FAB_COMM,forn);
+  const list=tutte.filter(function(x){return !x.__voce;});
+  const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(forn))||{}).Email||'';
   if(!em){toast("Imposta prima l'email del fornitore","err");openFornitore(forn);return;}
-  const voci=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn&&ordMobOk(v));
+  const voci=tutte.filter(function(x){return x.__voce;});
   if(!list.length&&!voci.length){toast("Nessun materiale da ordinare","err");return;}
   const righe=list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
     .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
@@ -5651,16 +5673,15 @@ function inviaOrdComm(forn){
   });
 }
 function stampaOrdineCommessa(forn){
-  const list=STATE.fabbisogni.filter(f=>f.Commessa===FAB_COMM&&f.Stato!=='ricevuto'&&(fornChiave(f.Fornitore)===forn)&&ordMobOk(f));
+  const tutte=ordDaOrdinare(FAB_COMM,forn);
+  const list=tutte.filter(function(x){return !x.__voce;});
   const oggi=new Date().toLocaleDateString('it-IT');
   const fornObj=(STATE.fornitori||[]).find(f=>String(f.Nome).trim().toLowerCase()===String(forn).trim().toLowerCase())||{};
   const email=fornObj.Email||'';
   const tel=fornObj.Telefono||'';
   // Lo stesso materiale chiesto piu' volte (una lista per armadio) deve
   // arrivare al fornitore come UNA riga con la quantita' sommata.
-  const vociForn=vociDaOrdinare(FAB_COMM).filter(v=>fornChiave(v.Fornitore)===forn&&ordMobOk(v))
-    .map(v=>({__voce:true,ID:v.ID,Descrizione:v.Descrizione,Categoria:v.Categoria,
-              Quantita:v.Quantita,Unita:v.Unita,Note:v.Note}));
+  const vociForn=tutte.filter(function(x){return x.__voce;});
   const righe=raggruppaFab(list.concat(vociForn)).map(function(g){
     const f=g.primo;
     const iu=f.__voce?'':imgUrlFor(f.ArticoloID);
