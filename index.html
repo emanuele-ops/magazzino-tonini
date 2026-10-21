@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v114 - Atelier</div>
+  <div id="ver-badge">v115 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -5768,14 +5768,176 @@ function genInvia(){
 function genPDF(){if(!GEN.length){showErr("gn-err","Aggiungi materiali.");return;}const forn=document.getElementById("gn-forn").value.trim()||"-";stampaHTML(buildOrdineFornitoreDaDati(forn,GEN.map(r=>({Nome:r.descrizione,CodiceFornitore:"",Quantita:r.quantita,Unita:r.unita,Note:r.note})),""));}
 
 // -- ORDINI EVASI --
+// ============================================================
+//  PIU' ORDINI IN UNA VOLTA
+//  Spunti quelli che ti servono e ti ritrovi gli stessi tasti:
+//  un PDF solo con dentro tutti gli ordini scelti, un foglio di
+//  ricezione solo, e cosi' via.
+// ============================================================
+var ORD_SEL={};
+function ordSelNum(){ return Object.keys(ORD_SEL).filter(function(k){return ORD_SEL[k];}).length; }
+function ordSelIds(){
+  const scelti=Object.keys(ORD_SEL).filter(function(k){return ORD_SEL[k];});
+  // nello stesso ordine in cui stanno nella pagina
+  return (STATE.ordini||[]).map(function(o){return o.ID;}).filter(function(id){return scelti.indexOf(id)>=0;});
+}
+function ordSelOrdini(){
+  const ids=ordSelIds();
+  return ids.map(function(id){return (STATE.ordini||[]).filter(function(o){return o.ID===id;})[0];}).filter(Boolean);
+}
+function ordSelTog(ev,id){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  if(ORD_SEL[id])delete ORD_SEL[id]; else ORD_SEL[id]=true;
+  ordSelBarra();
+  const c=document.getElementById('osel-'+id); if(c)c.checked=!!ORD_SEL[id];
+}
+function ordSelAzzera(){ ORD_SEL={}; renderPage('evasi'); }
+function ordSelTutti(stato){
+  (STATE.ordini||[]).forEach(function(o){
+    const ric=String(o.Stato).toLowerCase()==='ricevuto';
+    if((stato==='daric'&&!ric)||(stato==='arch'&&ric))ORD_SEL[o.ID]=true;
+  });
+  renderPage('evasi');
+}
+function ordSelBarra(){
+  const box=document.getElementById('ord-selbar');
+  if(!box)return;
+  const n=ordSelNum();
+  if(!n){ box.innerHTML=''; box.style.display='none'; return; }
+  box.style.display='';
+  const ids=ordSelIds();
+  box.innerHTML='<div class="card" style="margin-bottom:14px;border-color:var(--accent)">'
+   +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<div><div class="card-title" style="margin:0">'+n+(n===1?' ordine scelto':' ordini scelti')+'</div>'
+   +'<div style="font-size:11.5px;color:var(--gray)">'+att(ids.join(', '))+'</div></div>'
+   +'<button class="btn btn-ghost" onclick="ordSelAzzera()">Togli la spunta a tutti</button></div>'
+   +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
+   +'<button class="btn btn-ghost" onclick="ordSelPdf()">Esporta PDF</button>'
+   +'<button class="btn btn-accent" onclick="ordSelFoglio()">Foglio di ricezione</button>'
+   +'<button class="btn btn-green" onclick="ordSelCarica()">Carica a magazzino</button>'
+   +'<button class="btn btn-accent" onclick="ordSelSegnala()">Segnala</button>'
+   +'<button class="btn btn-red" onclick="ordSelElimina()">Elimina</button>'
+   +'</div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:8px">'
+   +'PDF e foglio di ricezione escono in <strong>un file solo</strong>, un ordine per pagina.</div>'
+   +'</div>';
+}
+// un file solo, un ordine per pagina
+function ordUnisciStampe(costruisci){
+  const list=ordSelOrdini();
+  if(!list.length){toast('Non hai spuntato nessun ordine','err');return;}
+  const pezzi=list.map(function(o,i){
+    return '<div'+(i?' style="page-break-before:always"':'')+'>'+costruisci(o)+'</div>';
+  });
+  stampaHTML(pezzi.join(''));
+  toast(list.length+' ordini in un file solo');
+}
+function ordSelPdf(){ ordUnisciStampe(buildOrdinePDF); }
+function ordSelFoglio(){ ordUnisciStampe(buildFoglioRicezione); }
+// i carichi uno dopo l'altro: finito il primo si apre il secondo
+var ORD_CODA=[];
+function ordSelCarica(){
+  ORD_CODA=ordSelOrdini().filter(function(o){return String(o.Stato).toLowerCase()!=='ricevuto';})
+    .map(function(o){return o.ID;});
+  if(!ORD_CODA.length){toast('Gli ordini scelti sono gia&#39; ricevuti','err');return;}
+  ordCodaAvanti();
+}
+function ordCodaAvanti(){
+  const id=ORD_CODA.shift();
+  if(!id)return;
+  caricaOrdineMagazzino(id);
+  const box=document.querySelector('.modal');
+  if(box&&ORD_CODA.length){
+    const avviso=document.createElement('div');
+    avviso.className='info-box';
+    avviso.style.marginTop='8px';
+    avviso.innerHTML='Dopo questo ne restano <strong>'+ORD_CODA.length+'</strong> da caricare: '
+      +'te li apro uno dopo l&#39;altro.';
+    box.insertBefore(avviso,box.children[2]||null);
+  }
+}
+function ordSelSegnala(){
+  const list=ordSelOrdini();
+  if(!list.length){toast('Non hai spuntato nessun ordine','err');return;}
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Segnala un problema</h2>'
+   +'<div class="info-box">La segnalazione parte per tutti e <strong>'+list.length+'</strong> gli ordini scelti: '
+   +att(list.map(function(o){return o.ID;}).join(', '))+'</div>'
+   +'<div class="form-group"><label>Descrivi il problema *</label><input id="sg-p" placeholder="es. merce non conforme"></div>'
+   +'<div id="sg-err"></div>'
+   +'<button class="btn-primary" onclick="ordSelSegnalaVai()">Invia la segnalazione</button></div>');
+}
+function ordSelSegnalaVai(){
+  const p=gv('sg-p').trim();
+  if(!p){showErr('sg-err','Descrivi il problema.');return;}
+  const ids=ordSelIds();
+  toast('Invio '+ids.length+' segnalazioni...');
+  Promise.all(ids.map(function(id){return call('segnalaOrdine',{id:id,problema:p}).catch(function(){return null;});}))
+  .then(function(){
+    call('getOrdini').then(function(or){
+      STATE.ordini=or||[]; closeModal(); toast('Segnalazioni inviate'); renderPage('evasi');
+    });
+  });
+}
+function ordSelElimina(){
+  const list=ordSelOrdini();
+  if(!list.length){toast('Non hai spuntato nessun ordine','err');return;}
+  const scelta=function(val,tit,sotto,def){
+    return '<label style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;cursor:pointer">'
+     +'<input type="radio" name="eo-r" value="'+val+'" '+(def?'checked':'')+' style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex:0 0 auto">'
+     +'<span><span style="font-size:13.5px">'+tit+'</span><br>'
+     +'<span style="font-size:11.5px;color:var(--gray)">'+sotto+'</span></span></label>';
+  };
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Elimina '+list.length+' ordini</h2>'
+   +'<div class="alert alert-red">Tolgo dalla lista: <strong>'+att(list.map(function(o){return o.ID;}).join(', '))
+   +'</strong>. La merce gi&agrave; caricata a magazzino <strong>resta</strong> in magazzino.</div>'
+   +'<div class="form-group"><label>E le righe di materiale delle commesse?</label>'
+   +'<div style="border:1px solid var(--border);border-radius:9px;padding:4px 12px">'
+   +scelta('da_ordinare','Rimettile "da ordinare"','Restano nella commessa e tornano fra i materiali da ordinare.',true)
+   +scelta('cancella','Cancellale dalla commessa','Spariscono del tutto dalla lista materiali.',false)
+   +scelta('niente','Lasciale come sono','Restano segnate ordinate anche se l&#39;ordine non c&#39;&egrave; piu&#39;.',false)
+   +'</div></div>'
+   +'<div id="eo-err"></div>'
+   +'<button class="btn-primary" style="background:var(--red)" onclick="ordSelEliminaVai()">S&igrave;, elimina tutti</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Annulla</button></div>');
+}
+function ordSelEliminaVai(){
+  const sel=document.querySelector('input[name="eo-r"]:checked');
+  const modo=(sel&&sel.value)||'niente';
+  const ids=ordSelIds();
+  toast('Elimino '+ids.length+' ordini...');
+  const passo=function(i){
+    if(i>=ids.length){
+      Promise.all([call('getOrdini'),call('getFabbisogno'),call('getVoci')]).then(function(res){
+        STATE.ordini=res[0]||[];STATE.fabbisogni=res[1]||[];STATE.voci=res[2]||[];
+        ORD_SEL={}; closeModal(); toast(ids.length+' ordini eliminati'); renderPage('evasi');
+      });
+      return;
+    }
+    call('eliminaOrdine',{id:ids[i],richieste:modo}).then(function(){passo(i+1);})
+      .catch(function(e){showErr('eo-err',String((e&&e.message)||e));});
+  };
+  passo(0);
+}
 function renderOrdiniEvasi(){
   const list=STATE.ordini||[];
   let h='<h1 class="page-title">Ordini</h1>';
   if(!list.length)return h+'<div class="card" style="color:var(--gray)">Nessun ordine emesso. Gli ordini compaiono qui dopo l\'invio dalla pagina "Crea ordine".</div>';
   const daRic=list.filter(o=>String(o.Stato).toLowerCase()!=='ricevuto');
   const arch=list.filter(o=>String(o.Stato).toLowerCase()==='ricevuto');
-  h+='<div class="op-sec" style="margin-top:0">Da ricevere ('+daRic.length+')</div>'+(daRic.length?daRic.map(ordineCard).join(""):'<div class="card" style="color:var(--gray)">Nessun ordine in attesa.</div>');
-  h+='<div class="op-sec">Archiviati / ricevuti ('+arch.length+')</div>'+(arch.length?arch.map(ordineCard).join(""):'<div class="card" style="color:var(--gray)">Nessun ordine archiviato.</div>');
+  h+='<div style="font-size:12px;color:var(--gray);margin-bottom:10px">'
+   +'Spunta piu&#39; ordini per averne un <strong>PDF solo</strong> con dentro tutti.</div>'
+   +'<div id="ord-selbar"></div>';
+  h+='<div class="op-sec" style="margin-top:0">Da ricevere ('+daRic.length+')'
+   +(daRic.length?(' <button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px;margin-left:8px" '
+     +'onclick="ordSelTutti(\'daric\')">spunta tutti</button>'):'')+'</div>'
+   +(daRic.length?daRic.map(ordineCard).join(""):'<div class="card" style="color:var(--gray)">Nessun ordine in attesa.</div>');
+  h+='<div class="op-sec">Archiviati / ricevuti ('+arch.length+')'
+   +(arch.length?(' <button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px;margin-left:8px" '
+     +'onclick="ordSelTutti(\'arch\')">spunta tutti</button>'):'')+'</div>'
+   +(arch.length?arch.map(ordineCard).join(""):'<div class="card" style="color:var(--gray)">Nessun ordine archiviato.</div>');
+  setTimeout(ordSelBarra,0);
   return h;
 }
 // Di che mobile e' questo ordine: lo cerco nella nota dell'ordine e,
@@ -5803,7 +5965,10 @@ function ordineCard(o){
   azioni+='<button class="btn btn-accent" onclick="openSegnalaOrdine(\''+esc(o.ID)+'\')">Segnala</button>';
   azioni+='<button class="btn btn-red" onclick="openEliminaOrdine(\''+esc(o.ID)+'\')">Elimina</button></div>';
   const mobili=ordineMobili(o);
-  return '<details class="acc"><summary>Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')
+  const spunta='<input type="checkbox" id="osel-'+att(o.ID)+'" '+(ORD_SEL[o.ID]?'checked':'')
+   +' onclick="ordSelTog(event,\''+esc(o.ID)+'\')" '
+   +'style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;margin-right:9px;flex:0 0 auto">';
+  return '<details class="acc"><summary>'+spunta+'Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')
    +(mobili.length?(' &nbsp;<span class="badge badge-accent">'+att(mobili.join(' + '))+'</span>'):'')
    +' &nbsp;'+badge(o.Stato)+'<span style="margin-left:auto;font-size:11.5px;color:var(--gray);font-weight:400">'+String(o.Data||'').slice(0,16)+'</span></summary><div class="acc-body">'+righeHtml+azioni+(o.Note?'<div style="margin-top:8px;font-size:11.5px;color:var(--red)">'+o.Note+'</div>':'')+'</div></details>';
 }
