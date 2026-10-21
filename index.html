@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v113 - Atelier</div>
+  <div id="ver-badge">v114 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4832,7 +4832,7 @@ function ordiniCont(){
   const gruppi={}; daOrd.forEach(f=>{const fo=fornChiave(f.Fornitore);(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(fo))||{}).Email||'';
-    return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
+    return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">Emetti ordine e PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
      +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:4px">'
      +raggruppaFab(gruppi[fo]).length+' righe nel PDF e nell&#39;invio</div>'
      +raggruppaFab(gruppi[fo]).map(function(g){
@@ -5654,26 +5654,57 @@ function confermaSceltaCodici(fabId){
       });
     });
 }
-function inviaOrdComm(forn){
-  const tutte=ordDaOrdinare(FAB_COMM,forn);
+// Le righe cosi' come vanno scritte nell'ordine.
+function ordRigheDaMandare(tutte){
   const list=tutte.filter(function(x){return !x.__voce;});
+  const voci=tutte.filter(function(x){return x.__voce;});
+  return list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
+    .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
+}
+// Emette davvero l'ordine: gli da' il numero, lo mette fra gli Ordini e
+// segna le righe come ordinate. Poi chiama quello che gli dici tu.
+function ordEmetti(forn,email,dopo){
+  const tutte=ordDaOrdinare(FAB_COMM,forn);
+  if(!tutte.length){toast('Niente da ordinare per '+forn,'err');return;}
+  const righe=ordRigheDaMandare(tutte);
+  const voci=tutte.filter(function(x){return x.__voce;});
+  toast('Registro l&#39;ordine...');
+  call('emettiOrdineCommessa',{commessa:FAB_COMM,fornitore:forn,email:email||'',righe:righe,
+    note:(ORD_MOB?ordMobNome(ORD_MOB):'')}).then(function(r){
+    if(!r||!r.ok){toast((r&&r.err)||'Errore','err');return;}
+    Promise.all(voci.map(function(v){return call('aggiornaStatoVoce',{id:v.ID,stato:'ordinato',ordineId:r.id});}))
+    .then(function(){
+      Promise.all([call('getFabbisogno'),call('getOrdini'),call('getVoci')]).then(function(res){
+        STATE.fabbisogni=res[0]||[];STATE.ordini=res[1]||[];STATE.voci=res[2]||[];
+        if(dopo)dopo(r.id,tutte);
+        renderPage(STATE.pagina);
+      });
+    });
+  }).catch(function(e){toast(String((e&&e.message)||e),'err');});
+}
+function inviaOrdComm(forn){
   const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(forn))||{}).Email||'';
   if(!em){toast("Imposta prima l'email del fornitore","err");openFornitore(forn);return;}
-  const voci=tutte.filter(function(x){return x.__voce;});
-  if(!list.length&&!voci.length){toast("Nessun materiale da ordinare","err");return;}
-  const righe=list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
-    .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
-  toast("Invio in corso...");
-  call("emettiOrdineCommessa",{commessa:FAB_COMM,fornitore:forn,email:em,righe:righe,
-    note:(ORD_MOB?ordMobNome(ORD_MOB):'')}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
-    Promise.all(voci.map(v=>call("aggiornaStatoVoce",{id:v.ID,stato:'ordinato',ordineId:r.id}))).then(()=>{
-      toast("Ordine registrato per "+forn+(ORD_MOB?(' - '+ordMobNome(ORD_MOB)):'')+" (esporta il PDF per inviarlo)");
-      Promise.all([call("getFabbisogno"),call("getOrdini"),call("getVoci")]).then(([fb,or,vc])=>{STATE.fabbisogni=fb||[];STATE.ordini=or||[];STATE.voci=vc||[];renderPage(STATE.pagina);});
-    });
+  ordEmetti(forn,em,function(numero){
+    toast('Ordine '+numero+' registrato per '+forn+(ORD_MOB?(' - '+ordMobNome(ORD_MOB)):'')
+      +' - esporta il PDF da Ordini per inviarlo');
   });
 }
+// Il tasto PDF: l'ordine lo EMETTE, cosi' il foglio che mandi al
+// fornitore ha sopra il suo numero e tu lo ritrovi negli Ordini.
+// Prima stampava e basta, e sul foglio restava scritto "(da emettere)".
 function stampaOrdineCommessa(forn){
   const tutte=ordDaOrdinare(FAB_COMM,forn);
+  if(!tutte.length){toast('Niente da ordinare per '+forn,'err');return;}
+  const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(forn))||{}).Email||'';
+  ordEmetti(forn,em,function(numero,righeFoto){
+    pdfOrdineCommessa(forn,righeFoto,numero);
+    toast('Ordine '+numero+' emesso: lo trovi in Ordini');
+  });
+}
+// La ristampa di un ordine gia' emesso sta nella pagina Ordini
+// (Esporta PDF). Questa qui costruisce il foglio.
+function pdfOrdineCommessa(forn,tutte,numero){
   const list=tutte.filter(function(x){return !x.__voce;});
   const oggi=new Date().toLocaleDateString('it-IT');
   const fornObj=(STATE.fornitori||[]).find(f=>String(f.Nome).trim().toLowerCase()===String(forn).trim().toLowerCase())||{};
@@ -5699,9 +5730,7 @@ function stampaOrdineCommessa(forn){
       +'</tr>';
   }).join("")
   || '<tr><td colspan="5" style="color:#888">Nessun materiale</td></tr>';
-  // Cerca il numero ordine piu recente per questa commessa+fornitore
-  const ord=(STATE.ordini||[]).filter(o=>o.Commessa===FAB_COMM&&String(o.Fornitore).trim().toLowerCase()===String(forn).trim().toLowerCase()).sort((a,b)=>String(b.Data).localeCompare(String(a.Data)))[0];
-  const numOrd=ord?ord.ID:'(da emettere)';
+  const numOrd=numero||'(da emettere)';
   let fornBox='<div style="margin:14px 0;padding:10px 14px;background:#f7f3ec;border-radius:8px;font-size:13px"><strong>Fornitore:</strong> '+forn;
   if(email)fornBox+=' &nbsp;|&nbsp; <strong>Email:</strong> '+email;
   if(tel)fornBox+=' &nbsp;|&nbsp; <strong>Tel:</strong> '+tel;
@@ -5749,6 +5778,15 @@ function renderOrdiniEvasi(){
   h+='<div class="op-sec">Archiviati / ricevuti ('+arch.length+')</div>'+(arch.length?arch.map(ordineCard).join(""):'<div class="card" style="color:var(--gray)">Nessun ordine archiviato.</div>');
   return h;
 }
+// Di che mobile e' questo ordine: lo cerco nella nota dell'ordine e,
+// per quelli vecchi che non ce l'hanno, nelle note delle sue righe.
+function ordineMobili(o){
+  const nota=String((o&&o.Note)||'').trim();
+  if(nota&&nota!=='GENERICO')return [nota];
+  const m={};
+  (o.Righe||[]).forEach(function(r){ const n=String(r.note||'').trim(); if(n)m[n]=1; });
+  return Object.keys(m).sort();
+}
 function ordineCard(o){
   const badge=function(s){const x=String(s).toLowerCase()==='ricevuto'?['badge-green','ricevuto']:['badge-amber','emesso'];return '<span class="badge '+x[0]+'">'+x[1]+'</span>';};
   const ricevuto=String(o.Stato).toLowerCase()==='ricevuto';
@@ -5764,7 +5802,10 @@ function ordineCard(o){
   if(!ricevuto)azioni+='<button class="btn btn-green" onclick="caricaOrdineMagazzino(\''+esc(o.ID)+'\')">Carica a magazzino</button>';
   azioni+='<button class="btn btn-accent" onclick="openSegnalaOrdine(\''+esc(o.ID)+'\')">Segnala</button>';
   azioni+='<button class="btn btn-red" onclick="openEliminaOrdine(\''+esc(o.ID)+'\')">Elimina</button></div>';
-  return '<details class="acc"><summary>Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')+' &nbsp;'+badge(o.Stato)+'<span style="margin-left:auto;font-size:11.5px;color:var(--gray);font-weight:400">'+String(o.Data||'').slice(0,16)+'</span></summary><div class="acc-body">'+righeHtml+azioni+(o.Note?'<div style="margin-top:8px;font-size:11.5px;color:var(--red)">'+o.Note+'</div>':'')+'</div></details>';
+  const mobili=ordineMobili(o);
+  return '<details class="acc"><summary>Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')
+   +(mobili.length?(' &nbsp;<span class="badge badge-accent">'+att(mobili.join(' + '))+'</span>'):'')
+   +' &nbsp;'+badge(o.Stato)+'<span style="margin-left:auto;font-size:11.5px;color:var(--gray);font-weight:400">'+String(o.Data||'').slice(0,16)+'</span></summary><div class="acc-body">'+righeHtml+azioni+(o.Note?'<div style="margin-top:8px;font-size:11.5px;color:var(--red)">'+o.Note+'</div>':'')+'</div></details>';
 }
 // Le righe salvate su un ordine: se lo stesso articolo compare piu'
 // volte (liste prese un armadio alla volta) al fornitore ne va una sola.
