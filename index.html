@@ -315,7 +315,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v111 - Atelier</div>
+  <div id="ver-badge">v112 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -1835,6 +1835,67 @@ async function call(fn, args) {
       await sbDelete("fabbisogni", "id=eq." + encodeURIComponent(args.id));
       return { ok: true };
     }
+    if (fn === "riceviFabbisognoQta") {
+      // Come riceviFabbisogno, ma con la quantita' davvero arrivata (quella
+      // del DDT), la bolla, e la parte da destinare alla commessa.
+      const rows = await sbGet("fabbisogni", "select=*&id=eq." + encodeURIComponent(args.id));
+      if (!rows.length) return { ok: false, err: "Riga non trovata." };
+      const r = rows[0];
+      if (String(r.stato).toLowerCase() === "ricevuto") return { ok: false, err: "Gia' ricevuto." };
+      if (!r.articolo_id) return { ok: false, err: "Manca il tipo/articolo." };
+      const ddt = args.Ddt || "", dataDdt = args.DataDdt || null;
+      const forn = args.Fornitore || r.fornitore || "";
+      const nota = "Ricezione ordine commessa " + r.commessa + (args.Note ? (" - " + args.Note) : "");
+      const arr = parseFloat(args.Arrivata) || 0;
+      if (arr <= 0) return { ok: false, err: "Scrivi quanta roba e' arrivata." };
+      if (r.tipo === "articolo") {
+        const chiesta = parseFloat(r.quantita) || 0;
+        let perC = parseFloat(args.PerCommessa);
+        if (isNaN(perC)) perC = Math.min(chiesta, arr);
+        perC = Math.max(0, Math.min(perC, arr));
+        const es = await call("registraMovimento", { ArticoloID: r.articolo_id, Tipo: "carico",
+          Quantita: arr, Fornitore: forn, Commessa: r.commessa, Note: nota, Ddt: ddt, DataDdt: dataDdt });
+        if (!es.ok) return es;
+        if (perC > 0 && r.commessa) {
+          await aggiornaImpegnato(r.articolo_id, perC, "add");
+          await setRiserva(r.articolo_id, r.commessa, perC);
+        }
+        const resto = round5(Math.max(0, chiesta - perC));
+        if (resto > 0) {
+          // ne e' arrivata meno del necessario: la richiesta resta aperta per il resto
+          await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(args.id), { quantita: resto, stato: "da_ordinare" });
+        } else {
+          await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto" });
+        }
+        return { ok: true, movId: es.id, perCommessa: perC, libero: round5(arr - perC), resto: resto };
+      }
+      // pannelli e massicci: il numero di pezzi arrivati, con la bolla
+      const num = Math.max(1, Math.round(arr));
+      const d1 = parseInt(r.dim1) || 0, d2 = parseInt(r.dim2) || 0, d3 = parseInt(r.dim3) || 0;
+      let es2 = null;
+      if (r.tipo === "pannello") {
+        if (!d1 || !d2) return { ok: false, err: "Mancano le misure del pannello." };
+        es2 = await call("caricaPannelli", { ArticoloID: r.articolo_id, Larghezza_mm: d1, Altezza_mm: d2,
+          Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
+      } else {
+        if (!d1 || !d2 || !d3) return { ok: false, err: "Mancano le misure del massiccio." };
+        es2 = await call("caricaMassicci", { ArticoloID: r.articolo_id, modo: "misure", Lunghezza_mm: d1,
+          Larghezza_mm: d2, Spessore_mm: d3, Quantita: num, Fornitore: forn, Ddt: ddt, DataDdt: dataDdt });
+      }
+      if (!es2 || !es2.ok) return es2 || { ok: false, err: "Errore nel carico." };
+      // i pezzi che servono alla commessa glieli intesto subito
+      const vuoiPerC = (args.PerCommessa === "" || args.PerCommessa == null)
+        ? Math.min(parseInt(r.num_pezzi) || num, num) : (parseInt(args.PerCommessa) || 0);
+      if (vuoiPerC > 0 && r.commessa) {
+        const ids = (es2.ids || []).slice(0, vuoiPerC);
+        for (const pid of ids) await call("assegnaPezzoSingolo", { tipo: r.tipo, id: pid, commessa: r.commessa });
+      }
+      const chiesti = parseInt(r.num_pezzi) || 0;
+      const restoP = Math.max(0, chiesti - vuoiPerC);
+      if (restoP > 0) await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(args.id), { num_pezzi: restoP, stato: "da_ordinare" });
+      else await sbPatch("fabbisogni", "id=eq." + encodeURIComponent(args.id), { stato: "ricevuto" });
+      return { ok: true, creati: es2.ids || [], perCommessa: vuoiPerC, libero: Math.max(0, num - vuoiPerC), resto: restoP };
+    }
     if (fn === "riceviFabbisogno") {
       const rows = await sbGet("fabbisogni", "select=*&id=eq." + encodeURIComponent(args.id));
       if (!rows.length) return { ok: false, err: "Riga non trovata." };
@@ -1914,7 +1975,14 @@ async function call(fn, args) {
         const es = await call("registraMovimento", { ArticoloID: artId, Tipo: "carico", Quantita: qta,
           Fornitore: forn, Commessa: commessa, Note: note, Ddt: ddt, DataDdt: dataDdt });
         if (!es.ok) return es;
-        if (commessa) { await aggiornaImpegnato(artId, qta, "add"); await setRiserva(artId, commessa, qta); }
+        // Il fornitore manda la confezione intera: se ne ordini 57 e te ne
+        // arrivano 100, alla commessa ne destino 57 e le altre 43 restano
+        // libere a magazzino. Quanto destinare lo decide chi riceve.
+        if (commessa) {
+          const voluta = parseFloat(args.PerCommessa);
+          const perC = Math.max(0, Math.min(qta, isNaN(voluta) ? qta : voluta));
+          if (perC > 0) { await aggiornaImpegnato(artId, perC, "add"); await setRiserva(artId, commessa, perC); }
+        }
         creati.push({ tipo: "carico", id: es.id, nome: (r.descrizione || artId) + " - " + qta + " " + (r.unita || "") });
       } else if (r.tipo === "pannello" && r.artId) {
         const es = await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: parseInt(r.dim1) || 0,
@@ -5405,9 +5473,95 @@ function modificaFab(id){
   },60);
 }
 function setStatoFab(id,st){call("aggiornaStatoFabbisogno",{id:id,stato:st}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}call("getFabbisogno").then(fb=>{STATE.fabbisogni=fb||[];toast("Stato aggiornato");renderPage(STATE.pagina);});});}
+// ============================================================
+//  RICEVERE: LA CONFEZIONE INTERA, MA ALLA COMMESSA SOLO QUELLO
+//  CHE SERVE
+//  Ordini 57 viti, il fornitore ti manda la scatola da 100.
+//  Carico a magazzino le 100 della bolla, ne destino 57 alla
+//  commessa e le altre 43 restano libere per tutti.
+// ============================================================
+function rfResta(){
+  const arr=parseFloat(String(gv('rf-arr')).replace(',','.'))||0;
+  let perC=parseFloat(String(gv('rf-comm')).replace(',','.'));
+  if(isNaN(perC))perC=0;
+  if(perC>arr)perC=arr;
+  const box=document.getElementById('rf-resta');
+  if(!box)return;
+  const resta=Math.round((arr-perC)*1000)/1000;
+  const u=document.getElementById('rf-u')?document.getElementById('rf-u').textContent:'';
+  box.innerHTML=(arr<=0)
+    ? ''
+    : ('Carico <strong>'+nfmt(arr,arr%1?3:0)+' '+att(u)+'</strong> a magazzino: '
+       +'<strong style="color:var(--accent)">'+nfmt(perC,perC%1?3:0)+'</strong> alla commessa, '
+       +'<strong style="color:var(--green)">'+nfmt(resta,resta%1?3:0)+'</strong> '
+       +(resta>0?'che restano disponibili per tutti':'e niente avanza')+'.');
+}
 function riceviFab(id){
-  call("riceviFabbisogno",{id:id}).then(r=>{if(!r.ok){toast(r.err||"Errore","err");return;}
-    Promise.all([call("getFabbisogno"),call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti")]).then(([fb,a,p,m,mv])=>{STATE.fabbisogni=fb||[];STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];toast("Ricevuto e caricato a magazzino");renderPage(STATE.pagina);});
+  const f=(STATE.fabbisogni||[]).filter(x=>x.ID===id)[0]; if(!f)return;
+  const art=(STATE.articoli||[]).filter(a=>a.ID===f.ArticoloID)[0]||{};
+  const pezzi=(f.Tipo!=='articolo');
+  const chiesta=pezzi?(+f.NumPezzi||1):(+f.Quantita||0);
+  const u=pezzi?'pz':(f.UnitaMisura||art.UnitaMisura||'');
+  const mis=fabMisura(f);
+  openModal('<div class="modal" style="width:540px"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2 style="margin-bottom:4px">E&#39; arrivato questo</h2>'
+   +'<div class="info-box">'
+   +'<div style="font-size:15px;font-weight:600">'+att(f.Descrizione||art.Nome||'')+'</div>'
+   +(mis?('<div style="font-size:12.5px;color:var(--gray)">'+att(mis)+'</div>'):'')
+   +'<div style="margin-top:6px;font-size:13px">Serve alla commessa '+commTxt(f.Commessa)+': '
+   +'<strong>'+nfmt(chiesta,chiesta%1?3:0)+' '+att(u)+'</strong></div>'
+   +(f.Note?('<div style="font-size:12.5px;color:var(--gray);margin-top:3px">'+att(f.Note)+'</div>'):'')
+   +'</div>'
+   +'<div class="form-row">'
+   +'<div class="form-group"><label>Quantita&#39; arrivata (dalla bolla) *</label>'
+   +'<input type="number" step="any" min="0" id="rf-arr" value="'+att(chiesta)+'" oninput="rfResta()">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Quella vera del fornitore: '
+   +'la confezione intera, anche se ne avevi chieste meno. <span id="rf-u">'+att(u)+'</span></div></div>'
+   +'<div class="form-group"><label>Di queste, alla commessa</label>'
+   +'<input type="number" step="any" min="0" id="rf-comm" value="'+att(chiesta)+'" oninput="rfResta()">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Il resto resta libero a magazzino, '
+   +'buono per qualsiasi commessa.</div></div></div>'
+   +'<div id="rf-resta" class="info-box" style="margin-bottom:12px"></div>'
+   +campiDdt('rf','',oggiISO())
+   +fornGruppo('rf-forn','Fornitore',f.Fornitore||art.Fornitore||'')
+   +'<div class="form-group"><label>Note</label><input id="rf-note" placeholder="opzionale"></div>'
+   +'<div id="rf-err"></div>'
+   +'<button class="btn-primary" onclick="submitRiceviFab(\''+esc(id)+'\',this)">Carica a magazzino</button></div>');
+  rfResta();
+}
+function submitRiceviFab(id,btn){
+  const f0=(STATE.fabbisogni||[]).filter(x=>x.ID===id)[0]||{};
+  const nomeCosa=f0.Descrizione||id;
+  const arr=parseFloat(String(gv('rf-arr')).replace(',','.'));
+  if(!(arr>0)){showErr('rf-err','Scrivi quanta roba e&#39; arrivata.');return;}
+  let perC=parseFloat(String(gv('rf-comm')).replace(',','.'));
+  if(isNaN(perC))perC=0;
+  if(perC>arr){showErr('rf-err','Alla commessa non puoi darne piu&#39; di quante ne sono arrivate.');return;}
+  const b=leggiDdt('rf');
+  if(btn){btn.disabled=true;btn.textContent='Carico...';}
+  call('riceviFabbisognoQta',{id:id,Arrivata:arr,PerCommessa:perC,Ddt:b.Ddt,DataDdt:b.DataDdt,
+    Fornitore:gvForn('rf-forn'),Note:gv('rf-note').trim()})
+  .then(function(r){
+    if(!r||!r.ok){showErr('rf-err',(r&&r.err)||'Errore');
+      if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}return;}
+    Promise.all([call('getFabbisogno'),call('getArticoli'),call('getPannelli'),call('getMassicci'),
+                 call('getMovimenti'),call('getRiserve')])
+    .then(function(res){
+      STATE.fabbisogni=res[0]||[];STATE.articoli=res[1]||[];STATE.pannelli=res[2]||[];
+      STATE.massicci=res[3]||[];STATE.movimenti=res[4]||[];STATE.riserve=res[5]||[];
+      closeModal();
+      toast('Caricato'+(b.Ddt?(' con la bolla '+b.Ddt):'')
+        +(r.libero>0?(' - '+nfmt(r.libero,r.libero%1?3:0)+' restano liberi a magazzino'):'')
+        +(r.resto>0?(' - mancano ancora '+nfmt(r.resto,r.resto%1?3:0)+' per la commessa'):''));
+      renderPage(STATE.pagina);
+      if(r.movId)setTimeout(function(){etDopoCarico([{tipo:'carico',id:r.movId,
+        nome:nomeCosa}]);},400);
+      else if(r.creati&&r.creati.length)setTimeout(function(){
+        etDopoCarico(r.creati.map(function(x){return {tipo:'pannello',id:x,nome:x};}));},400);
+    });
+  }).catch(function(e){
+    showErr('rf-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}
   });
 }
 function eliminaFab(id){
@@ -5828,23 +5982,52 @@ function openRicevoRiga(ordineId,i){
    +'<div style="font-size:12.5px;color:var(--gray);margin-top:3px">Fornitore: <strong>'+att(o.Fornitore||'-')+'</strong>'
    +(o.Commessa?(' &middot; Commessa: <strong>'+commTxt(o.Commessa)+'</strong>'):' &middot; nessuna commessa')
    +' &middot; Ordine <strong>'+att(o.ID)+'</strong></div></div>'
-   +'<div class="form-group" style="max-width:220px"><label>Quantita&#39; arrivata *</label>'
-   +'<input type="number" step="any" min="0" id="rr-q" value="'+att(gr.qta)+'">'
-   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Se ne e&#39; arrivata meno, correggi: '
-   +'carico solo quella.</div></div>'
+   +'<div class="form-row">'
+   +'<div class="form-group"><label>Quantita&#39; arrivata (dalla bolla) *</label>'
+   +'<input type="number" step="any" min="0" id="rr-q" value="'+att(gr.qta)+'" oninput="rrResta('+att(gr.qta)+')">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Quella vera del fornitore: la '
+   +'confezione intera, anche se ne avevi chieste meno.</div></div>'
+   +((o.Commessa&&(r.tipo==='articolo'||r.tipo==='generico'))
+      ? ('<div class="form-group"><label>Di queste, alla commessa</label>'
+         +'<input type="number" step="any" min="0" id="rr-c" value="'+att(gr.qta)+'" oninput="rrResta('+att(gr.qta)+')">'
+         +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Il resto resta libero a '
+         +'magazzino, buono per qualsiasi commessa.</div></div>')
+      : '')
+   +'</div>'
+   +'<div id="rr-resta" class="info-box" style="margin-bottom:12px"></div>'
    +campiDdt('rr','',oggiISO())
    +'<div class="form-group"><label>Note</label><input id="rr-note" placeholder="opzionale"></div>'
    +'<div id="rr-err"></div>'
    +'<button class="btn-primary" onclick="submitRicevoRiga(\''+esc(ordineId)+'\','+i+',this)">Carica a magazzino</button>'
    +'<div style="font-size:11.5px;color:var(--gray);text-align:center;margin-top:8px">'
    +'Dopo il carico ti chiedo di attaccarci l&#39;etichetta.</div></div>');
+  rrResta(gr.qta);
+}
+function rrResta(ordinata){
+  const box=document.getElementById('rr-resta'); if(!box)return;
+  const arr=parseFloat(String(gv('rr-q')).replace(',','.'))||0;
+  const cE=document.getElementById('rr-c');
+  if(!cE){ box.innerHTML=''; return; }
+  let perC=parseFloat(String(cE.value).replace(',','.'));
+  if(isNaN(perC))perC=0;
+  if(perC>arr)perC=arr;
+  const resta=Math.round((arr-perC)*1000)/1000;
+  box.innerHTML=(arr<=0)?''
+    :('Carico <strong>'+nfmt(arr,arr%1?3:0)+'</strong> a magazzino: '
+      +'<strong style="color:var(--accent)">'+nfmt(perC,perC%1?3:0)+'</strong> alla commessa, '
+      +'<strong style="color:var(--green)">'+nfmt(resta,resta%1?3:0)+'</strong> '
+      +(resta>0?'che restano disponibili per tutti':'e niente avanza')+'.');
 }
 function submitRicevoRiga(ordineId,i,btn){
   const q=parseFloat(gv('rr-q'));
   if(!(q>0)){showErr('rr-err','Scrivi quanta roba e&#39; arrivata.');return;}
+  const cE=document.getElementById('rr-c');
+  let perC=cE?parseFloat(String(cE.value).replace(',','.')):q;
+  if(isNaN(perC))perC=0;
+  if(perC>q){showErr('rr-err','Alla commessa non puoi darne piu&#39; di quante ne sono arrivate.');return;}
   const b=leggiDdt('rr');
   if(btn){btn.disabled=true;btn.textContent='Carico...';}
-  call('riceviRigaOrdine',{id:ordineId,riga:i,Quantita:q,Ddt:b.Ddt,DataDdt:b.DataDdt,Note:gv('rr-note').trim()})
+  call('riceviRigaOrdine',{id:ordineId,riga:i,Quantita:q,PerCommessa:perC,Ddt:b.Ddt,DataDdt:b.DataDdt,Note:gv('rr-note').trim()})
   .then(function(r){
     if(!r||!r.ok){showErr('rr-err',(r&&r.err)||'Errore');if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}return;}
     Promise.all([call('getOrdini'),call('getArticoli'),call('getPannelli'),call('getMassicci'),call('getMovimenti')])
