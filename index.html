@@ -57,6 +57,9 @@
   details.acc[open]>summary::after{content:"\2013"}
   details.acc>summary .sum-badge{margin-left:auto;background:var(--red-light);color:var(--red);font-size:12px;padding:2px 10px;border-radius:11px}
   details.acc[open]>summary .sum-badge{margin-left:0}
+  /* l'ordine spuntato si vede: cornice e sfondo colorati */
+  details.acc.ord-scelto{border-color:var(--accent);border-width:2px;box-shadow:0 2px 10px rgba(167,124,72,.18)}
+  details.acc.ord-scelto>summary{background:var(--accent-light,#f6efe6)}
   .acc-body{padding:0 20px 18px}
   .big-op{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
   .big-op button{padding:22px 14px;border:none;border-radius:16px;font-size:17px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(80,60,40,.08)}
@@ -315,7 +318,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v115 - Atelier</div>
+  <div id="ver-badge">v117 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -5790,6 +5793,13 @@ function ordSelTog(ev,id){
   if(ORD_SEL[id])delete ORD_SEL[id]; else ORD_SEL[id]=true;
   ordSelBarra();
   const c=document.getElementById('osel-'+id); if(c)c.checked=!!ORD_SEL[id];
+  ordSelPitta(id);
+}
+// accende o spegne il rettangolo colorato sulla scheda dell'ordine
+function ordSelPitta(id){
+  const card=document.getElementById('ocard-'+id);
+  if(!card)return;
+  if(ORD_SEL[id])card.classList.add('ord-scelto'); else card.classList.remove('ord-scelto');
 }
 function ordSelAzzera(){ ORD_SEL={}; renderPage('evasi'); }
 function ordSelTutti(stato){
@@ -5814,12 +5824,16 @@ function ordSelBarra(){
    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
    +'<button class="btn btn-ghost" onclick="ordSelPdf()">Esporta PDF</button>'
    +'<button class="btn btn-accent" onclick="ordSelFoglio()">Foglio di ricezione</button>'
+   +(n>1?'<button class="btn btn-ghost" onclick="ordSelFoglioSeparati()">Fogli separati, uno per ordine</button>':'')
    +'<button class="btn btn-green" onclick="ordSelCarica()">Carica a magazzino</button>'
    +'<button class="btn btn-accent" onclick="ordSelSegnala()">Segnala</button>'
    +'<button class="btn btn-red" onclick="ordSelElimina()">Elimina</button>'
    +'</div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-top:8px">'
-   +'PDF e foglio di ricezione escono in <strong>un file solo</strong>, un ordine per pagina.</div>'
+   +'PDF e foglio di ricezione escono in <strong>un file solo</strong>, un ordine per pagina.'
+   +'<br><strong>Foglio di ricezione</strong> e <strong>Carica a magazzino</strong> sono <strong>cumulativi</strong>: '
+   +'una riga per articolo con la somma di tutti gli ordini spuntati, bolla scritta una volta. '
+   +'Niente QR da inquadrare.</div>'
    +'</div>';
 }
 // un file solo, un ordine per pagina
@@ -5833,14 +5847,310 @@ function ordUnisciStampe(costruisci){
   toast(list.length+' ordini in un file solo');
 }
 function ordSelPdf(){ ordUnisciStampe(buildOrdinePDF); }
-function ordSelFoglio(){ ordUnisciStampe(buildFoglioRicezione); }
+function ordSelFoglio(){
+  const list=ordSelOrdini();
+  if(!list.length){toast('Non hai spuntato nessun ordine','err');return;}
+  if(list.length===1){ ordUnisciStampe(buildFoglioRicezione); return; }
+  stampaHTML(buildFoglioCumulativo(list.map(function(o){return o.ID;})));
+  toast('Foglio unico per '+list.length+' ordini');
+}
+// se proprio li vuole separati, uno per pagina come prima
+function ordSelFoglioSeparati(){ ordUnisciStampe(buildFoglioRicezione); }
+// ==================================================================
+//  IL FOGLIO DI RICEZIONE CUMULATIVO
+//  Quando a Pavanello e' partito un ordine unico che dentro tiene
+//  venti nostri ordini, il bancale arriva tutto insieme e lo stesso
+//  articolo e' sparso su piu' ordini. Stampare un foglio per ordine
+//  vuol dire 37 pagine e inquadrare lo stesso QR dieci volte.
+//  Questo foglio invece e' UNO: una riga per articolo, con accanto
+//  da quali ordini viene e quanto ne aspetti in tutto. Spunti a mano
+//  quello che scarichi, poi al computer fai Ordini > spunti gli
+//  stessi ordini > Carica a magazzino, e scrivi le quantita' una
+//  volta sola.
+// ==================================================================
+function buildFoglioCumulativo(ids){
+  const gruppi=ccRaccogli(ids);
+  const oggi=new Date().toLocaleDateString('it-IT');
+  const forn=[],comm=[];
+  (ids||[]).forEach(function(id){
+    const o=(STATE.ordini||[]).filter(function(x){return x.ID===id;})[0];
+    if(!o)return;
+    const f=String(o.Fornitore||'');
+    if(f&&forn.indexOf(f)<0)forn.push(f);
+    if(o.Commessa&&comm.indexOf(o.Commessa)<0)comm.push(o.Commessa);
+  });
+  const righe=gruppi.map(function(gr){
+    const r=gr.primo;
+    const mis=(r.dim1||r.dim2||r.dim3)
+      ? ((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm') : '';
+    const da=gr.pezzi.map(function(pz){
+      return '<span style="white-space:nowrap">'+pz.ordine+': <strong>'+ccNum(pz.ordinato)+'</strong>'
+        +(pz.commessa?(' <span style="color:#999">('+commTxt(pz.commessa)+')</span>'):'')+'</span>';
+    }).join(' &nbsp;&middot;&nbsp; ');
+    return '<tr>'
+      +'<td style="text-align:center;width:30px;font-size:17px">&#9744;</td>'
+      +'<td><div style="font-weight:600">'+(r.descrizione||r.artId||'')+'</div>'
+      +(mis?('<div style="font-size:11px;color:#777">'+mis+'</div>'):'')
+      +'<div style="font-size:11px;color:#777;margin-top:3px">da: '+da+'</div></td>'
+      +'<td style="text-align:center;font-size:16px;font-weight:700;white-space:nowrap">'+ccNum(gr.ordinato)+' '+(gr.unita||'')+'</td>'
+      +'<td style="width:120px;border-left:1px dashed #bbb">&nbsp;</td>'
+      +'</tr>';
+  }).join("")||'<tr><td colspan="4" style="color:#888">Non c\'e\' piu\' niente da ricevere su questi ordini</td></tr>';
+  let sotto=oggi+'<br>Fornitore: <strong>'+(forn.join(' + ')||'-')+'</strong>'
+    +'<br>Ordini: '+(ids||[]).join(', ');
+  if(comm.length)sotto+='<br>Commesse: '+comm.map(function(c){return commTxt(c);}).join(', ');
+  return '<div style="font-family:Georgia,serif;color:#3a342d">'
+   +pdfHead('Foglio di ricezione &mdash; '+(ids||[]).length+' ordini insieme',sotto)
+   +'<div style="margin:10px 0 14px;padding:9px 13px;background:#f7f3ec;border-radius:8px;font-size:12.5px">'
+   +'<strong>Come si usa.</strong> Il fornitore ci ha mandato tutto insieme, quindi qui c\'e\' '
+   +'<strong>una riga sola per articolo</strong>: la somma di tutti gli ordini qui sopra. '
+   +'Accanto a ogni riga trovi da quali nostri ordini viene, e quanto ne aspettavi in tutto.'
+   +'<br>Mentre scarichi il furgone: spunta la casella a sinistra e scrivi a destra '
+   +'<strong>quanti ne sono arrivati davvero</strong> (la confezione intera, anche se ne avevi chiesti meno).'
+   +'<br>Poi al computer, una volta sola: <strong>Ordini</strong> &rarr; spunta questi stessi ordini &rarr; '
+   +'<strong>Carica a magazzino</strong>. Esce la stessa tabella di questo foglio: scrivi la bolla una volta '
+   +'e le quantita\' che hai segnato qui. Ci pensa l\'app a dividerle fra gli ordini.'
+   +'<br><em>Niente QR da inquadrare: con il carico cumulativo non servono.</em>'
+   +'<br><em>Questo foglio resta in officina: non e\' l\'ordine da mandare al fornitore.</em></div>'
+   +'<table style="width:100%;border-collapse:collapse;font-size:13px" border="1" cellpadding="6">'
+   +'<thead><tr style="background:#efeae1;text-align:left">'
+   +'<th style="padding:6px;text-align:center">Ok</th><th style="padding:6px">Cosa, e su quali nostri ordini</th>'
+   +'<th style="padding:6px;text-align:center">Aspettato<br>in tutto</th>'
+   +'<th style="padding:6px;text-align:center">Arrivato<br>davvero</th></tr></thead>'
+   +'<tbody>'+righe+'</tbody></table>'
+   +'<div style="margin-top:14px;font-size:12px;color:#777">N. bolla del fornitore: '
+   +'_______________________ &nbsp;&nbsp; Data: ____________ &nbsp;&nbsp; Ricevuto da: _______________________</div>'
+   +'</div>';
+}
 // i carichi uno dopo l'altro: finito il primo si apre il secondo
 var ORD_CODA=[];
 function ordSelCarica(){
+  const aperti=ordSelOrdini().filter(function(o){return String(o.Stato).toLowerCase()!=='ricevuto';});
+  if(!aperti.length){toast('Gli ordini scelti sono gia&#39; ricevuti','err');return;}
+  // Un ordine solo: la finestra di sempre. Piu' ordini: la tabella unica,
+  // perche' il fornitore manda un bancale solo per tutti gli ordini.
+  if(aperti.length===1){ caricaOrdineMagazzino(aperti[0].ID); return; }
+  openCaricoCumulativo(aperti.map(function(o){return o.ID;}));
+}
+function ordSelCaricaUnoAUno(){
   ORD_CODA=ordSelOrdini().filter(function(o){return String(o.Stato).toLowerCase()!=='ricevuto';})
     .map(function(o){return o.ID;});
   if(!ORD_CODA.length){toast('Gli ordini scelti sono gia&#39; ricevuti','err');return;}
+  closeModal();
   ordCodaAvanti();
+}
+// ==================================================================
+//  CARICO CUMULATIVO
+//  Il problema vero: a Pavanello mandiamo un ordine unico che dentro
+//  tiene 20 nostri ordini, e quando arriva il bancale arriva tutto
+//  insieme. Lo stesso articolo sta su piu' nostri ordini, quindi
+//  stampare e inquadrare 37 fogli di ricezione non si puo' fare.
+//  Qui invece: una riga per articolo (sommato su tutti gli ordini
+//  spuntati), la bolla scritta una volta sola, e la quantita' che
+//  arriva viene spalmata dall'app sugli ordini, dal piu' vecchio al
+//  piu' nuovo. Quello che avanza resta libero a magazzino.
+// ==================================================================
+var CC_GRUPPI=[],CC_ORDINI=[];
+// la chiave con cui lo stesso articolo si riconosce fra ordini diversi:
+// la stessa usata da raggruppaRigheOrdine dentro un ordine singolo
+function ccChiave(r){
+  return (r.tipo||'')+'|'+(r.artId||vocNorm(r.descrizione||''))+'|'
+    +(r.dim1||'')+'x'+(r.dim2||'')+'x'+(r.dim3||'');
+}
+function ccRaccogli(ids){
+  const g={},ordine=[];
+  (ids||[]).forEach(function(id){
+    const o=(STATE.ordini||[]).filter(function(x){return x.ID===id;})[0];
+    if(!o)return;
+    raggruppaRigheOrdine(o.Righe).forEach(function(gr,i){
+      if(gr.righe.every(function(x){return x.ricevuto;}))return;   // gia' arrivata
+      const k=ccChiave(gr.primo);
+      if(!g[k]){ g[k]={primo:gr.primo,unita:gr.unita||'',pezzi:[],ordinato:0}; ordine.push(k); }
+      g[k].pezzi.push({ordine:o.ID,commessa:o.Commessa||'',riga:i,ordinato:gr.qta});
+      g[k].ordinato+=gr.qta;
+    });
+  });
+  return ordine.map(function(k){
+    const x=g[k];
+    x.ordinato=Math.round(x.ordinato*1000)/1000;
+    x.pezzi.sort(function(a,b){return String(a.ordine)<String(b.ordine)?-1:1;});
+    return x;
+  });
+}
+// come si spalma la quantita' arrivata sugli ordini: prima si riempie
+// l'ordine piu' vecchio, poi il successivo. Quello che avanza oltre il
+// totale ordinato finisce sull'ultimo, ma libero a magazzino.
+function ccRiparto(gr,arrivata){
+  let resta=Math.round((parseFloat(arrivata)||0)*1000)/1000;
+  const out=gr.pezzi.map(function(pz){
+    const d=Math.min(resta,pz.ordinato);
+    resta=Math.round((resta-d)*1000)/1000;
+    return {ordine:pz.ordine,commessa:pz.commessa,riga:pz.riga,ordinato:pz.ordinato,
+            quantita:Math.round(d*1000)/1000,libero:0};
+  });
+  if(resta>0.0001&&out.length){
+    const u=out[out.length-1];
+    u.libero=resta; u.quantita=Math.round((u.quantita+resta)*1000)/1000;
+  }
+  return out;
+}
+function ccNum(n){ return nfmt(n,(n%1)?3:0); }
+function ccRipartoTxt(gr,arrivata){
+  const a=parseFloat(arrivata)||0;
+  if(!(a>0))return '<span style="color:var(--gray)">non la carico</span>';
+  const parti=ccRiparto(gr,a).filter(function(x){return x.quantita>0;});
+  if(!parti.length)return '<span style="color:var(--gray)">non la carico</span>';
+  return parti.map(function(x){
+    let t='<strong>'+att(x.ordine)+'</strong>: '+ccNum(x.quantita)+' '+att(gr.unita||'');
+    if(x.libero>0)t+=' <span style="color:var(--green)">(di cui '+ccNum(x.libero)+' libere a magazzino)</span>';
+    return t;
+  }).join(' &nbsp;&middot;&nbsp; ');
+}
+function ccAggiorna(i){
+  const box=document.getElementById('cc-rip-'+i);
+  const inp=document.querySelector('.cc-q[data-i="'+i+'"]');
+  if(!box||!CC_GRUPPI[i])return;
+  box.innerHTML='&rarr; '+ccRipartoTxt(CC_GRUPPI[i],inp?inp.value:0);
+  ccConta();
+}
+function ccConta(){
+  const el=document.getElementById('cc-conta'); if(!el)return;
+  let n=0;
+  Array.prototype.forEach.call(document.querySelectorAll('.cc-ok'),function(c){
+    if(!c.checked)return;
+    const q=document.querySelector('.cc-q[data-i="'+c.getAttribute('data-i')+'"]');
+    if((parseFloat(q?q.value:0)||0)>0)n++;
+  });
+  el.textContent=n?(n+(n===1?' articolo da caricare':' articoli da caricare')):'nessun articolo spuntato';
+}
+function ccTutte(si){
+  Array.prototype.forEach.call(document.querySelectorAll('.cc-ok'),function(c){c.checked=si;});
+  ccConta();
+}
+function openCaricoCumulativo(ids){
+  CC_ORDINI=(ids||[]).slice();
+  CC_GRUPPI=ccRaccogli(CC_ORDINI);
+  if(!CC_GRUPPI.length){toast('Negli ordini scelti non c&#39;e&#39; piu&#39; niente da ricevere','err');return;}
+  const forn=[];
+  CC_ORDINI.forEach(function(id){
+    const o=(STATE.ordini||[]).filter(function(x){return x.ID===id;})[0];
+    const f=o&&o.Fornitore?String(o.Fornitore):'';
+    if(f&&forn.indexOf(f)<0)forn.push(f);
+  });
+  const righe=CC_GRUPPI.map(function(gr,i){
+    const r=gr.primo;
+    const mis=(r.dim1||r.dim2||r.dim3)?((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm'):'';
+    const da=gr.pezzi.map(function(pz){
+      return att(pz.ordine)+' ('+ccNum(pz.ordinato)+')';
+    }).join(', ');
+    return '<tr style="border-top:1px solid var(--border)">'
+     +'<td style="padding:7px 4px;text-align:center;vertical-align:top">'
+     +'<input type="checkbox" class="cc-ok" data-i="'+i+'" checked '
+     +'style="width:19px;height:19px;accent-color:var(--accent)" onchange="ccConta()"></td>'
+     +'<td style="padding:7px 4px">'
+     +'<div style="font-weight:600;font-size:13px">'+att(r.descrizione||r.artId||'')+'</div>'
+     +'<div style="font-size:11.5px;color:var(--gray)">'+att(mis)+(mis&&r.tipo?' &middot; ':'')+att(r.tipo||'')+'</div>'
+     +'<div style="font-size:11.5px;color:var(--gray);margin-top:2px">da: '+da+'</div>'
+     +'<div id="cc-rip-'+i+'" style="font-size:11.5px;margin-top:4px;color:var(--ink)"></div></td>'
+     +'<td style="padding:7px 4px;text-align:right;white-space:nowrap;font-size:13px;font-weight:600;vertical-align:top">'
+     +ccNum(gr.ordinato)+' '+att(gr.unita||'')+'</td>'
+     +'<td style="padding:7px 4px;vertical-align:top">'
+     +'<input type="number" step="any" min="0" class="cc-q" data-i="'+i+'" value="'+att(gr.ordinato)+'" '
+     +'oninput="ccAggiorna('+i+')" style="width:92px;padding:6px;text-align:right"></td>'
+     +'</tr>';
+  }).join('');
+  openModal('<div class="modal" style="width:min(820px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<div class="det-tag">'+CC_ORDINI.length+' ordini insieme</div>'
+   +'<h2>Arrivato tutto insieme</h2>'
+   +'<div class="info-box">Fornitore: <strong>'+att(forn.join(' + ')||'-')+'</strong>'
+   +'<br><span style="font-size:12.5px">Qui sotto c&#39;e&#39; <strong>una riga per articolo</strong>, con la somma '
+   +'di quanto ne avevi ordinato su tutti gli ordini spuntati ('+att(CC_ORDINI.join(', '))+'). '
+   +'Scrivi la bolla <strong>una volta sola</strong> e la quantita&#39; vera che e&#39; arrivata: '
+   +'ci penso io a dividerla fra gli ordini, partendo dal piu&#39; vecchio. '
+   +'Quello che avanza resta libero a magazzino.</span></div>'
+   +campiDdt('cc','',oggiISO())
+   +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+   +'<thead><tr style="text-align:left;color:var(--gray);font-size:11px;text-transform:uppercase">'
+   +'<th style="padding:4px;width:34px"></th><th style="padding:4px">Cosa, e su quali ordini</th>'
+   +'<th style="padding:4px;text-align:right">Ordinato</th><th style="padding:4px">Arrivato</th></tr></thead>'
+   +'<tbody>'+righe+'</tbody></table></div>'
+   +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px">'
+   +'<span onclick="ccTutte(true)" style="color:var(--accent);text-decoration:underline;cursor:pointer">spunta tutti</span>'
+   +'<span onclick="ccTutte(false)" style="color:var(--accent);text-decoration:underline;cursor:pointer">togli tutti</span>'
+   +'<span id="cc-conta" style="color:var(--gray)"></span></div>'
+   +'<div id="cc-avanz" style="font-size:12.5px;color:var(--accent);margin-top:6px"></div>'
+   +'<div id="cc-err"></div>'
+   +'<button class="btn-primary" onclick="submitCaricoCumulativo(this)">Carica tutto quello che ho spuntato</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="submitCaricoCumulativo(this,true)">Carica senza bolla</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="ordSelCaricaUnoAUno()">Preferisco caricarli un ordine per volta</button>'
+   +'</div>');
+  CC_GRUPPI.forEach(function(gr,i){ ccAggiorna(i); });
+  ccConta();
+}
+// la lista dei carichi da fare, uno per ogni pezzo di ogni articolo
+function ccLavori(){
+  const out=[];
+  Array.prototype.forEach.call(document.querySelectorAll('.cc-ok'),function(c){
+    if(!c.checked)return;
+    const i=+c.getAttribute('data-i');
+    const gr=CC_GRUPPI[i]; if(!gr)return;
+    const q=document.querySelector('.cc-q[data-i="'+i+'"]');
+    const arr=parseFloat(q?q.value:0)||0;
+    if(!(arr>0))return;
+    const tipo=gr.primo.tipo||'';
+    ccRiparto(gr,arr).forEach(function(x){
+      if(!(x.quantita>0))return;
+      // alla commessa va solo quanto ne avevi ordinato: il resto resta libero
+      const perC=(x.commessa&&(tipo==='articolo'||tipo==='generico'))?x.ordinato:x.quantita;
+      out.push({id:x.ordine,riga:x.riga,Quantita:x.quantita,PerCommessa:perC,
+                nome:(gr.primo.descrizione||gr.primo.artId||'')});
+    });
+  });
+  return out;
+}
+function submitCaricoCumulativo(btn,senza){
+  const b=senza?{Ddt:'',DataDdt:null}:leggiDdt('cc');
+  if(!senza&&!b.Ddt){showErr('cc-err','Scrivi il numero della bolla, oppure usa "Carica senza bolla".');return;}
+  const lavori=ccLavori();
+  if(!lavori.length){showErr('cc-err','Non hai spuntato niente da caricare.');return;}
+  const av=document.getElementById('cc-avanz');
+  if(btn){btn.disabled=true;}
+  const creati=[];
+  let fatti=0;
+  function passo(){
+    if(fatti>=lavori.length)return Promise.resolve({ok:true});
+    const L=lavori[fatti];
+    if(av)av.innerHTML='Carico '+(fatti+1)+' di '+lavori.length+': '+att(L.nome)+' su '+att(L.id)+'...';
+    if(btn)btn.textContent='Carico '+(fatti+1)+' di '+lavori.length+'...';
+    return call('riceviRigaOrdine',{id:L.id,riga:L.riga,Quantita:L.Quantita,PerCommessa:L.PerCommessa,
+      Ddt:b.Ddt,DataDdt:b.DataDdt,Note:'carico cumulativo'}).then(function(r){
+      if(!r||!r.ok)return {ok:false,err:((r&&r.err)||'Errore')+' (riga: '+L.nome+', ordine '+L.id+')',fatti:fatti};
+      (r.creati||[]).forEach(function(c){creati.push(c);});
+      fatti++;
+      return passo();
+    });
+  }
+  passo().then(function(es){
+    if(!es.ok){
+      showErr('cc-err',es.err+(fatti?(' - le prime '+fatti+' righe sono gia&#39; state caricate.'):''));
+      if(btn){btn.disabled=false;btn.textContent='Carica tutto quello che ho spuntato';}
+      if(av)av.innerHTML='';
+      return;
+    }
+    Promise.all([call('getOrdini'),call('getArticoli'),call('getPannelli'),call('getMassicci'),
+      call('getMovimenti'),call('getFabbisogno'),call('getVoci')]).then(function(res){
+      STATE.ordini=res[0]||[];STATE.articoli=res[1]||[];STATE.pannelli=res[2]||[];
+      STATE.massicci=res[3]||[];STATE.movimenti=res[4]||[];STATE.fabbisogni=res[5]||[];STATE.voci=res[6]||[];
+      ORD_SEL={};
+      closeModal();
+      toast(lavori.length+' righe caricate su '+CC_ORDINI.length+' ordini'+(b.Ddt?(' con la bolla '+b.Ddt):' (senza bolla)'));
+      renderPage(STATE.pagina);
+      if(creati.length)setTimeout(function(){etDopoCarico(creati);},400);
+    });
+  }).catch(function(e){
+    showErr('cc-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Carica tutto quello che ho spuntato';}
+  });
 }
 function ordCodaAvanti(){
   const id=ORD_CODA.shift();
@@ -5968,7 +6278,7 @@ function ordineCard(o){
   const spunta='<input type="checkbox" id="osel-'+att(o.ID)+'" '+(ORD_SEL[o.ID]?'checked':'')
    +' onclick="ordSelTog(event,\''+esc(o.ID)+'\')" '
    +'style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;margin-right:9px;flex:0 0 auto">';
-  return '<details class="acc"><summary>'+spunta+'Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')
+  return '<details class="acc'+(ORD_SEL[o.ID]?' ord-scelto':'')+'" id="ocard-'+att(o.ID)+'"><summary>'+spunta+'Ordine '+o.ID+' - '+o.Fornitore+(o.Commessa?(' - commessa '+commTxt(o.Commessa)):'')
    +(mobili.length?(' &nbsp;<span class="badge badge-accent">'+att(mobili.join(' + '))+'</span>'):'')
    +' &nbsp;'+badge(o.Stato)+'<span style="margin-left:auto;font-size:11.5px;color:var(--gray);font-weight:400">'+String(o.Data||'').slice(0,16)+'</span></summary><div class="acc-body">'+righeHtml+azioni+(o.Note?'<div style="margin-top:8px;font-size:11.5px;color:var(--red)">'+o.Note+'</div>':'')+'</div></details>';
 }
@@ -5998,7 +6308,7 @@ function buildOrdinePDF(o){
   const tel=fornObj.Telefono||'';
   const righe=raggruppaRigheOrdine(o.Righe).map(function(gr){
     const r=gr.primo;
-    const iu=imgUrlFor(r.artId),q=qrImg(r.artId);
+    const iu=imgUrlFor(r.artId);
     // Trova il codice fornitore dell'articolo
     const art=(STATE.articoli||[]).find(a=>a.ID===r.artId)||{};
     const cf=r.codiceFornitore||art.CodiceFornitore||'';
@@ -6012,9 +6322,8 @@ function buildOrdinePDF(o){
       +'<td style="text-align:center;font-size:11px;font-family:monospace;color:#555">'+codGest+'</td>'
       +'<td style="text-align:center;font-size:12px">'+(cf||'-')+'</td>'
       +'<td style="text-align:center;font-size:14px;font-weight:700;white-space:nowrap">'+gr.qtaTxt+'</td>'
-      +'<td style="text-align:center;width:80px"><img src="'+q+'" style="width:70px;height:70px"></td>'
       +'</tr>';
-  }).join("")||'<tr><td colspan="6" style="color:#888">Nessuna riga</td></tr>';
+  }).join("")||'<tr><td colspan="5" style="color:#888">Nessuna riga</td></tr>';
   let sottotitolo=oggi+'<br>Ordine n. <strong>'+o.ID+'</strong>';
   if(o.Commessa)sottotitolo+='<br>Commessa: '+commTxt(o.Commessa);
   let fornBox='<div style="margin:14px 0;padding:10px 14px;background:#f7f3ec;border-radius:8px;font-size:13px"><strong>Fornitore:</strong> '+(o.Fornitore||'-');
@@ -6024,7 +6333,7 @@ function buildOrdinePDF(o){
   return '<div style="font-family:Georgia,serif;color:#3a342d">'+pdfHead('Ordine '+o.ID,sottotitolo)
    +fornBox
    +'<p style="font-size:13px">Spett.le <strong>'+(o.Fornitore||'')+'</strong>, Vi richiediamo i seguenti materiali:</p>'
-   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. gestionale</th><th align="center">Cod. fornitore</th><th align="center">Quantita</th><th align="center">QR</th></tr></thead><tbody>'+righe+'</tbody></table>'
+   +'<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="background:#f0e9e0"><th align="center">Foto</th><th align="left">Materiale</th><th align="center">Cod. gestionale</th><th align="center">Cod. fornitore</th><th align="center">Quantita</th></tr></thead><tbody>'+righe+'</tbody></table>'
    +'<p style="margin-top:18px;font-size:13px">Cordiali saluti,<br>Atelier Tonini</p>'
    +'</div>';
 }
