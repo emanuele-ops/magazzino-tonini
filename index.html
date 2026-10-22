@@ -318,7 +318,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v117 - Atelier</div>
+  <div id="ver-badge">v119 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -412,7 +412,7 @@ function anniCommesse(){
 }
 const CAT_VOCI = ["Conto lavorazione","Forniture di terzi","Componenti","Trasporti","Manutenzioni","Pasti e trasferte","Noleggi","Servizi e consulenze","Altro"];
 let CURRENT_DETAIL=null;
-let QR_TARGET = null, APP_URL = "", RIGA_ORDINE = null;
+let QR_TARGET = null, APP_URL = "", RIGA_ORDINE = null, RIGA_CUM = null;
 const ICONA_MIC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAACuElEQVR42u3dy3HqQBBAUclFfBAJ7JwE7JyJI8QJ+CPk1ny6z1m/EgN1q9+MkIv1fj0/F0jizUeAoEHQIGgQNIIGQYOgQdAgaAQNggZBg6BB0AgaBA2CBkGDoBE0CBoEDYIGQSNoEDQIGgQNgkbQIGgQNAgaBI2gQdDQxslHcIz3j88//83jdvFBBVv9rFvbiMUt6NQhC1vQKUMWtkNh2phbXF/QNI9N1IJOF5moBZ0uLlELOl1UohZ0uphELWgEzchT0ZQWNIJm5GloSgsaQYOgbTesT9AgaBA0ggZBg6BB0CBoBA2CBkGDoEHQCBoEDYIGQSNoEDQIGgQNgkbQIGgQNAgaBI2gQdAgaBA0CBpBg6BB0CBoEDSCBkHn8LhdrE/QIGgIs96v52fGN7bll1a3/Lc94i+2Rq0747bFhEbQDofWI2gQtKloOgs69OA4SkyvvP6IB1lBDzjNekWd6b0Iuvj2wzZD0GkiE7OgD91Ht4xt7/Ur75/TB90iuujXOOKalSa/LUfAVIuIMOIa1afzsizLSc7HTL6qz1L0lvbhpD2Ta+bAKrxHWw4cCisfDmfdg5rOJnSaqB0Eiwad8VmImZ5FEbTJZzILOnZKjRrNq+uqdHuw3ISePWox/67EfeioUHvGMdt6TejBJ3XPaS3m7Xz1/Y+4jozGoc+Wo1s4kWGPth5BFw57T1C9XlfQok53JnAodFC0bkGLw3ptOWxBhCzoCmELWdApwhayoFOELWRBTx+3iAU9deACFnSKsIUcz31oBA2CBkGDoBE0CBoEDYIGQVORr76/MdPfFvr6XNApQha2LQeCNp2tX9AgaBC0Q5VDoaDJzG27yQ9YJrOgseUAQYOgQdAgaAQNggZBg6BB0AgaBA2CBkEjaBA0CBoEDYJG0CBoEDQIGgSNoEHQIGgQNPzoCyN3BR2do+fyAAAAAElFTkSuQmCC";
 let PAGINA_INIZIALE = "", SOLO_DETTATURA = false;
 let SEL = {}, SELTIPO = null, QRSEL = {};
@@ -431,6 +431,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const q = params.get("qr"); if (q) QR_TARGET = q;
     const ordQ = params.get("ord");
     if (ordQ) RIGA_ORDINE = { ordine: ordQ, riga: parseInt(params.get("riga")) || 0 };
+    const ricQ = params.get("ric");
+    if (ricQ) RIGA_CUM = { ric: String(ricQ).toUpperCase(), riga: parseInt(params.get("r")) || 0 };
     const p = params.get("p"); if (p) PAGINA_INIZIALE = p;
     SOLO_DETTATURA = (params.get("solo") === "1");
     // se la scorciatoia porta alla dettatura, l'icona da mettere in home
@@ -503,7 +505,8 @@ function loadAll() {
     if (errs.length) toast("Non caricati: "+errs.join(", ")+". Ripubblica il Code.gs.","err");
     caricaEtichette().then(function(){
       // se sono entrato inquadrando un QR, vado dritto li'
-      if (RIGA_ORDINE) setTimeout(function(){ openRicevoRiga(RIGA_ORDINE.ordine, RIGA_ORDINE.riga); }, 250);
+      if (RIGA_CUM) setTimeout(function(){ openRicevoCum(RIGA_CUM.ric, RIGA_CUM.riga); }, 250);
+      else if (RIGA_ORDINE) setTimeout(function(){ openRicevoRiga(RIGA_ORDINE.ordine, RIGA_ORDINE.riga); }, 250);
       else if (QR_TARGET) setTimeout(function(){ apriDaCodice(QR_TARGET); }, 250);
     });
     // rimetto il fornitore giusto sulle righe importate con la marca al posto
@@ -693,6 +696,32 @@ async function sbDelete(table, filter) {
 function newId(prefix) {
   return prefix + Date.now().toString(36).toUpperCase() + Math.floor(Math.random()*1000).toString(36).toUpperCase();
 }
+// Scrive una riga mettendoci dentro il mobile. Se il database non ha
+// ancora la colonna "mobile", la riscrive senza e il mobile lo infila
+// in testa alle note, cosi' i filtri continuano a trovarlo. Non e' una
+// toppa definitiva: la riga di SQL va data, ma intanto non si rompe
+// niente e non si perde il dato.
+var MOBILE_COLONNA = {};
+async function conMobile(tabella, riga, mobile, scrivi) {
+  const m = String(mobile || "").trim();
+  if (MOBILE_COLONNA[tabella] === false) {
+    const senza = Object.assign({}, riga);
+    if (m) senza.note = "[" + m + "]" + (senza.note ? (" " + senza.note) : "");
+    return scrivi(senza);
+  }
+  try {
+    const con = Object.assign({}, riga, { mobile: m });
+    const out = await scrivi(con);
+    MOBILE_COLONNA[tabella] = true;
+    return out;
+  } catch (e) {
+    MOBILE_COLONNA[tabella] = false;
+    console.warn("La colonna 'mobile' non c'e' ancora su " + tabella + ": uso le note.");
+    const senza = Object.assign({}, riga);
+    if (m) senza.note = "[" + m + "]" + (senza.note ? (" " + senza.note) : "");
+    return scrivi(senza);
+  }
+}
 function round5(x) { return Math.round((+x)*100000)/100000; }
 function round3(x) { return Math.round((+x)*1000)/1000; }
 function nowStr() { return new Date().toISOString().slice(0,19).replace("T"," "); }
@@ -760,7 +789,7 @@ async function call(fn, args) {
     }
     if (fn === "getFabbisogno") {
       const rows = await sbGetTutto("fabbisogni", "id.asc");
-      return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Tipo: r.tipo, ArticoloID: r.articolo_id, Descrizione: r.descrizione, NumPezzi: r.num_pezzi, Dim1: r.dim1, Dim2: r.dim2, Dim3: r.dim3, Quantita: r.quantita, UnitaMisura: r.unita_misura, Fornitore: r.fornitore, Stato: r.stato, DataRichiesta: r.data_richiesta, Note: r.note }));
+      return rows.map(r => ({ ID: r.id, Commessa: r.commessa, Tipo: r.tipo, ArticoloID: r.articolo_id, Descrizione: r.descrizione, NumPezzi: r.num_pezzi, Dim1: r.dim1, Dim2: r.dim2, Dim3: r.dim3, Quantita: r.quantita, UnitaMisura: r.unita_misura, Fornitore: r.fornitore, Stato: r.stato, DataRichiesta: r.data_richiesta, Note: r.note, Mobile: r.mobile || "" }));
     }
     if (fn === "getModelli") {
       const rows = await sbGet("modelli");
@@ -789,7 +818,7 @@ async function call(fn, args) {
         Descrizione: r.descrizione, Fornitore: r.fornitore || "", Quantita: r.quantita,
         Unita: r.unita || "", Importo: r.importo, NrFattura: r.nr_fattura || "",
         Stato: r.stato, InOrdine: !!r.in_ordine, OrdineID: r.ordine_id || "", Note: r.note || "",
-        Ddt: r.ddt || "", DataDdt: r.data_ddt || "" }));
+        Mobile: r.mobile || "", Ddt: r.ddt || "", DataDdt: r.data_ddt || "" }));
     }
     if (fn === "salvaVoce") {
       const d = args;
@@ -800,8 +829,8 @@ async function call(fn, args) {
         nr_fattura: d.NrFattura || "", stato: d.Stato || "da_ordinare",
         in_ordine: !!d.InOrdine, note: d.Note || "",
         ddt: d.Ddt || "", data_ddt: d.DataDdt || null };
-      if (d.ID) { await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(d.ID), row); return { ok: true, id: d.ID }; }
-      const r = await sbPost("voci_commessa", row);
+      if (d.ID) { await conMobile("voci_commessa", row, d.Mobile || "", x => sbPatch("voci_commessa", "id=eq." + encodeURIComponent(d.ID), x)); return { ok: true, id: d.ID }; }
+      const r = await conMobile("voci_commessa", row, d.Mobile || "", x => sbPost("voci_commessa", x));
       return { ok: true, id: (r && r[0] && r[0].id) || "" };
     }
     if (fn === "salvaVociBulk") {
@@ -1814,9 +1843,14 @@ async function call(fn, args) {
     }
 
     // ---- FABBISOGNI ----
+    // La colonna "mobile" e' nuova. Se il database non e' ancora stato
+    // aggiornato, Supabase rifiuta la riga: in quel caso riprovo senza,
+    // cosi' il programma continua a funzionare come prima e il mobile
+    // finisce nelle note. Me lo segno, per non riprovare ogni volta.
     if (fn === "aggiungiFabbisogno") {
       const id = newId("FAB-");
-      await sbPost("fabbisogni", { id, commessa: args.Commessa || "", tipo: args.Tipo || "articolo", articolo_id: args.ArticoloID || "", descrizione: args.Descrizione || "", num_pezzi: args.NumPezzi || null, dim1: args.Dim1 || null, dim2: args.Dim2 || null, dim3: args.Dim3 || null, quantita: args.Quantita || null, unita_misura: args.UnitaMisura || "", fornitore: args.Fornitore || "", stato: args.Stato || "da_ordinare", data_richiesta: nowStr(), note: args.Note || "" });
+      const rigaFab = { id, commessa: args.Commessa || "", tipo: args.Tipo || "articolo", articolo_id: args.ArticoloID || "", descrizione: args.Descrizione || "", num_pezzi: args.NumPezzi || null, dim1: args.Dim1 || null, dim2: args.Dim2 || null, dim3: args.Dim3 || null, quantita: args.Quantita || null, unita_misura: args.UnitaMisura || "", fornitore: args.Fornitore || "", stato: args.Stato || "da_ordinare", data_richiesta: nowStr(), note: args.Note || "" };
+      await conMobile("fabbisogni", rigaFab, args.Mobile || "", r => sbPost("fabbisogni", r));
       return { ok: true, id };
     }
     if (fn === "aggiornaStatoFabbisogno") {
@@ -2076,6 +2110,25 @@ async function call(fn, args) {
       await sbDelete("ordini", "id=eq." + encodeURIComponent(args.id));
       return { ok: true, tocc: tocc };
     }
+    if (fn === "impostaMobile") {
+      const tab = args.tipo === "voce" ? "voci_commessa" : "fabbisogni";
+      const row = { note: args.Note || "" };
+      await conMobile(tab, row, args.Mobile || "",
+        x => sbPatch(tab, "id=eq." + encodeURIComponent(args.id), x));
+      return { ok: true, _noemail: true };
+    }
+    if (fn === "salvaConfig") {
+      const k = String(args.Chiave || "").trim();
+      if (!k) return { ok: false, err: "Chiave mancante." };
+      const v = args.Valore == null ? "" : String(args.Valore);
+      const rows = await sbGet("config", "select=chiave&chiave=eq." + encodeURIComponent(k));
+      if (rows.length) await sbPatch("config", "chiave=eq." + encodeURIComponent(k), { valore: v });
+      else await sbPost("config", { chiave: k, valore: v });
+      const cur = (STATE.config || []).filter(c => c.Chiave !== k);
+      cur.push({ Chiave: k, Valore: v });
+      STATE.config = cur;
+      return { ok: true, _noemail: true };
+    }
     if (fn === "segnalaOrdine") {
       const rows = await sbGet("ordini", "select=*&id=eq." + encodeURIComponent(args.id));
       if (rows.length) await sbPatch("ordini", "id=eq." + encodeURIComponent(args.id), { note: (rows[0].note || "") + " [SEGNALATO: " + (args.problema || "") + "]" });
@@ -2128,6 +2181,8 @@ let _refreshTimer=null;
 function apriDaCodice(cod){
   cod=String(cod||'').trim().toUpperCase();
   if(!cod)return;
+  const rc=(typeof rigaCumDaTesto==='function')?rigaCumDaTesto(cod):null;
+  if(rc){ openRicevoCum(rc.ric,rc.riga); return; }
   const e=(typeof etichetta==='function')?etichetta(cod):null;
   if(e){ scanUsa(cod,{}); return; }
   openDettaglioById(cod);
@@ -4620,7 +4675,7 @@ function ordRigheCommessa(comm){
   const mat=(STATE.fabbisogni||[]).filter(function(f){return f.Commessa===comm;});
   const voci=vociDaOrdinare(comm).map(function(v){
     return {__voce:true,ID:v.ID,Commessa:v.Commessa,Descrizione:v.Descrizione,Categoria:v.Categoria,
-            Quantita:v.Quantita,Unita:v.Unita,Fornitore:v.Fornitore,Note:v.Note,Stato:v.Stato};
+            Quantita:v.Quantita,Unita:v.Unita,Fornitore:v.Fornitore,Note:v.Note,Mobile:v.Mobile||'',Stato:v.Stato};
   });
   return mat.concat(voci);
 }
@@ -4644,8 +4699,156 @@ function ordTutteDaOrdinare(){
 // ============================================================
 var ORD_MOB='';            // '' = tutto il cantiere
 var ORD_MOB_VUOTO='__senza__';
-function fabMobile(f){ return String((f&&f.Note)||'').trim(); }
+// ============================================================
+//  IL MOBILE E LE NOTE SONO DUE COSE DIVERSE
+//  Prima il mobile era la nota, tutta intera. Cosi' "ARMADIO CAMERA"
+//  e "ARMADIO CAMERA - ante specchio, urgente" diventavano due mobili
+//  diversi, e nei filtri ti ritrovavi la stessa stanza tre volte.
+//  Adesso il mobile ha la sua casella. Per le righe vecchie, che quella
+//  casella non ce l'hanno, continuo a leggere la nota come prima: cosi'
+//  non sparisce niente, e le sistemi quando vuoi col tasto Rinomina.
+// ============================================================
+function fabMobile(f){
+  if(!f)return '';
+  const m=String(f.Mobile||'').trim();
+  if(m)return m;
+  const n=String(f.Note||'').trim();
+  const q=n.match(/^\[([^\]]+)\]/);      // scritto dal ripiego quando manca la colonna
+  if(q)return q[1].trim();
+  return n;                               // riga vecchia: la nota era il mobile
+}
+// la nota da far vedere: senza il mobile davanti
+function fabNote(f){
+  if(!f)return '';
+  const n=String(f.Note||'').trim();
+  if(String(f.Mobile||'').trim())return n.replace(/^\[[^\]]+\]\s*/,'');
+  const q=n.match(/^\[[^\]]+\]\s*([\s\S]*)$/);
+  return q?q[1].trim():'';
+}
+// il mobile sta nel campo suo? (le righe vecchie no)
+function fabMobileSistemato(f){ return !!String((f&&f.Mobile)||'').trim(); }
 function fabMobileChiave(f){ return fabMobile(f)||ORD_MOB_VUOTO; }
+// i nomi di mobile gia' usati nella commessa: li propongo mentre scrivi,
+// cosi' non nasce un mobile nuovo per una lettera maiuscola di differenza
+function mobNoti(comm){
+  const g={};
+  (STATE.fabbisogni||[]).forEach(function(f){
+    if(comm&&f.Commessa!==comm)return;
+    const m=fabMobile(f); if(m)g[m]=1;
+  });
+  (STATE.voci||[]).forEach(function(v){
+    if(comm&&v.Commessa!==comm)return;
+    const m=fabMobile(v); if(m)g[m]=1;
+  });
+  return Object.keys(g).sort(function(a,b){return a.localeCompare(b);});
+}
+function mobDatalist(comm){
+  return '<datalist id="mob-noti">'
+   +mobNoti(comm).map(function(m){return '<option value="'+att(m)+'">';}).join('')
+   +'</datalist>';
+}
+// c'e' ancora qualche riga col mobile dentro le note?
+function mobDaSistemare(comm){
+  return ordRigheCommessa(comm).some(function(f){
+    const st=statoEffettivo(f);
+    if(st!=='da_ordinare'&&st!=='parziale')return false;
+    return fabMobile(f)&&!fabMobileSistemato(f);
+  });
+}
+// tutte le righe da ordinare che adesso stanno sotto questo nome di mobile
+function mobRighe(comm,nome){
+  return ordRigheCommessa(comm).filter(function(f){
+    const st=statoEffettivo(f);
+    if(st!=='da_ordinare'&&st!=='parziale')return false;
+    return fabMobileChiave(f)===nome;
+  });
+}
+// ============================================================
+//  UNIRE DUE MOBILI CHE SONO LO STESSO
+//  "ARMADIO CAMERA" e "ARMADIO CAMERA - ante specchio" sono lo
+//  stesso armadio scritto in due modi, e nei filtri compaiono due
+//  volte. Qui si scrive il nome giusto una volta sola e tutte le
+//  righe ci finiscono sotto. Quello che c'era scritto in piu' non
+//  si butta: diventa una nota.
+// ============================================================
+function mobSistema(nome){
+  const righe=mobRighe(FAB_COMM,nome);
+  if(!righe.length){toast('Nessuna riga sotto questo mobile','err');return;}
+  const altri=mobNoti(FAB_COMM).filter(function(m){return m!==nome;});
+  const vero=(nome===ORD_MOB_VUOTO)?'':nome;
+  openModal('<div class="modal" style="width:min(560px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2>Come si chiama questo mobile</h2>'
+   +'<div class="info-box">Adesso queste <strong>'+righe.length+'</strong> righe stanno sotto '
+   +'<strong>'+att(ordMobNome(nome))+'</strong>.<br>'
+   +'<span style="font-size:12.5px">Scrivi il nome giusto, corto e sempre uguale. Se ne scrivi uno '
+   +'che esiste gia&#39;, le righe si uniscono a quelle: nei filtri ti compare '
+   +'<strong>un mobile solo</strong>.</span></div>'
+   +'<div class="form-group"><label>Mobile / vano *</label>'
+   +'<input id="mb-nome" list="mob-noti" autocomplete="off" value="'+att(vero)+'">'
+   +mobDatalist(FAB_COMM)
+   +(altri.length?('<div style="font-size:11.5px;color:var(--gray);margin-top:5px">Gia&#39; in questa commessa: '
+      +altri.map(function(m){return '<span onclick="document.getElementById(\'mb-nome\').value='
+        +'this.textContent" style="color:var(--accent);cursor:pointer;text-decoration:underline">'
+        +att(m)+'</span>';}).join(' &middot; ')+'</div>'):'')
+   +'</div>'
+   +'<label style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;cursor:pointer">'
+   +'<input type="checkbox" id="mb-tieni" checked style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex:0 0 auto">'
+   +'<span><span style="font-size:13.5px">Tieni il vecchio testo come nota</span><br>'
+   +'<span style="font-size:11.5px;color:var(--gray)">Quello che c&#39;era scritto in piu&#39; '
+   +'(&quot;ante specchio&quot;, &quot;urgente&quot;) finisce nelle note della riga, invece di '
+   +'sparire.</span></span></label>'
+   +'<div id="mb-avanz" style="font-size:12.5px;color:var(--accent)"></div>'
+   +'<div id="mb-err"></div>'
+   +'<button class="btn-primary" onclick="mobSistemaVai(\''+esc(nome)+'\',this)">Sistema queste '+righe.length+' righe</button>'
+   +'</div>');
+}
+function mobSistemaVai(nome,btn){
+  const nuovo=gv('mb-nome').trim();
+  if(!nuovo){showErr('mb-err','Scrivi il nome del mobile.');return;}
+  const tieni=(document.getElementById('mb-tieni')||{}).checked;
+  const righe=mobRighe(FAB_COMM,nome);
+  if(!righe.length){showErr('mb-err','Non ci sono piu&#39; righe da sistemare.');return;}
+  if(btn)btn.disabled=true;
+  const av=document.getElementById('mb-avanz');
+  let i=0;
+  function passo(){
+    if(i>=righe.length)return Promise.resolve({ok:true});
+    const f=righe[i];
+    const vecchio=fabMobile(f), note=fabNote(f);
+    let nuoveNote=note;
+    if(tieni&&vecchio&&vecchio!==nuovo){
+      const resto=vecchio.length>nuovo.length&&vecchio.toLowerCase().indexOf(nuovo.toLowerCase())===0
+        ? vecchio.slice(nuovo.length).replace(/^[\s\-,:;]+/,'').trim()
+        : vecchio;
+      if(resto&&note.toLowerCase().indexOf(resto.toLowerCase())<0)
+        nuoveNote=(resto+(note?(' - '+note):'')).trim();
+    }
+    if(av)av.innerHTML='Sistemo '+(i+1)+' di '+righe.length+'...';
+    if(btn)btn.textContent='Sistemo '+(i+1)+' di '+righe.length+'...';
+    return call('impostaMobile',{tipo:f.__voce?'voce':'fabbisogno',id:f.ID,Mobile:nuovo,Note:nuoveNote})
+      .then(function(r){
+        if(!r||!r.ok)return {ok:false,err:(r&&r.err)||'Errore'};
+        i++; return passo();
+      });
+  }
+  passo().then(function(es){
+    if(!es.ok){
+      showErr('mb-err',es.err+(i?(' - le prime '+i+' sono gia&#39; sistemate.'):''));
+      if(btn){btn.disabled=false;btn.textContent='Riprova';}
+      return;
+    }
+    Promise.all([call('getFabbisogno'),call('getVoci')]).then(function(res){
+      STATE.fabbisogni=res[0]||[];STATE.voci=res[1]||[];
+      if(ORD_MOB===nome)ORD_MOB=nuovo;
+      closeModal();
+      toast(righe.length+(righe.length===1?' riga sistemata':' righe sistemate')+': '+nuovo);
+      renderPage(STATE.pagina);
+    });
+  }).catch(function(e){
+    showErr('mb-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Riprova';}
+  });
+}
 // i mobili presenti fra le righe ancora da ordinare della commessa
 function ordMobili(comm){
   const g={};
@@ -4674,15 +4877,25 @@ function ordBarraMobili(){
   const tot=list.reduce(function(s,x){return s+x.n;},0);
   const btn=function(v,testo,n){
     const on=(ORD_MOB===v);
-    return '<button class="btn '+(on?'btn-accent':'btn-ghost')+'" onclick="ordMobSel(\''+esc(v)+'\')">'
-     +att(testo)+' <span style="opacity:.7">'+n+'</span></button>';
+    return '<span style="display:inline-flex;align-items:center">'
+     +'<button class="btn '+(on?'btn-accent':'btn-ghost')+'" onclick="ordMobSel(\''+esc(v)+'\')">'
+     +att(testo)+' <span style="opacity:.7">'+n+'</span></button>'
+     +(v?('<button class="btn btn-ghost" title="Rinomina o unisci questo mobile" '
+          +'style="padding:6px 9px;margin-left:3px" onclick="mobSistema(\''+esc(v)+'\')">Sistema</button>'):'')
+     +'</span>';
   };
   return '<div class="card" style="margin-bottom:14px">'
    +'<div class="card-title">Di quale mobile vuoi fare l&#39;ordine</div>'
    +'<div style="font-size:12px;color:var(--gray);margin-bottom:8px">'
-   +'&Egrave; il nome che hai scritto nelle <strong>Note</strong> delle righe. '
+   +'&Egrave; il <strong>mobile / vano</strong> scritto sulla riga, nella sua casella. '
    +'Scegliendone uno, le liste per fornitore qui sotto, i PDF e gli invii '
-   +'contengono <strong>solo quel mobile</strong>.</div>'
+   +'contengono <strong>solo quel mobile</strong>.'
+   +(mobDaSistemare(FAB_COMM)
+      ? ('<br><span style="color:var(--amber)">Qualche riga ha ancora il mobile scritto '
+         +'dentro alle note: se vedi lo stesso mobile scritto in due modi, usa '
+         +'<strong>Sistema</strong> per unirli.</span>')
+      : '')
+   +'</div>'
    +'<div class="filters" style="gap:6px">'
    +btn('','Tutto il cantiere',tot)
    +list.map(function(x){return btn(x.mob,ordMobNome(x.mob),x.n);}).join('')
@@ -4800,7 +5013,7 @@ function ordiniCont(){
   // materiali: sono roba da ordinare anche loro
   list=list.concat(vociDaOrdinare(FAB_COMM).map(function(v){
     return {__voce:true,ID:v.ID,Commessa:v.Commessa,Descrizione:v.Descrizione,Categoria:v.Categoria,
-            Quantita:v.Quantita,Unita:v.Unita,Fornitore:v.Fornitore,Note:v.Note,Stato:v.Stato};
+            Quantita:v.Quantita,Unita:v.Unita,Fornitore:v.Fornitore,Note:v.Note,Mobile:v.Mobile||'',Stato:v.Stato};
   }));
   if(ORD_Q){
     const q=ORD_Q.toLowerCase();
@@ -5293,11 +5506,12 @@ function imosConferma(){
         // Pavanello. Se il materiale non ce l'ha, lascio vuoto e lo metti tu.
         Fornitore:(a.Fornitore?fornSalva(a.Fornitore):''),
         Stato:'da_ordinare',
-        // La nota e' la stessa cosa che scrivi a mano in "Aggiungi materiale":
-        // il nome del mobile. E' cosi' che nell'elenco della commessa si capisce
-        // a quale armadio appartiene la riga. Il dettaglio iMOS lo metto solo
-        // quando il mobile non l'hai scritto.
-        Note:(mobile||dett.join(' - '))
+        // Il mobile ha la sua casella: pulito, senza altro dentro, perche' e'
+        // lui a fare i filtri in Crea ordine. Il dettaglio che arriva da iMOS
+        // (nome della riga, codice, metri cubi) sta nelle note, dove non
+        // disturba nessun filtro.
+        Mobile:mobile||'',
+        Note:dett.join(' - ')
       }).then(function(){ fatte++; passo(i+1); })
         .catch(function(e){ showErr('im-err',String((e&&e.message)||e)); });
     };
@@ -5365,11 +5579,17 @@ function openAddFabbisogno(){
    +'<div id="fb-pan" style="display:none"><div class="form-row"><div class="form-group"><label>Largh. mm (opz.)</label><input type="number" id="fb-w"></div><div class="form-group"><label>Alt. mm (opz.)</label><input type="number" id="fb-h"></div></div><div class="form-group"><label>N. pezzi *</label><input type="number" id="fb-np" value="1"></div></div>'
    +'<div id="fb-mas" style="display:none"><div class="form-row-3"><div class="form-group"><label>Lungh.</label><input type="number" id="fb-l"></div><div class="form-group"><label>Largh.</label><input type="number" id="fb-mw"></div><div class="form-group"><label>Spess.</label><input type="number" id="fb-s"></div></div><div class="form-group"><label>N. pezzi *</label><input type="number" id="fb-mnp" value="1"></div></div>'
    +fornGruppo('fb-forn','Fornitore','')
-   +'<div class="form-group"><label>Note / mobile (per questo materiale)</label>'
-   +'<input id="fb-nota" placeholder="es. D08 BAGNO, urgente, finitura...">'
-   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Qui di solito scrivi il '
-   +'<strong>mobile</strong>: cos&igrave; nell&#39;elenco della commessa si vede a quale '
-   +'appartiene questa riga.</div></div>'
+   +'<div class="form-group"><label>Mobile / vano</label>'
+   +'<input id="fb-mob" list="mob-noti" placeholder="es. D08 BAGNO" autocomplete="off">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Solo il nome del mobile, '
+   +'<strong>niente altro</strong>: &egrave; questo che crea i filtri in Crea ordine e ti '
+   +'permette di mandare l&#39;ordine di un armadio per volta. Se ci metti dentro anche le '
+   +'note, lo stesso armadio ti compare due volte.</div></div>'
+   +mobDatalist(FAB_COMM)
+   +'<div class="form-group"><label>Note (per questo materiale)</label>'
+   +'<input id="fb-nota" placeholder="es. urgente, finitura, misura da verificare...">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Tutto il resto: non '
+   +'c&#39;entra con i filtri.</div></div>'
    +'<div id="fb-err"></div><button class="btn-primary" onclick="submitFabbisogno()">Aggiungi alla lista</button></div>');
   fbTipo('articolo');
 }
@@ -5451,7 +5671,7 @@ function submitFabbisogno(){
   const tipo=document.getElementById("fb-tipo").value, forn=gvForn("fb-forn");
   const artId=comboVal('fb'); const typed=(document.getElementById("fb-q").value||"").trim();
   const proc=(aid,desc)=>{
-    const d={Commessa:FAB_COMM,Tipo:tipo,ArticoloID:aid,Descrizione:desc,Fornitore:forn,Stato:"da_ordinare",Note:(document.getElementById("fb-nota")||{}).value||""};
+    const d={Commessa:FAB_COMM,Tipo:tipo,ArticoloID:aid,Descrizione:desc,Fornitore:forn,Stato:"da_ordinare",Note:(document.getElementById("fb-nota")||{}).value||"",Mobile:((document.getElementById("fb-mob")||{}).value||"").trim()};
     if(tipo==='articolo'){const q=document.getElementById("fb-qta").value;if(!q){showErr("fb-err","Inserisci la quantita.");return;}d.Quantita=q;const a=STATE.articoli.find(x=>x.ID===aid);d.UnitaMisura=a?a.UnitaMisura:'';}
     else if(tipo==='pannello'){let w=document.getElementById("fb-w").value,h=document.getElementById("fb-h").value;const np=document.getElementById("fb-np").value;if(!np){showErr("fb-err","Inserisci il numero di pezzi.");return;}if((!w||!h)&&aid){const ex=STATE.pannelli.find(p=>p.ArticoloID===aid&&p.Larghezza_mm);if(ex){w=w||ex.Larghezza_mm;h=h||ex.Altezza_mm;}}if(!w||!h){showErr("fb-err","Dimensioni non trovate per questo tipo: inseriscile.");return;}d.Dim1=w;d.Dim2=h;d.NumPezzi=np;d.UnitaMisura="m2";}
     else{let l=document.getElementById("fb-l").value,mw=document.getElementById("fb-mw").value,s=document.getElementById("fb-s").value;const np=document.getElementById("fb-mnp").value;if(!np){showErr("fb-err","Inserisci il numero di pezzi.");return;}if((!l||!mw||!s)&&aid){const ex=STATE.massicci.find(p=>p.ArticoloID===aid&&p.Lunghezza_mm);if(ex){l=l||ex.Lunghezza_mm;mw=mw||ex.Larghezza_mm;s=s||ex.Spessore_mm;}}if(!l||!mw||!s){showErr("fb-err","Dimensioni non trovate per questo tipo: inseriscile.");return;}d.Dim1=l;d.Dim2=mw;d.Dim3=s;d.NumPezzi=np;d.UnitaMisura="m3";}
@@ -5487,7 +5707,8 @@ function modificaFab(id){
     if(f.ArticoloID){document.getElementById("fb-val").value=f.ArticoloID;const q=document.getElementById("fb-q");if(q)q.value=f.Descrizione||f.ArticoloID;}
     else{const q=document.getElementById("fb-q");if(q)q.value=f.Descrizione||"";}
     if(f.Fornitore)document.getElementById("fb-forn").value=f.Fornitore;
-    if(document.getElementById("fb-nota"))document.getElementById("fb-nota").value=f.Note||"";
+    if(document.getElementById("fb-nota"))document.getElementById("fb-nota").value=fabNote(f)||"";
+    if(document.getElementById("fb-mob"))document.getElementById("fb-mob").value=fabMobile(f)||"";
     if(f.Tipo==='articolo'){if(document.getElementById("fb-qta"))document.getElementById("fb-qta").value=f.Quantita||"";}
     else if(f.Tipo==='pannello'){if(document.getElementById("fb-w"))document.getElementById("fb-w").value=f.Dim1||"";if(document.getElementById("fb-h"))document.getElementById("fb-h").value=f.Dim2||"";if(document.getElementById("fb-np"))document.getElementById("fb-np").value=f.NumPezzi||"1";}
     else{if(document.getElementById("fb-l"))document.getElementById("fb-l").value=f.Dim1||"";if(document.getElementById("fb-mw"))document.getElementById("fb-mw").value=f.Dim2||"";if(document.getElementById("fb-s"))document.getElementById("fb-s").value=f.Dim3||"";if(document.getElementById("fb-mnp"))document.getElementById("fb-mnp").value=f.NumPezzi||"1";}
@@ -5661,8 +5882,8 @@ function confermaSceltaCodici(fabId){
 function ordRigheDaMandare(tutte){
   const list=tutte.filter(function(x){return !x.__voce;});
   const voci=tutte.filter(function(x){return x.__voce;});
-  return list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:f.Note||""}))
-    .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:v.Note||""})));
+  return list.map(f=>({fabId:f.ID,tipo:f.Tipo,artId:f.ArticoloID,descrizione:f.Descrizione,dettaglio:fabDettaglio(f),numPezzi:f.NumPezzi,dim1:f.Dim1,dim2:f.Dim2,dim3:f.Dim3,quantita:f.Quantita,unita:f.UnitaMisura,note:fabNote(f),mobile:fabMobile(f)}))
+    .concat(voci.map(v=>({voceId:v.ID,tipo:'voce',artId:'',descrizione:v.Descrizione,dettaglio:dettaglioVoce(v),quantita:v.Quantita,unita:v.Unita||'',note:fabNote(v),mobile:fabMobile(v)})));
 }
 // Emette davvero l'ordine: gli da' il numero, lo mette fra gli Ordini e
 // segna le righe come ordinate. Poi chiama quello che gli dici tu.
@@ -5851,8 +6072,63 @@ function ordSelFoglio(){
   const list=ordSelOrdini();
   if(!list.length){toast('Non hai spuntato nessun ordine','err');return;}
   if(list.length===1){ ordUnisciStampe(buildFoglioRicezione); return; }
-  stampaHTML(buildFoglioCumulativo(list.map(function(o){return o.ID;})));
-  toast('Foglio unico per '+list.length+' ordini');
+  const ids=list.map(function(o){return o.ID;});
+  toast('Preparo il foglio...');
+  ccSalvaRicezione(ids).then(function(ric){
+    stampaHTML(buildFoglioCumulativo(ids,ric));
+    toast('Foglio unico per '+list.length+' ordini'+(ric?(' - ricezione '+ric.id):''));
+  });
+}
+// ==================================================================
+//  LA RICEZIONE SALVATA
+//  Il foglio stampato deve poter essere inquadrato riga per riga come
+//  il foglio di un ordine solo. Ma una riga cumulativa non sta in un
+//  QR: dentro ci sono undici ordini. Allora la ricezione la salvo, le
+//  do un numero corto, e nel QR ci metto solo quello piu' il numero
+//  di riga. Chi inquadra riapre esattamente quella riga.
+// ==================================================================
+function ricChiaveConfig(id){ return 'ricezione_'+id; }
+function ccSalvaRicezione(ids){
+  const gruppi=ccRaccogli(ids);
+  const rec={id:'R'+Date.now().toString(36).toUpperCase().slice(-5),
+    data:oggiISO(),ordini:(ids||[]).slice(),
+    righe:gruppi.map(function(gr){
+      return {chiave:ccChiave(gr.primo),desc:gr.primo.descrizione||gr.primo.artId||'',
+        tipo:gr.primo.tipo||'',unita:gr.unita||'',ordinato:gr.ordinato,
+        pezzi:gr.pezzi.map(function(pz){
+          return {ordine:pz.ordine,riga:pz.riga,commessa:pz.commessa,ordinato:pz.ordinato};
+        })};
+    })};
+  return call('salvaConfig',{Chiave:ricChiaveConfig(rec.id),Valore:JSON.stringify(rec)})
+    .then(function(r){ return (r&&r.ok)?rec:null; })
+    .catch(function(){ return null; });
+}
+function ricLeggi(id){
+  const k=ricChiaveConfig(String(id||'').toUpperCase());
+  const row=(STATE.config||[]).filter(function(c){return c.Chiave===k;})[0];
+  if(!row)return null;
+  try{ return JSON.parse(row.Valore||'null'); }catch(e){ return null; }
+}
+// il QR di una riga cumulativa: corto, perche' dentro c'e' solo il
+// numero della ricezione e il numero della riga
+function qrRigaCumulativa(ricId,i){
+  const base=(APP_URL||'').split('?')[0];
+  const dato=base?(base+'?ric='+encodeURIComponent(ricId)+'&r='+i):('RIC-'+ricId+'/'+i);
+  try{
+    const q=qrcode(0,'M'); q.addData(dato); q.make();
+    return q.createSvgTag({cellSize:4,margin:3,scalable:true})
+      .replace('<svg ','<svg width="72" height="72" ');
+  }catch(e){ return ''; }
+}
+// riconosce "RIC-R4K2P/3" scritto a mano o letto da un QR
+function rigaCumDaTesto(testo){
+  const t=String(testo||'').trim();
+  let m=t.match(/[?&]ric=([^&#]+)[&#].*?[?&]r=(\d+)/i);
+  if(!m)m=t.match(/[?&]ric=([^&#]+)&r=(\d+)/i);
+  if(m)return {ric:decodeURIComponent(m[1]).toUpperCase(),riga:parseInt(m[2])||0};
+  m=t.toUpperCase().match(/RIC[-\s:]*([A-Z0-9]+)\s*[\/\-]\s*(\d+)/);
+  if(m)return {ric:m[1],riga:parseInt(m[2])||0};
+  return null;
 }
 // se proprio li vuole separati, uno per pagina come prima
 function ordSelFoglioSeparati(){ ordUnisciStampe(buildFoglioRicezione); }
@@ -5868,7 +6144,7 @@ function ordSelFoglioSeparati(){ ordUnisciStampe(buildFoglioRicezione); }
 //  stessi ordini > Carica a magazzino, e scrivi le quantita' una
 //  volta sola.
 // ==================================================================
-function buildFoglioCumulativo(ids){
+function buildFoglioCumulativo(ids,ric){
   const gruppi=ccRaccogli(ids);
   const oggi=new Date().toLocaleDateString('it-IT');
   const forn=[],comm=[];
@@ -5879,7 +6155,7 @@ function buildFoglioCumulativo(ids){
     if(f&&forn.indexOf(f)<0)forn.push(f);
     if(o.Commessa&&comm.indexOf(o.Commessa)<0)comm.push(o.Commessa);
   });
-  const righe=gruppi.map(function(gr){
+  const righe=gruppi.map(function(gr,i){
     const r=gr.primo;
     const mis=(r.dim1||r.dim2||r.dim3)
       ? ((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm') : '';
@@ -5888,7 +6164,9 @@ function buildFoglioCumulativo(ids){
         +(pz.commessa?(' <span style="color:#999">('+commTxt(pz.commessa)+')</span>'):'')+'</span>';
     }).join(' &nbsp;&middot;&nbsp; ');
     return '<tr>'
-      +'<td style="text-align:center;width:30px;font-size:17px">&#9744;</td>'
+      +(ric?('<td style="text-align:center;width:86px">'+qrRigaCumulativa(ric.id,i)
+             +'<div style="font-size:9.5px;color:#999;font-family:monospace">RIC-'+ric.id+'/'+i+'</div></td>')
+           :'<td style="text-align:center;width:30px;font-size:17px">&#9744;</td>')
       +'<td><div style="font-weight:600">'+(r.descrizione||r.artId||'')+'</div>'
       +(mis?('<div style="font-size:11px;color:#777">'+mis+'</div>'):'')
       +'<div style="font-size:11px;color:#777;margin-top:3px">da: '+da+'</div></td>'
@@ -5897,6 +6175,7 @@ function buildFoglioCumulativo(ids){
       +'</tr>';
   }).join("")||'<tr><td colspan="4" style="color:#888">Non c\'e\' piu\' niente da ricevere su questi ordini</td></tr>';
   let sotto=oggi+'<br>Fornitore: <strong>'+(forn.join(' + ')||'-')+'</strong>'
+    +(ric?('<br>Ricezione n. <strong>'+ric.id+'</strong>'):'')
     +'<br>Ordini: '+(ids||[]).join(', ');
   if(comm.length)sotto+='<br>Commesse: '+comm.map(function(c){return commTxt(c);}).join(', ');
   return '<div style="font-family:Georgia,serif;color:#3a342d">'
@@ -5910,11 +6189,21 @@ function buildFoglioCumulativo(ids){
    +'<br>Poi al computer, una volta sola: <strong>Ordini</strong> &rarr; spunta questi stessi ordini &rarr; '
    +'<strong>Carica a magazzino</strong>. Esce la stessa tabella di questo foglio: scrivi la bolla una volta '
    +'e le quantita\' che hai segnato qui. Ci pensa l\'app a dividerle fra gli ordini.'
-   +'<br><em>Niente QR da inquadrare: con il carico cumulativo non servono.</em>'
+   +'<br><strong>Se ne arrivano piu&#39; del previsto</strong> (la confezione intera): scrivi il numero vero. '
+   +'L\'app da\' a ogni ordine quello che gli serve e il resto lo lascia libero a magazzino, '
+   +'buono per qualsiasi commessa.'
+   +'<br><strong>Etichette:</strong> a fine carico l\'app te le chiede, <strong>una per collo</strong> - '
+   +'anche se quel collo serve a piu\' ordini.'
+   +(ric?('<br><strong>Col telefono:</strong> inquadra il QR della riga che hai in mano. Si apre gia\' '
+         +'compilata con l\'articolo, quanto ne aspettavi e su quali ordini: scrivi quanti ne sono '
+         +'arrivati davvero e l\'app fa il resto, etichette comprese. '
+         +'Dal computer, senza fotocamera: <strong>Inquadra un\'etichetta</strong> e scrivi il codice '
+         +'sotto il QR (per esempio <strong>RIC-'+ric.id+'/0</strong>).')
+       :'')
    +'<br><em>Questo foglio resta in officina: non e\' l\'ordine da mandare al fornitore.</em></div>'
    +'<table style="width:100%;border-collapse:collapse;font-size:13px" border="1" cellpadding="6">'
    +'<thead><tr style="background:#efeae1;text-align:left">'
-   +'<th style="padding:6px;text-align:center">Ok</th><th style="padding:6px">Cosa, e su quali nostri ordini</th>'
+   +'<th style="padding:6px;text-align:center">'+(ric?'Inquadra':'Ok')+'</th><th style="padding:6px">Cosa, e su quali nostri ordini</th>'
    +'<th style="padding:6px;text-align:center">Aspettato<br>in tutto</th>'
    +'<th style="padding:6px;text-align:center">Arrivato<br>davvero</th></tr></thead>'
    +'<tbody>'+righe+'</tbody></table>'
@@ -6103,7 +6392,8 @@ function ccLavori(){
       // alla commessa va solo quanto ne avevi ordinato: il resto resta libero
       const perC=(x.commessa&&(tipo==='articolo'||tipo==='generico'))?x.ordinato:x.quantita;
       out.push({id:x.ordine,riga:x.riga,Quantita:x.quantita,PerCommessa:perC,
-                nome:(gr.primo.descrizione||gr.primo.artId||'')});
+                nome:(gr.primo.descrizione||gr.primo.artId||''),
+                chiave:ccChiave(gr.primo),tipo:tipo,unita:gr.unita||'',arrivata:arr});
     });
   });
   return out;
@@ -6116,6 +6406,7 @@ function submitCaricoCumulativo(btn,senza){
   const av=document.getElementById('cc-avanz');
   if(btn){btn.disabled=true;}
   const creati=[];
+  const perArticolo={};   // chiave articolo -> i carichi nati da quell'articolo
   let fatti=0;
   function passo(){
     if(fatti>=lavori.length)return Promise.resolve({ok:true});
@@ -6125,7 +6416,11 @@ function submitCaricoCumulativo(btn,senza){
     return call('riceviRigaOrdine',{id:L.id,riga:L.riga,Quantita:L.Quantita,PerCommessa:L.PerCommessa,
       Ddt:b.Ddt,DataDdt:b.DataDdt,Note:'carico cumulativo'}).then(function(r){
       if(!r||!r.ok)return {ok:false,err:((r&&r.err)||'Errore')+' (riga: '+L.nome+', ordine '+L.id+')',fatti:fatti};
-      (r.creati||[]).forEach(function(c){creati.push(c);});
+      (r.creati||[]).forEach(function(c){
+        creati.push(c);
+        if(!perArticolo[L.chiave])perArticolo[L.chiave]={nome:L.nome,unita:L.unita,arrivata:L.arrivata,pezzi:[]};
+        perArticolo[L.chiave].pezzi.push({c:c,qta:L.Quantita});
+      });
       fatti++;
       return passo();
     });
@@ -6145,12 +6440,160 @@ function submitCaricoCumulativo(btn,senza){
       closeModal();
       toast(lavori.length+' righe caricate su '+CC_ORDINI.length+' ordini'+(b.Ddt?(' con la bolla '+b.Ddt):' (senza bolla)'));
       renderPage(STATE.pagina);
-      if(creati.length)setTimeout(function(){etDopoCarico(creati);},400);
+      const daEtichettare=ccEtichette(perArticolo);
+      if(daEtichettare.length)setTimeout(function(){etDopoCarico(daEtichettare);},400);
     });
   }).catch(function(e){
     showErr('cc-err',String((e&&e.message)||e));
     if(btn){btn.disabled=false;btn.textContent='Carica tutto quello che ho spuntato';}
   });
+}
+// Il sacchetto di 647 bussole e' UNO, anche se sul gestionale finisce
+// spalmato su undici ordini. Quindi di etichette ne chiedo UNA, non
+// undici: la attacco al carico piu' grosso, che e' quello che tiene
+// in piedi il collo. Pannelli e massicci no: li' ogni pezzo e' un
+// pezzo vero, e ognuno vuole la sua.
+// ==================================================================
+//  ARRIVA UNA RIGA DEL FOGLIO CUMULATIVO
+//  Inquadri il QR accanto alla riga: si apre questa finestra, gia'
+//  compilata. Tu scrivi solo quanti pezzi sono arrivati davvero - la
+//  confezione intera, anche se ne avevi chiesti meno - e la bolla.
+//  Il resto lo fa l'app: divide fra gli ordini, mette da parte quello
+//  che avanza e poi ti chiede l'etichetta, una per collo o piu' se il
+//  fornitore te li ha mandati in piu' scatoloni.
+// ==================================================================
+var CUM_RIGA=null;
+function openRicevoCum(ricId,i){
+  const rec=ricLeggi(ricId);
+  if(!rec){
+    toast('Ricezione '+ricId+' non trovata: premi Aggiorna e riprova','err');
+    return;
+  }
+  const salv=(rec.righe||[])[i];
+  if(!salv){ toast('Riga non trovata su questa ricezione','err'); return; }
+  // rifaccio i conti sui dati di adesso: se intanto ho gia' caricato
+  // qualcosa, non devo ricaricarlo una seconda volta
+  const vive=ccRaccogli(rec.ordini||[]);
+  const gr=vive.filter(function(x){return ccChiave(x.primo)===salv.chiave;})[0];
+  if(!gr){
+    openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button>'
+     +'<h2>Gia&#39; caricato</h2><div class="info-box"><strong>'+att(salv.desc)+'</strong><br>'
+     +'Su questi ordini non risulta piu&#39; niente da ricevere per questo articolo: '
+     +'l&#39;hai gia&#39; caricato.</div>'
+     +'<button class="btn-primary" onclick="closeModal()">Va bene</button></div>');
+    return;
+  }
+  CUM_RIGA={ric:rec,gruppo:gr,indice:i};
+  const r=gr.primo;
+  const mis=(r.dim1||r.dim2||r.dim3)?((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm'):'';
+  const da=gr.pezzi.map(function(pz){
+    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0">'
+     +'<span>'+att(pz.ordine)+(pz.commessa?(' <span style="color:var(--gray)">'+commTxt(pz.commessa)+'</span>'):'')+'</span>'
+     +'<strong>'+ccNum(pz.ordinato)+' '+att(gr.unita||'')+'</strong></div>';
+  }).join('');
+  openModal('<div class="modal" style="width:min(560px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<div class="det-tag">Ricezione '+att(rec.id)+' &middot; riga '+i+'</div>'
+   +'<h2 style="margin-bottom:4px">E&#39; arrivato questo</h2>'
+   +'<div class="info-box">'
+   +'<div style="font-size:15px;font-weight:600">'+att(r.descrizione||r.artId||'')+'</div>'
+   +(mis?('<div style="font-size:12.5px;color:var(--gray)">'+mis+'</div>'):'')
+   +'<div style="margin-top:8px;font-size:12.5px;color:var(--gray)">Aspettato in tutto: '
+   +'<strong style="color:var(--ink);font-size:14px">'+ccNum(gr.ordinato)+' '+att(gr.unita||'')+'</strong>, '
+   +'diviso cosi&#39;:</div>'
+   +'<div style="font-size:12.5px;margin-top:4px">'+da+'</div></div>'
+   +'<div class="form-group"><label>Quanti ne sono arrivati davvero *</label>'
+   +'<input type="number" step="any" min="0" id="cu-q" value="'+att(gr.ordinato)+'" oninput="cuResta()">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Quello che dice la bolla: la '
+   +'confezione intera, anche se ne avevi chiesti meno. Se ne sono arrivati meno, scrivi quelli '
+   +'veri e gli ordini restano aperti per il resto.</div></div>'
+   +'<div id="cu-resta" class="info-box" style="margin-bottom:12px"></div>'
+   +campiDdt('cu','',oggiISO())
+   +'<div class="form-group"><label>Note</label><input id="cu-note" placeholder="opzionale"></div>'
+   +'<div id="cu-avanz" style="font-size:12.5px;color:var(--accent)"></div>'
+   +'<div id="cu-err"></div>'
+   +'<button class="btn-primary" onclick="submitRicevoCum(this)">Carica a magazzino</button>'
+   +'<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="submitRicevoCum(this,true)">Carica senza bolla</button>'
+   +'<div style="font-size:11.5px;color:var(--gray);text-align:center;margin-top:8px">'
+   +'Dopo il carico ti chiedo l&#39;etichetta: una per collo, o piu&#39; se sono piu&#39; scatoloni.</div></div>');
+  cuResta();
+}
+function cuResta(){
+  const box=document.getElementById('cu-resta');
+  if(!box||!CUM_RIGA)return;
+  box.innerHTML=ccRipartoTxt(CUM_RIGA.gruppo,gv('cu-q'));
+}
+function submitRicevoCum(btn,senza){
+  if(!CUM_RIGA){toast('Riga persa: riapri il QR','err');return;}
+  const gr=CUM_RIGA.gruppo;
+  const q=parseFloat(String(gv('cu-q')).replace(',','.'))||0;
+  if(!(q>0)){showErr('cu-err','Scrivi quanti pezzi sono arrivati.');return;}
+  const b=senza?{Ddt:'',DataDdt:null}:leggiDdt('cu');
+  if(!senza&&!b.Ddt){showErr('cu-err','Scrivi il numero della bolla, oppure usa "Carica senza bolla".');return;}
+  const tipo=gr.primo.tipo||'';
+  const lavori=ccRiparto(gr,q).filter(function(x){return x.quantita>0;}).map(function(x){
+    return {id:x.ordine,riga:x.riga,Quantita:x.quantita,
+      PerCommessa:(x.commessa&&(tipo==='articolo'||tipo==='generico'))?x.ordinato:x.quantita};
+  });
+  if(!lavori.length){showErr('cu-err','Non c&#39;e&#39; niente da caricare.');return;}
+  if(btn)btn.disabled=true;
+  const av=document.getElementById('cu-avanz');
+  const note=gv('cu-note').trim();
+  const pezzi=[];
+  let fatti=0;
+  function passo(){
+    if(fatti>=lavori.length)return Promise.resolve({ok:true});
+    const L=lavori[fatti];
+    if(av)av.innerHTML='Carico '+(fatti+1)+' di '+lavori.length+' (ordine '+att(L.id)+')...';
+    if(btn)btn.textContent='Carico '+(fatti+1)+' di '+lavori.length+'...';
+    return call('riceviRigaOrdine',{id:L.id,riga:L.riga,Quantita:L.Quantita,PerCommessa:L.PerCommessa,
+      Ddt:b.Ddt,DataDdt:b.DataDdt,Note:note||'ricezione '+CUM_RIGA.ric.id}).then(function(r){
+      if(!r||!r.ok)return {ok:false,err:((r&&r.err)||'Errore')+' (ordine '+L.id+')'};
+      (r.creati||[]).forEach(function(c){pezzi.push({c:c,qta:L.Quantita});});
+      fatti++;
+      return passo();
+    });
+  }
+  passo().then(function(es){
+    if(!es.ok){
+      showErr('cu-err',es.err+(fatti?(' - i primi '+fatti+' ordini sono gia&#39; stati caricati.'):''));
+      if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}
+      if(av)av.innerHTML='';
+      return;
+    }
+    Promise.all([call('getOrdini'),call('getArticoli'),call('getPannelli'),call('getMassicci'),
+      call('getMovimenti'),call('getFabbisogno'),call('getVoci')]).then(function(res){
+      STATE.ordini=res[0]||[];STATE.articoli=res[1]||[];STATE.pannelli=res[2]||[];
+      STATE.massicci=res[3]||[];STATE.movimenti=res[4]||[];STATE.fabbisogni=res[5]||[];STATE.voci=res[6]||[];
+      closeModal();
+      toast('Caricato su '+lavori.length+(lavori.length===1?' ordine':' ordini')
+        +(b.Ddt?(' con la bolla '+b.Ddt):' (senza bolla)'));
+      renderPage(STATE.pagina);
+      const mappa={}; mappa[ccChiave(gr.primo)]={nome:gr.primo.descrizione||gr.primo.artId||'',
+        unita:gr.unita||'',arrivata:q,pezzi:pezzi};
+      const et=ccEtichette(mappa);
+      if(et.length)setTimeout(function(){etDopoCarico(et);},400);
+    });
+  }).catch(function(e){
+    showErr('cu-err',String((e&&e.message)||e));
+    if(btn){btn.disabled=false;btn.textContent='Carica a magazzino';}
+  });
+}
+function ccEtichette(perArticolo){
+  const out=[];
+  Object.keys(perArticolo||{}).forEach(function(k){
+    const g=perArticolo[k];
+    const pezzi=(g.pezzi||[]).filter(function(x){return x&&x.c;});
+    if(!pezzi.length)return;
+    const tuttiCarichi=pezzi.every(function(x){return x.c.tipo==='carico';});
+    if(!tuttiCarichi){ pezzi.forEach(function(x){out.push(x.c);}); return; }
+    let big=pezzi[0];
+    pezzi.forEach(function(x){ if(x.qta>big.qta)big=x; });
+    const tot=Math.round(pezzi.reduce(function(a,x){return a+(x.qta||0);},0)*1000)/1000;
+    out.push({tipo:'carico',id:big.c.id,
+      nome:g.nome+' - '+ccNum(tot)+' '+(g.unita||'')
+        +(pezzi.length>1?(' (un collo solo, diviso su '+pezzi.length+' ordini)'):'')});
+  });
+  return out;
 }
 function ordCodaAvanti(){
   const id=ORD_CODA.shift();
@@ -6253,10 +6696,14 @@ function renderOrdiniEvasi(){
 // Di che mobile e' questo ordine: lo cerco nella nota dell'ordine e,
 // per quelli vecchi che non ce l'hanno, nelle note delle sue righe.
 function ordineMobili(o){
+  // prima il campo suo, sulle righe dell'ordine
+  const m={};
+  (o&&o.Righe||[]).forEach(function(r){ const n=String(r.mobile||'').trim(); if(n)m[n]=1; });
+  if(Object.keys(m).length)return Object.keys(m).sort();
+  // ordini vecchi: il mobile stava nella nota dell'ordine o delle righe
   const nota=String((o&&o.Note)||'').trim();
   if(nota&&nota!=='GENERICO')return [nota];
-  const m={};
-  (o.Righe||[]).forEach(function(r){ const n=String(r.note||'').trim(); if(n)m[n]=1; });
+  (o&&o.Righe||[]).forEach(function(r){ const n=String(r.note||'').trim(); if(n)m[n]=1; });
   return Object.keys(m).sort();
 }
 function ordineCard(o){
@@ -10935,8 +11382,9 @@ function scanApri(opz){
   SCAN_OPZ=opz||{};
   const manuale='<div class="form-group" style="margin-top:12px"><label>Oppure scrivi il codice a mano</label>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">Va bene il codice di un&#39;etichetta '
-   +'(<strong>4729 158</strong>) oppure quello di una riga d&#39;ordine dal foglio di ricezione '
-   +'(<strong>ORD-77/0</strong>). Dal computer si fa tutto da qui, senza fotocamera.</div>'
+   +'(<strong>4729 158</strong>), quello di una riga d&#39;ordine dal foglio di ricezione '
+   +'(<strong>ORD-77/0</strong>) oppure quello di una riga del foglio cumulativo '
+   +'(<strong>RIC-R4K2P/0</strong>). Dal computer si fa tutto da qui, senza fotocamera.</div>'
    +'<div style="display:flex;gap:8px"><input id="sc-man" placeholder="es. 4729 158 oppure ORD-77/0" style="flex:1" '
    +'onkeydown="if(event.key===\'Enter\'){scanManuale();}">'
    +'<button class="btn btn-accent" onclick="scanManuale()">Vai</button></div></div>';
@@ -11139,6 +11587,8 @@ function scanTrovato(testo){
   scanUsa(cod,opz);
 }
 function scanManuale(){
+  const rc=rigaCumDaTesto(gv('sc-man'));
+  if(rc){ scanChiudi(); openRicevoCum(rc.ric,rc.riga); return; }
   const ro=rigaOrdineDaTesto(gv('sc-man'));
   if(ro){ scanChiudi(); openRicevoRiga(ro.ordine,ro.riga); return; }
   const cod=scanCodice(gv('sc-man'));
@@ -12720,6 +13170,11 @@ function openNuovaVoce(id,pre){
      +'Questa voce e&#39; roba fisica: voglio attaccarci un&#39;etichetta</label>'
      +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Spuntalo per i componenti, i vetri, la ferramenta di terzi. '
      +'Lascialo vuoto per le lavorazioni, i trasporti, i pasti: non c&#39;e&#39; niente su cui attaccarla.</div></div>'))
+   +'<div class="form-group"><label>Mobile / vano</label>'
+   +'<input id="nv-mob" list="mob-noti" autocomplete="off" value="'+att(d.Mobile||'')+'" placeholder="es. D08 BAGNO">'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Solo il nome del mobile: '
+   +'&egrave; quello che crea i filtri in Crea ordine.</div></div>'
+   +mobDatalist(d.Commessa||FAB_COMM)
    +'<div class="form-group"><label>Note</label><input id="nv-note" value="'+att(d.Note)+'"></div>'
    +'<div id="nv-err"></div><button class="btn-primary" onclick="submitVoce(\''+esc(id||"")+'\')">'+(v?'Salva modifiche':'Aggiungi voce')+'</button></div>');
   VOCE_IMP_A_MANO=false;
@@ -12759,7 +13214,8 @@ function submitVoce(id){
   const d={ID:id||"",Commessa:gv("nv-comm"),Data:gv("nv-data"),Categoria:gv("nv-cat").trim(),
     Descrizione:gv("nv-desc").trim(),Fornitore:gvForn("nv-forn"),Quantita:gv("nv-q"),
     Unita:gv("nv-u").trim(),Importo:gv("nv-imp"),NrFattura:gv("nv-ft").trim(),
-    Stato:gv("nv-stato"),InOrdine:document.getElementById("nv-ord").checked,Note:gv("nv-note").trim()};
+    Stato:gv("nv-stato"),InOrdine:document.getElementById("nv-ord").checked,Note:gv("nv-note").trim(),
+    Mobile:gv("nv-mob").trim()};
   const bolla=leggiDdt('nv'); d.Ddt=bolla.Ddt; d.DataDdt=bolla.DataDdt;
   if(!d.Commessa){showErr("nv-err","Scegli la commessa.");return;}
   if(!d.Descrizione){showErr("nv-err","Scrivi la descrizione.");return;}
