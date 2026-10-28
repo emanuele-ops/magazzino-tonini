@@ -318,7 +318,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v119 - Atelier</div>
+  <div id="ver-badge">v120 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -6160,16 +6160,21 @@ function buildFoglioCumulativo(ids,ric){
     const mis=(r.dim1||r.dim2||r.dim3)
       ? ((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm') : '';
     const da=gr.pezzi.map(function(pz){
-      return '<span style="white-space:nowrap">'+pz.ordine+': <strong>'+ccNum(pz.ordinato)+'</strong>'
-        +(pz.commessa?(' <span style="color:#999">('+commTxt(pz.commessa)+')</span>'):'')+'</span>';
-    }).join(' &nbsp;&middot;&nbsp; ');
+      const mob=(pz.mobili&&pz.mobili.length)?pz.mobili.join(' + '):'';
+      return '<div style="padding:1px 0">'+pz.ordine+': <strong>'+ccNum(pz.ordinato)+'</strong>'
+        +(pz.commessa?(' <span style="color:#999">'+commTxt(pz.commessa)+'</span>'):'')
+        +(mob?(' &rarr; <strong style="color:#5a4a36">'+att(mob)+'</strong>')
+             :' <span style="color:#bbb">(mobile non indicato)</span>')
+        +'</div>';
+    }).join('');
     return '<tr>'
       +(ric?('<td style="text-align:center;width:86px">'+qrRigaCumulativa(ric.id,i)
              +'<div style="font-size:9.5px;color:#999;font-family:monospace">RIC-'+ric.id+'/'+i+'</div></td>')
            :'<td style="text-align:center;width:30px;font-size:17px">&#9744;</td>')
       +'<td><div style="font-weight:600">'+(r.descrizione||r.artId||'')+'</div>'
+      +'<div style="font-size:11px;color:#555;margin-top:2px">'+codiciTxt(r)+'</div>'
       +(mis?('<div style="font-size:11px;color:#777">'+mis+'</div>'):'')
-      +'<div style="font-size:11px;color:#777;margin-top:3px">da: '+da+'</div></td>'
+      +'<div style="font-size:11px;color:#777;margin-top:4px">da: '+da+'</div></td>'
       +'<td style="text-align:center;font-size:16px;font-weight:700;white-space:nowrap">'+ccNum(gr.ordinato)+' '+(gr.unita||'')+'</td>'
       +'<td style="width:120px;border-left:1px dashed #bbb">&nbsp;</td>'
       +'</tr>';
@@ -6242,6 +6247,51 @@ function ordSelCaricaUnoAUno(){
 var CC_GRUPPI=[],CC_ORDINI=[];
 // la chiave con cui lo stesso articolo si riconosce fra ordini diversi:
 // la stessa usata da raggruppaRigheOrdine dentro un ordine singolo
+// ============================================================
+//  I CODICI DI UNA RIGA
+//  Sulla bolla il fornitore scrive il SUO codice. Per spuntare la
+//  bolla senza sbagliare materiale servono tutti e due: il nostro
+//  codice di magazzino e il suo.
+// ============================================================
+function codGestionale(r){
+  const art=(STATE.articoli||[]).filter(function(a){return a.ID===(r&&r.artId);})[0];
+  if(art&&/^ART-/.test(String(art.ID)))return art.ID;
+  return (r&&r.artId)||'';
+}
+function codFornitore(r){
+  const art=(STATE.articoli||[]).filter(function(a){return a.ID===(r&&r.artId);})[0]||{};
+  return (r&&r.codiceFornitore)||art.CodiceFornitore||'';
+}
+// i due codici scritti in riga, per i fogli di ricezione
+function codiciTxt(r){
+  const g=codGestionale(r), f=codFornitore(r);
+  const parti=[];
+  if(g)parti.push('cod. nostro <strong style="font-family:monospace">'+g+'</strong>');
+  parti.push('cod. fornitore <strong style="font-family:monospace">'+(f||'-')+'</strong>');
+  return parti.join(' &nbsp;&middot;&nbsp; ');
+}
+// Il mobile di UNA riga d'ordine. Gli ordini emessi prima della v119
+// il campo "mobile" non ce l'hanno: li' il mobile stava nella nota, ed
+// e' giusto continuare a leggerlo da li', se no sui fogli di oggi non
+// comparirebbe niente proprio per gli ordini gia' in giro.
+function mobileDiRiga(r){
+  if(!r)return '';
+  const m=String(r.mobile||'').trim();
+  if(m)return m;
+  const n=String(r.note||'').trim();
+  if(!n)return '';
+  const q=n.match(/^\[([^\]]+)\]/);
+  return q?q[1].trim():n;
+}
+// i mobili toccati da un gruppo di righe d'ordine
+function mobiliDiRighe(righe){
+  const m={};
+  (righe||[]).forEach(function(x){
+    const n=mobileDiRiga(x);
+    if(n)m[n]=1;
+  });
+  return Object.keys(m).sort();
+}
 function ccChiave(r){
   return (r.tipo||'')+'|'+(r.artId||vocNorm(r.descrizione||''))+'|'
     +(r.dim1||'')+'x'+(r.dim2||'')+'x'+(r.dim3||'');
@@ -6255,7 +6305,8 @@ function ccRaccogli(ids){
       if(gr.righe.every(function(x){return x.ricevuto;}))return;   // gia' arrivata
       const k=ccChiave(gr.primo);
       if(!g[k]){ g[k]={primo:gr.primo,unita:gr.unita||'',pezzi:[],ordinato:0}; ordine.push(k); }
-      g[k].pezzi.push({ordine:o.ID,commessa:o.Commessa||'',riga:i,ordinato:gr.qta});
+      g[k].pezzi.push({ordine:o.ID,commessa:o.Commessa||'',riga:i,ordinato:gr.qta,
+                       mobili:mobiliDiRighe(gr.righe)});
       g[k].ordinato+=gr.qta;
     });
   });
@@ -6330,14 +6381,16 @@ function openCaricoCumulativo(ids){
     const r=gr.primo;
     const mis=(r.dim1||r.dim2||r.dim3)?((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm'):'';
     const da=gr.pezzi.map(function(pz){
-      return att(pz.ordine)+' ('+ccNum(pz.ordinato)+')';
-    }).join(', ');
+      const mob=(pz.mobili&&pz.mobili.length)?pz.mobili.join(' + '):'';
+      return att(pz.ordine)+' ('+ccNum(pz.ordinato)+')'+(mob?(' &rarr; '+att(mob)):'');
+    }).join(' &nbsp;&middot;&nbsp; ');
     return '<tr style="border-top:1px solid var(--border)">'
      +'<td style="padding:7px 4px;text-align:center;vertical-align:top">'
      +'<input type="checkbox" class="cc-ok" data-i="'+i+'" checked '
      +'style="width:19px;height:19px;accent-color:var(--accent)" onchange="ccConta()"></td>'
      +'<td style="padding:7px 4px">'
      +'<div style="font-weight:600;font-size:13px">'+att(r.descrizione||r.artId||'')+'</div>'
+     +'<div style="font-size:11.5px;color:var(--gray)">'+codiciTxt(r)+'</div>'
      +'<div style="font-size:11.5px;color:var(--gray)">'+att(mis)+(mis&&r.tipo?' &middot; ':'')+att(r.tipo||'')+'</div>'
      +'<div style="font-size:11.5px;color:var(--gray);margin-top:2px">da: '+da+'</div>'
      +'<div id="cc-rip-'+i+'" style="font-size:11.5px;margin-top:4px;color:var(--ink)"></div></td>'
@@ -6487,15 +6540,20 @@ function openRicevoCum(ricId,i){
   const r=gr.primo;
   const mis=(r.dim1||r.dim2||r.dim3)?((r.dim1||'')+'x'+(r.dim2||'')+(r.dim3?('x'+r.dim3):'')+' mm'):'';
   const da=gr.pezzi.map(function(pz){
-    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0">'
-     +'<span>'+att(pz.ordine)+(pz.commessa?(' <span style="color:var(--gray)">'+commTxt(pz.commessa)+'</span>'):'')+'</span>'
-     +'<strong>'+ccNum(pz.ordinato)+' '+att(gr.unita||'')+'</strong></div>';
+    const mob=(pz.mobili&&pz.mobili.length)?pz.mobili.join(' + '):'';
+    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;align-items:flex-start">'
+     +'<span>'+att(pz.ordine)
+     +(pz.commessa?('<br><span style="color:var(--gray);font-size:11.5px">'+commTxt(pz.commessa)+'</span>'):'')
+     +(mob?('<br><span style="font-size:11.5px">Mobile: <strong>'+att(mob)+'</strong></span>'):'')
+     +'</span>'
+     +'<strong style="white-space:nowrap">'+ccNum(pz.ordinato)+' '+att(gr.unita||'')+'</strong></div>';
   }).join('');
   openModal('<div class="modal" style="width:min(560px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<div class="det-tag">Ricezione '+att(rec.id)+' &middot; riga '+i+'</div>'
    +'<h2 style="margin-bottom:4px">E&#39; arrivato questo</h2>'
    +'<div class="info-box">'
    +'<div style="font-size:15px;font-weight:600">'+att(r.descrizione||r.artId||'')+'</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin-top:2px">'+codiciTxt(r)+'</div>'
    +(mis?('<div style="font-size:12.5px;color:var(--gray)">'+mis+'</div>'):'')
    +'<div style="margin-top:8px;font-size:12.5px;color:var(--gray)">Aspettato in tutto: '
    +'<strong style="color:var(--ink);font-size:14px">'+ccNum(gr.ordinato)+' '+att(gr.unita||'')+'</strong>, '
@@ -6807,6 +6865,10 @@ function buildFoglioRicezione(o){
     return '<tr'+(gia?' style="opacity:.5"':'')+'>'
       +'<td style="text-align:center;width:90px">'+qrRigaOrdine(o.ID,i)+'</td>'
       +'<td><div style="font-weight:600">'+(r.descrizione||r.artId||'')+'</div>'
+      +'<div style="font-size:11px;color:#555;margin-top:2px">'+codiciTxt(r)+'</div>'
+      +(function(){ const mb=mobiliDiRighe(gr.righe);
+          return mb.length?('<div style="font-size:11.5px;margin-top:2px">Mobile: <strong>'+att(mb.join(' + '))+'</strong></div>')
+                          :'<div style="font-size:11px;color:#bbb;margin-top:2px">mobile non indicato</div>'; })()
       +(mis?('<div style="font-size:11px;color:#777">'+mis+'</div>'):'')
       +'<div style="font-size:10.5px;color:#999;font-family:monospace">oppure scrivi: '+o.ID+'/'+i+'</div>'
       +(gia?'<div style="font-size:11px;color:#2e7d32">gia\' ricevuto</div>':'')+'</td>'
@@ -13890,7 +13952,27 @@ function openDestinati(artId,tipo){
     h+='<div style="font-weight:600;margin-bottom:6px">Pezzi destinati</div>'+(pezzi.length?pezzi.map(p=>'<div class="det-row"><span>'+p.ID+' &rarr; '+commLista(p.Commesse)+'</span><span><button class="btn btn-red" onclick="togliDestinazione(\''+tipo+'\',\''+esc(p.ID)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun pezzo destinato.</div>');
   }
   const ordini=(STATE.ordini||[]).filter(o=>(o.Righe||[]).some(r=>r.artId===artId));
-  h+='<div style="font-weight:600;margin:14px 0 6px">Ordini collegati</div>'+(ordini.length?ordini.map(o=>'<div class="det-row" style="cursor:pointer" onclick="closeModal();navTo(\'evasi\')"><span>Ordine '+o.ID+'</span><span>'+(o.Commessa?commTxt(o.Commessa):'-')+' - '+o.Stato+'</span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun ordine collegato.</div>');
+  // di questo articolo, su quell'ordine: quanti pezzi, per quale mobile
+  // e se sono gia' arrivati. Senza questo l'elenco dice solo "c'e' un
+  // ordine", che da solo non serve a niente.
+  h+='<div style="font-weight:600;margin:14px 0 6px">Ordini collegati</div>'
+   +(ordini.length?ordini.map(function(o){
+      const mie=(o.Righe||[]).filter(function(r){return r.artId===artId;});
+      const mob=mobiliDiRighe(mie);
+      const q=mie.reduce(function(a,r){return a+((+r.quantita||0)||(+r.numPezzi||0));},0);
+      const un=(mie[0]&&mie[0].unita)||'';
+      const ric=mie.length&&mie.every(function(r){return r.ricevuto;});
+      return '<div class="det-row" style="cursor:pointer;align-items:flex-start" onclick="closeModal();navTo(\'evasi\')">'
+       +'<span><strong>Ordine '+att(o.ID)+'</strong>'
+       +'<br><span style="font-size:11.5px;color:var(--gray)">'+(o.Commessa?commTxt(o.Commessa):'senza commessa')+'</span>'
+       +(mob.length?('<br><span style="font-size:12px">Mobile: <strong>'+att(mob.join(' + '))+'</strong></span>')
+                   :'<br><span style="font-size:11.5px;color:var(--gray)">mobile non indicato</span>')
+       +'</span>'
+       +'<span style="text-align:right;white-space:nowrap">'
+       +(q?('<strong>'+nfmt(q,(q%1)?3:0)+' '+att(un)+'</strong><br>'):'')
+       +'<span class="badge '+(ric?'badge-green':'badge-amber')+'">'+(ric?'ricevuto':att(o.Stato))+'</span></span>'
+       +'</div>';
+    }).join(""):'<div style="color:var(--gray);font-size:13px">Nessun ordine collegato.</div>');
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Destinato a commesse</h2>'+h+'</div>');
 }
 function togliDestinazione(tipo,id,commessa){
