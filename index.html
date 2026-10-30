@@ -295,6 +295,8 @@
       <a data-page="modelli"><span class="nav-dot"></span>Modelli documenti</a>
       <a data-page="etichette"><span class="nav-dot"></span>Etichette QR</a>
       <a data-page="qr"><span class="nav-dot"></span>QR Code</a>
+      <a data-page="sessioni" style="display:none"><span class="nav-dot"></span>Sessioni</a>
+      <a data-page="contabilita" style="display:none"><span class="nav-dot"></span>Contabilità</a>
     </nav>
     <div class="sidebar-footer">
       <button class="btn-nuovo" onclick="openSceltaAzione()">+ Nuova operazione</button>
@@ -318,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v137 - Atelier</div>
+  <div id="ver-badge">v141 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -493,6 +495,15 @@ function loadAll() {
     if (u.autorizzato === "__login__") {
       document.getElementById("main-content").innerHTML =
         '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al Magazzino</h2><div class="form-group"><label>Email</label><input id="lg-email" type="email" placeholder="nome@ateliertonini.it"></div><div class="form-group"><label>Password</label><input id="lg-pwd" type="password" placeholder="••••••"></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
+      // se sono uscito perche' l'ha deciso il programma o l'amministratore, lo dico
+      try {
+        const perche = sessionStorage.getItem("at_uscita");
+        if (perche) {
+          sessionStorage.removeItem("at_uscita");
+          const le = document.getElementById("lg-err");
+          if (le) { le.style.color = "var(--ink)"; le.innerHTML = '<div class="info-box" style="text-align:left">' + att(perche) + '</div>'; }
+        }
+      } catch (e) {}
       document.querySelector("aside").style.display="none";
       document.querySelector(".mobile-nav").style.display="none";
       document.querySelector(".fab").style.display="none";
@@ -504,6 +515,7 @@ function loadAll() {
     }
     const su = document.getElementById("sidebar-utente"); if (su) su.textContent = (u.Nome||"Utente")+" - "+(u.Ruolo||"");
     adattaRuolo(u.Ruolo);
+    try { sessAvvia(); } catch (e) { console.warn("sessioni:", e); }
     const sotto = STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino).length;
     const navD = document.querySelector("#sidebar-nav a[data-page='dashboard']");
     if (sotto>0 && navD) navD.innerHTML += '<span class="nav-badge">'+sotto+'</span>';
@@ -515,6 +527,9 @@ function loadAll() {
     try { document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===pagIniziale)); } catch(e){}
     if (errs.length) toast("Non caricati: "+errs.join(", ")+". Ripubblica il Code.gs.","err");
     caricaEtichette().then(function(){
+      // la dashboard e Articoli contano gli articoli senza etichetta: adesso che le etichette
+      // ci sono le ridisegno, se no dicevano "tutti senza etichetta" fino al primo cambio pagina
+      try{ if(["dashboard","articoli"].indexOf(STATE.pagina)>=0&&!document.querySelector(".modal-overlay"))renderPage(STATE.pagina); }catch(e){}
       // se sono entrato inquadrando un QR, vado dritto li'
       if (RIGA_CUM) setTimeout(function(){ openRicevoCum(RIGA_CUM.ric, RIGA_CUM.riga); }, 250);
       else if (RIGA_ORDINE) setTimeout(function(){ openRicevoRiga(RIGA_ORDINE.ordine, RIGA_ORDINE.riga); }, 250);
@@ -533,6 +548,10 @@ function loadAll() {
 
 // Operator: nasconde le voci gestionali, lascia l'essenziale
 function adattaRuolo(ruolo){
+  // la pagina Sessioni e' solo per l'amministratore
+  document.querySelectorAll("nav a[data-page='sessioni']").forEach(function(a){ a.style.display=(ruolo==="admin")?"":"none"; });
+  // la Contabilita' solo a chi l'amministratore l'ha data (e all'amministratore)
+  document.querySelectorAll("nav a[data-page='contabilita']").forEach(function(a){ a.style.display=puoContabilita()?"":"none"; });
   if(ruolo!=="operator")return;
   ["report","qr","ordini","modelli","evasi","fornitori","commesse","offerte","destinati","voci"].forEach(p=>{
     const a=document.querySelector("#sidebar-nav a[data-page='"+p+"']"); if(a)a.style.display="none";
@@ -540,7 +559,455 @@ function adattaRuolo(ruolo){
   });
 }
 
-function navTo(page){ clearSel(true); STATE.pagina=page; document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===page)); renderPage(page); }
+// ============================================================
+//  SESSIONI (lato telefono / PC)
+//  All'ingresso si apre una sessione; ogni minuto l'app manda un
+//  segnale con l'ora dell'ultimo tocco. Se l'amministratore chiude
+//  la sessione, o se l'utente supera il tempo di inattivita' che gli
+//  e' stato dato, l'app esce e alla schermata di login spiega perche'.
+//  Se la tabella sessioni non c'e' ancora, tutto questo sta fermo e
+//  l'app lavora come prima.
+// ============================================================
+const SESS={id:null,regole:{inattivita_min:0,un_dispositivo:false},timer:null,spento:false,ultimoInvio:0,inUscita:false};
+function sessDispositivo(){
+  const ua=navigator.userAgent||"";
+  let sist="Computer";
+  if(/iPhone/i.test(ua))sist="iPhone";
+  else if(/iPad/i.test(ua)||(/Macintosh/i.test(ua)&&navigator.maxTouchPoints>1))sist="iPad";
+  else if(/Android/i.test(ua))sist=/Mobile/i.test(ua)?"Telefono Android":"Tablet Android";
+  else if(/Windows/i.test(ua))sist="PC Windows";
+  else if(/Macintosh|Mac OS X/i.test(ua))sist="Mac";
+  else if(/Linux/i.test(ua))sist="PC Linux";
+  let br="";
+  if(/Edg\//.test(ua))br="Edge";
+  else if(/CriOS|Chrome\//.test(ua))br="Chrome";
+  else if(/FxiOS|Firefox\//.test(ua))br="Firefox";
+  else if(/Safari\//.test(ua))br="Safari";
+  let app=false;
+  try{app=(window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches)||navigator.standalone===true;}catch(e){}
+  return sist+(br?(" · "+br):"")+(app?" · app sulla home":"");
+}
+function sessUltima(){
+  let t=0; try{t=parseInt(localStorage.getItem("at_ultima_att")||"0",10)||0;}catch(e){}
+  return t||Date.now();
+}
+// ogni tocco conta come "sono qui"; lo salvo sul telefono al massimo
+// ogni 15 secondi, e se ero fermo da piu' di un minuto avviso subito
+function sessSegnaAttivita(forza){
+  const ora=Date.now(), prima=sessUltima();
+  if(forza||ora-prima>15000){ try{localStorage.setItem("at_ultima_att",String(ora));}catch(e){} }
+  if(SESS.id&&!SESS.spento&&ora-SESS.ultimoInvio>60000&&ora-prima>60000)sessBatti();
+}
+// la data di oggi come la vede chi e' in Italia (toISOString da' quella di Londra: dopo
+// mezzanotte e fino all'una o alle due era ancora "ieri")
+function oggiLocale(){ const d=new Date(),p=x=>String(x).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+function sessLimiteSuperato(){
+  const r=SESS.regole||{};
+  if(r.inattivita_min>0)return (Date.now()-sessUltima())>r.inattivita_min*60000;
+  if(r.inattivita_min===-1){
+    let ap=""; try{ap=(JSON.parse(localStorage.getItem("at_sessione")||"{}").aperta)||"";}catch(e){}
+    return !!ap&&ap!==oggiLocale();
+  }
+  return false;
+}
+function sessTestoInattivita(min){
+  if(min===-1)return "a fine giornata";
+  if(!(min>0))return "mai";
+  if(min<60)return min+" minuti";
+  return (min%60?(min/60).toFixed(1).replace('.',','):(min/60))+(min===60?" ora":" ore");
+}
+async function sessAvvia(){
+  if(!UTENTE_CORRENTE||!UTENTE_CORRENTE.Email||SESS.spento)return;
+  let salvata=null;
+  try{salvata=JSON.parse(localStorage.getItem("at_sessione")||"null");}catch(e){}
+  if(salvata&&salvata.id&&salvata.email===UTENTE_CORRENTE.Email){
+    SESS.id=salvata.id;
+    if(salvata.regole)SESS.regole=salvata.regole;
+    // il telefono era rimasto fermo: prima di tutto guardo se e' scaduto
+    if(sessLimiteSuperato()){ sessEsci(SESS.regole.inattivita_min===-1?"fine_giornata":"inattivita",""); return; }
+    const ok=await sessBatti();
+    if(ok===false)return;     // chiusa: sessBatti ha gia' fatto uscire
+  }else{
+    const r=await call("sessioneApri",{dispositivo:sessDispositivo()});
+    if(!r||r.manca){SESS.spento=true;return;}
+    if(!r.ok){
+      // rete giu': prima si rinunciava fino al prossimo avvio (magari giorni), e chi entrava
+      // col wifi debole lavorava tutto il giorno senza controllo. Adesso riprovo ogni minuto.
+      SESS.daAprire=true; sessAvviaTimer(); return;
+    }
+    SESS.daAprire=false;
+    SESS.id=r.id; SESS.regole=r.regole||SESS.regole;
+    try{localStorage.setItem("at_sessione",JSON.stringify({id:r.id,email:UTENTE_CORRENTE.Email,
+      aperta:oggiLocale(),regole:SESS.regole}));}catch(e){}
+    sessSegnaAttivita(true);
+    if(r.chiuseAltre)toast("Eri dentro anche da un altro dispositivo: li' sei uscito.");
+  }
+  sessAvviaTimer();
+}
+function sessAvviaTimer(){
+  if(!SESS.timer){
+    SESS.timer=setInterval(function(){
+      if(SESS.daAprire&&!SESS.id){ sessAvvia(); return; }
+      if(sessLimiteSuperato()){ sessEsci(SESS.regole.inattivita_min===-1?"fine_giornata":"inattivita",""); return; }
+      sessBatti();
+    },60000);
+    ["pointerdown","keydown","touchstart"].forEach(function(ev){
+      document.addEventListener(ev,function(){sessSegnaAttivita(false);},{passive:true,capture:true});
+    });
+    // il telefono torna in mano dopo essere stato in tasca: controllo subito
+    document.addEventListener("visibilitychange",function(){
+      if(document.visibilityState!=="visible"||!SESS.id||SESS.spento)return;
+      if(sessLimiteSuperato()){ sessEsci(SESS.regole.inattivita_min===-1?"fine_giornata":"inattivita",""); return; }
+      sessBatti();
+    });
+  }
+}
+// risponde false se la sessione e' stata chiusa (e fa uscire), true altrimenti
+async function sessBatti(){
+  if(!SESS.id||SESS.spento||SESS.inUscita)return true;
+  SESS.ultimoInvio=Date.now();
+  const r=await call("sessioneSegnale",{id:SESS.id,ultimaAttivita:new Date(sessUltima()).toISOString()});
+  if(!r)return true;
+  if(r.manca){SESS.spento=true;return true;}
+  if(!r.ok)return true;       // rete giu': non butto fuori nessuno per questo
+  if(r.chiusa){ sessEsci(null,r.motivo,r.da); return false; }
+  if(r.regole){
+    SESS.regole=r.regole;
+    // la contabilita' data o tolta dall'amministratore vale subito, senza ricaricare
+    try{
+      const prima=puoContabilita();
+      if(UTENTE_CORRENTE)UTENTE_CORRENTE.Contabilita=r.regole.contabilita===true;
+      if(STATE.utente)STATE.utente.Contabilita=r.regole.contabilita===true;
+      if(prima!==puoContabilita()){
+        adattaRuolo((STATE.utente||{}).Ruolo);
+        if(!puoContabilita()){
+          await contabilitaSalvaPrimaDiUscire();
+          const ov=document.getElementById("cont-ov"); if(ov){ ov.remove(); document.body.style.overflow=""; document.body.classList.remove("cont-aperta"); }
+          toast("L'amministratore ti ha tolto l'accesso alla contabilità.","err");
+        }
+      }
+    }catch(e){}
+    try{const sv=JSON.parse(localStorage.getItem("at_sessione")||"{}");sv.regole=r.regole;localStorage.setItem("at_sessione",JSON.stringify(sv));}catch(e){}
+  }
+  return true;
+}
+function sessMessaggio(motivo,da){
+  const r=SESS.regole||{};
+  if(motivo==="admin")return "L'amministratore"+(da?(" ("+da+")"):"")+" ha chiuso questa sessione. Rientra con la tua password.";
+  if(motivo==="altro_dispositivo")return "Sei entrato con il tuo utente da un altro dispositivo, e qui sei uscito. Si puo' stare dentro da un dispositivo alla volta.";
+  if(motivo==="inattivita")return "Sei rimasto fermo piu' di "+sessTestoInattivita(r.inattivita_min)+": per sicurezza sei uscito. Rientra con la tua password.";
+  if(motivo==="fine_giornata")return "La sessione si chiude a fine giornata: rientra con la tua password.";
+  if(motivo==="utente_disattivato")return "Il tuo utente e' stato disattivato.";
+  if(motivo==="uscita")return "";
+  return "La sessione e' stata chiusa. Rientra con la tua password.";
+}
+// esce davvero: chiude la sessione (se tocca a me), toglie il login e torna alla schermata d'ingresso
+async function sessEsci(motivoDaScrivere,motivoLetto,da){
+  if(SESS.inUscita)return; SESS.inUscita=true;
+  const motivo=motivoDaScrivere||motivoLetto||"";
+  await contabilitaSalvaPrimaDiUscire();
+  if(motivoDaScrivere&&SESS.id&&!SESS.spento){
+    // un secondo e mezzo al massimo: se la rete non risponde esco lo stesso,
+    // la pagina Sessioni la chiudera' dalla sua parte
+    await Promise.race([call("sessioneChiudi",{id:SESS.id,motivo:motivoDaScrivere}),new Promise(function(r){setTimeout(r,1500);})]);
+  }
+  const msg=sessMessaggio(motivo,da);
+  try{ if(msg)sessionStorage.setItem("at_uscita",msg); }catch(e){}
+  try{localStorage.removeItem("at_utente");localStorage.removeItem("at_sessione");localStorage.removeItem("at_ultima_att");}catch(e){}
+  UTENTE_CORRENTE=null;
+  window.__USCITA_FORZATA=true;
+  try{ const f=document.getElementById("cont-if"); if(f&&f.contentWindow)f.contentWindow.onbeforeunload=null; }catch(e){}
+  location.reload();
+}
+
+// ============================================================
+//  CONTABILITA'
+//  E' un programma a parte (contabilita.html, nella stessa cartella del
+//  sito): si apre sopra il magazzino, in una finestra a tutto schermo.
+//  La vede solo chi ha la spunta "Vede la contabilita'" (e l'admin), e per
+//  aprirla serve in piu' la sua password: i dati sul database sono cifrati
+//  con quella, chi non la conosce vede solo caratteri senza senso.
+//  Il "ponte" qui sotto e' l'unica cosa che la contabilita' chiede al
+//  magazzino: chi sono, e i movimenti/voci/ore aggiornati.
+// ============================================================
+function puoContabilita(){
+  const u=STATE.utente||UTENTE_CORRENTE||{};
+  return u.Ruolo==="admin"||u.Contabilita===true;
+}
+function apriContabilita(){
+  if(!puoContabilita()){toast("La contabilità non è abilitata per il tuo utente: chiedila all'amministratore.","err");return;}
+  let ov=document.getElementById("cont-ov");
+  if(!ov){
+    ov=document.createElement("div"); ov.id="cont-ov";
+    ov.style.cssText="position:fixed;inset:0;z-index:9000;background:#f6f3ee;display:flex;flex-direction:column";
+    // i pulsanti che galleggiano sopra il magazzino (Backup, Ripristina, Chiedi, +)
+    // non devono coprire la contabilita'
+    const st=document.createElement("style");
+    st.textContent="body.cont-aperta #ver-badge,body.cont-aperta #btn-refresh,body.cont-aperta #btn-backup,body.cont-aperta #btn-restore,"
+      +"body.cont-aperta #ai-fab,body.cont-aperta .fab,body.cont-aperta .mobile-nav{display:none!important}";
+    document.head.appendChild(st);
+    ov.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;background:#3b2f25;color:#fff;font-size:13.5px;flex:0 0 auto">'
+      +'<button class="btn" style="background:#fff;color:#3b2f25;padding:6px 12px" onclick="chiudiContabilita()">&larr; Torna al magazzino</button>'
+      +'<b>Contabilità</b><span style="opacity:.7;font-size:12px">separata dal magazzino &middot; protetta da password</span></div>'
+      +'<iframe id="cont-if" src="contabilita.html" title="Contabilità" style="flex:1;border:0;width:100%;background:#fff"></iframe>';
+    document.body.appendChild(ov);
+  }
+  ov.style.display="flex"; document.body.style.overflow="hidden"; document.body.classList.add("cont-aperta");
+}
+// tornando al magazzino la contabilita' NON si chiude: resta aperta dietro,
+// col lavoro a meta', e la ritrovi com'era
+function chiudiContabilita(){
+  const ov=document.getElementById("cont-ov"); if(ov)ov.style.display="none";
+  document.body.style.overflow=""; document.body.classList.remove("cont-aperta");
+}
+function contabilitaSporca(){
+  try{ const f=document.getElementById("cont-if"); const w=f&&f.contentWindow;
+    return !!(w&&typeof w.contabilitaStato==="function"&&w.contabilitaStato().sporca); }catch(e){ return false; }
+}
+window.addEventListener("beforeunload",function(e){
+  // un'uscita decisa dal programma (inattivita', sessione chiusa) non si ferma: il salvataggio
+  // della contabilita' e' gia' stato tentato prima
+  if(window.__USCITA_FORZATA)return;
+  if(contabilitaSporca()){ e.preventDefault(); e.returnValue="Nella contabilità ci sono modifiche non salvate."; return e.returnValue; }
+});
+// prima di uscire (a mano, per inattivita', o perche' l'admin chiude la
+// sessione) provo a salvare la contabilita', se c'e' qualcosa di nuovo
+async function contabilitaSalvaPrimaDiUscire(){
+  try{
+    const f=document.getElementById("cont-if"); const w=f&&f.contentWindow;
+    if(w&&typeof w.salvaPrimaDiUscire==="function")
+      await Promise.race([w.salvaPrimaDiUscire(),new Promise(function(r){setTimeout(r,6000);})]);
+  }catch(e){}
+}
+async function sbPostMinimo(table, body){
+  const r = await fetch(SB_URL + "/rest/v1/" + table, { method: "POST",
+    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return true;
+}
+// una riga del CSV pulita come la vedrebbe chi apre il file
+function cellaPulita(v){
+  return String(v==null?'':v).replace(/<br\s*\/?>/gi,' ').replace(/<[^>]*>/g,'')
+     .replace(/&euro;/g,'EUR').replace(/&middot;/g,'-').replace(/&mdash;/g,'-')
+     .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&sup2;/g,'2').replace(/&sup3;/g,'3').trim();
+}
+window.ponteContabilita={
+  versione:1,
+  utente:function(){ const u=UTENTE_CORRENTE||{}; const s=STATE.utente||{};
+    return {Email:u.Email||s.Email||"",Nome:u.Nome||s.Nome||"",Ruolo:u.Ruolo||s.Ruolo||"",
+            Contabilita:(u.Contabilita===true||s.Contabilita===true),puo:puoContabilita()}; },
+  sb:{ get:sbGet, getTutto:sbGetTutto, post:sbPost, postMinimo:sbPostMinimo, patch:sbPatch, del:sbDelete },
+  // chi lavora nella contabilita' e' "attivo" anche per le sessioni
+  attivita:function(){ try{ sessSegnaAttivita(false); }catch(e){} },
+  commesse:function(){ return (STATE.commesse||[]).map(function(c){return {ID:c.ID,Nome:c.Nome||"",Cliente:c.Cliente||""};}); },
+  // i movimenti, le voci e le ore di TUTTI gli anni, freschi dal database,
+  // nello stesso formato del CSV "Movimenti e voci per commessa"
+  righe:async function(){
+    const nomi=["getMovimenti","getVoci","getOre","getCommesse","getArticoli","getPannelli","getMassicci","getEtichette"];
+    const res=await Promise.all(nomi.map(function(f){return call(f);}));
+    const male=nomi.filter(function(f,i){return !Array.isArray(res[i]);});
+    if(male.length)throw new Error("non riesco a leggere dal magazzino: "+male.join(", "));
+    STATE.movimenti=res[0]; STATE.voci=res[1]; STATE.ore=res[2]; STATE.commesse=res[3]; STATE.articoli=res[4];
+    STATE.pannelli=res[5]; STATE.massicci=res[6]; STATE.etichette=res[7];
+    const tab=righeMovimentiEVoci("");
+    const H=tab[0].map(function(h){return String(h).toLowerCase();});
+    return tab.slice(1).map(function(r){ const o={}; H.forEach(function(h,i){o[h]=cellaPulita(r[i]);}); return o; });
+  }
+};
+
+// ============================================================
+//  PAGINA SESSIONI (solo amministratore)
+// ============================================================
+let SESS_DATI=null, SESS_FILTRO={utente:"",giorni:30}, SESS_AUTO=null;
+function sessFermaAuto(){ if(SESS_AUTO){clearInterval(SESS_AUTO);SESS_AUTO=null;} }
+function sessFa(iso){
+  if(!iso)return "-";
+  const d=new Date(iso), sec=Math.round((Date.now()-d.getTime())/1000);
+  if(sec<60)return "adesso";
+  if(sec<3600)return Math.floor(sec/60)+" min fa";
+  if(sec<6*3600)return Math.floor(sec/3600)+" h "+String(Math.floor((sec%3600)/60)).padStart(2,"0")+" min fa";
+  return sessQuando(iso);
+}
+function sessQuando(iso){
+  if(!iso)return "-";
+  const d=new Date(iso), oggi=new Date(); const ieri=new Date(); ieri.setDate(oggi.getDate()-1);
+  const hh=String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+  if(d.toDateString()===oggi.toDateString())return "oggi "+hh;
+  if(d.toDateString()===ieri.toDateString())return "ieri "+hh;
+  return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear()+" "+hh;
+}
+function sessDurata(a,b){
+  if(!a)return "-";
+  const min=Math.max(0,Math.round(((b?new Date(b):new Date()).getTime()-new Date(a).getTime())/60000));
+  if(min<60)return min+" min";
+  const h=Math.floor(min/60); if(h<48)return h+" h "+String(min%60).padStart(2,"0");
+  return Math.round(h/24)+" giorni";
+}
+// lo stato di una sessione aperta, a colpo d'occhio
+function sessStato(sx){
+  const seg=(Date.now()-new Date(sx.Segnale||sx.Aperta).getTime())/60000;
+  const att=(Date.now()-new Date(sx.Attivita||sx.Aperta).getTime())/60000;
+  if(seg<=3&&att<=5)return {col:"var(--green)",txt:"sta usando l'app"};
+  if(seg<=3)return {col:"var(--amber)",txt:"app aperta, ferma da "+Math.round(att)+" min"};
+  return {col:"#b6aea3",txt:"app chiusa o telefono in tasca"};
+}
+function sessMotivoTxt(m,da){
+  return ({uscita:"e' uscito lui",admin:"chiusa dall'amministratore"+(da?(" ("+da+")"):""),
+    altro_dispositivo:"entrato da un altro dispositivo",inattivita:"troppo tempo fermo",
+    fine_giornata:"fine giornata",utente_disattivato:"utente disattivato",sparita:"-"})[m]||(m||"-");
+}
+function renderSessioni(){
+  if(STATE.utente.Ruolo!=="admin")return '<h1 class="page-title">Sessioni</h1><div class="card">Questa pagina e&#39; solo per l&#39;amministratore.</div>';
+  setTimeout(function(){ sessCarica(); },0);
+  sessFermaAuto();
+  // mentre sei su questa pagina si aggiorna da sola ogni 30 secondi
+  SESS_AUTO=setInterval(function(){ if(STATE.pagina==="sessioni"&&!document.querySelector(".modal-overlay"))sessCarica(); else if(STATE.pagina!=="sessioni")sessFermaAuto(); },30000);
+  return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
+   +'<h1 class="page-title" style="margin:0">Sessioni</h1>'
+   +'<button class="btn btn-ghost" onclick="sessCarica()">Aggiorna</button></div>'
+   +'<div id="sess-box">'+(SESS_DATI?sessHTML():'<div class="loading-page"><span class="spinner"></span>Carico le sessioni...</div>')+'</div>';
+}
+function sessCarica(){
+  return call("getSessioni",{giorni:Math.max(90,SESS_FILTRO.giorni)}).then(function(r){
+    const box=document.getElementById("sess-box"); if(!box)return;
+    if(r&&r.manca){
+      box.innerHTML='<div class="card"><div class="alert alert-amber">Manca un passo su Supabase: la tabella delle sessioni non c&#39;e&#39; ancora.</div>'
+        +'<div style="font-size:13.5px;line-height:1.6">Apri Supabase &rarr; SQL Editor &rarr; New query, incolla il file <strong>60_sessioni.sql</strong> e premi RUN. '
+        +'Da quel momento ogni ingresso nell&#39;app viene registrato qui. Chi e&#39; gia&#39; dentro compare appena riapre l&#39;app o la ricarica.</div></div>';
+      return;
+    }
+    if(!r||r.ok===false){ box.innerHTML='<div class="card" style="color:var(--red)">Non riesco a leggere le sessioni: '+att((r&&r.err)||"errore")+'</div>'; return; }
+    SESS_DATI=r; box.innerHTML=sessHTML(); acAttiva(box);
+  });
+}
+function sessHTML(){
+  const d=SESS_DATI||{sessioni:[],utenti:[]};
+  // chi non si fa vivo da piu' di un giorno (app chiusa senza uscire, telefono cambiato,
+  // regola "mai") non e' "dentro adesso": lo metto a parte, in fondo, per non confondere
+  const unGiorno=24*3600000;
+  const tutteAperte=d.sessioni.filter(x=>x.Stato==="attiva");
+  const dormienti=tutteAperte.filter(x=>Date.now()-new Date(x.Segnale||x.Aperta).getTime()>unGiorno);
+  const aperte=tutteAperte.filter(x=>dormienti.indexOf(x)<0);
+  const per={}; aperte.forEach(x=>{(per[x.Email]=per[x.Email]||[]).push(x);});
+  const nomeDi=function(em){const u=d.utenti.filter(x=>x.Email===em)[0];return u?u.Nome:em;};
+  const io=(UTENTE_CORRENTE&&UTENTE_CORRENTE.Email)||"";
+  // --- 1. chi e' dentro adesso ---
+  let h='<div class="op-sec" style="margin-top:0">Chi e&#39; dentro adesso ('+aperte.length+(aperte.length===1?' sessione':' sessioni')+')</div>';
+  const em=Object.keys(per).sort((a,b)=>nomeDi(a).localeCompare(nomeDi(b)));
+  if(!em.length)h+='<div class="card" style="color:var(--gray)">Non c&#39;e&#39; nessuno dentro.</div>';
+  em.forEach(function(e){
+    const lista=per[e].slice().sort((a,b)=>String(b.Attivita).localeCompare(String(a.Attivita)));
+    h+='<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+      +'<div style="font-weight:700">'+att(nomeDi(e))+' <span style="font-weight:400;color:var(--gray);font-size:12.5px">'+att(e)+'</span></div>'
+      +(lista.length>1?('<button class="btn btn-red" onclick="sessChiudiTutte(\''+esc(e)+'\')">Chiudi tutte ('+lista.length+')</button>'):'')+'</div>'
+      +lista.map(function(sx){
+        const st=sessStato(sx), mia=(sx.ID===SESS.id);
+        return '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);flex-wrap:wrap">'
+          +'<span style="width:9px;height:9px;border-radius:50%;background:'+st.col+';flex:0 0 auto"></span>'
+          +'<div style="flex:1;min-width:200px"><div style="font-size:13.5px;font-weight:600">'+att(sx.Dispositivo||"dispositivo sconosciuto")+(mia?' <span style="color:var(--accent);font-weight:400">(questo)</span>':'')+'</div>'
+          +'<div style="font-size:12px;color:var(--gray)">'+st.txt+' &middot; entrato '+sessQuando(sx.Aperta)+' &middot; ultimo tocco '+sessFa(sx.Attivita)+'</div></div>'
+          +'<button class="btn btn-ghost" onclick="sessChiudiUna(\''+esc(sx.ID)+'\',\''+esc(e)+'\')">Chiudi</button></div>';
+      }).join('')+'</div>';
+  });
+  if(dormienti.length){
+    h+='<details class="card" style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:600">Non si fanno vivi da più di un giorno ('+dormienti.length+')</summary>'
+      +'<div style="font-size:12px;color:var(--gray);margin:6px 0">App chiuse senza uscire o dispositivi non più usati. Se quel dispositivo si riapre, la sessione riparte da dove era. Puoi chiuderle.</div>'
+      +dormienti.slice().sort((a,b)=>String(b.Segnale).localeCompare(String(a.Segnale))).map(function(sx){
+        return '<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--border);flex-wrap:wrap">'
+          +'<div style="flex:1;min-width:200px"><b>'+att(nomeDi(sx.Email))+'</b> &middot; '+att(sx.Dispositivo||"dispositivo sconosciuto")
+          +'<div style="font-size:12px;color:var(--gray)">entrato '+sessQuando(sx.Aperta)+' &middot; ultimo segnale '+sessQuando(sx.Segnale)+'</div></div>'
+          +'<button class="btn btn-ghost" onclick="sessChiudiUna(\''+esc(sx.ID)+'\',\''+esc(sx.Email)+'\')">Chiudi</button></div>';
+      }).join('')+'</details>';
+  }
+  // --- 2. le regole, utente per utente ---
+  h+='<div class="op-sec">Regole per utente</div>';
+  const senzaColonne=d.utenti.some(u=>!u.HaColonne);
+  if(senzaColonne)h+='<div class="alert alert-amber">Per salvare le regole manca un passo su Supabase: lancia il file <strong>60_sessioni.sql</strong>.</div>';
+  if(d.utenti.some(u=>!u.HaColCont))h+='<div class="alert alert-amber">Per scegliere chi vede la contabilità manca un passo su Supabase: lancia il file <strong>61_contabilita.sql</strong>.</div>';
+  const opz=[[0,"Mai"],[10,"10 minuti"],[30,"30 minuti"],[60,"1 ora"],[120,"2 ore"],[240,"4 ore"],[480,"8 ore"],[-1,"A fine giornata"]];
+  h+='<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px">'
+    +'<tr style="text-align:left;color:var(--gray);font-size:12px"><th style="padding:6px">Utente</th><th style="padding:6px">Esce da solo se fermo per</th><th style="padding:6px">Un dispositivo alla volta</th><th style="padding:6px">Vede la contabilità</th></tr>'
+    +d.utenti.slice().sort((a,b)=>a.Nome.localeCompare(b.Nome)).map(function(u){
+      const scelte=opz.some(o=>o[0]===u.Inattivita)?opz:opz.concat([[u.Inattivita,sessTestoInattivita(u.Inattivita)]]);
+      return '<tr style="border-top:1px solid var(--border)'+(u.Attivo?'':';opacity:.5')+'">'
+        +'<td style="padding:8px 6px"><strong>'+att(u.Nome)+'</strong><div style="font-size:11.5px;color:var(--gray)">'+att(u.Email)+' &middot; '+att(u.Ruolo)+(u.Attivo?'':' &middot; disattivato')+'</div></td>'
+        +'<td style="padding:8px 6px"><select onchange="sessRegola(\''+esc(u.Email)+'\',\'inattivita_min\',this.value)">'
+        +scelte.map(o=>'<option value="'+o[0]+'"'+(o[0]===u.Inattivita?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></td>'
+        +'<td style="padding:8px 6px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" style="width:18px;height:18px;accent-color:var(--accent)" '
+        +(u.UnDispositivo?'checked':'')+' onchange="sessRegola(\''+esc(u.Email)+'\',\'un_dispositivo\',this.checked)"> '+(u.UnDispositivo?'si':'no')+'</label></td>'
+        +'<td style="padding:8px 6px">'+(u.Ruolo==='admin'
+          ?'<span style="font-size:12px;color:var(--gray)">sempre (admin)</span>'
+          :('<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" style="width:18px;height:18px;accent-color:var(--accent)" '
+            +(u.Contabilita?'checked':'')+' onchange="sessRegola(\''+esc(u.Email)+'\',\'contabilita\',this.checked)"> '+(u.Contabilita?'si':'no')+'</label>'))+'</td></tr>';
+    }).join('')+'</table>'
+    +'<div style="font-size:12px;color:var(--gray);margin-top:10px;line-height:1.5">Le regole valgono subito, entro un minuto, anche per chi e&#39; gia&#39; dentro. '
+    +'"Un dispositivo alla volta": se lo stesso utente entra da un secondo telefono o PC, sul primo esce.</div></div>';
+  // --- 3. lo storico ---
+  const optU='<option value="">Tutti gli utenti</option>'+d.utenti.slice().sort((a,b)=>a.Nome.localeCompare(b.Nome)).map(u=>'<option value="'+att(u.Email)+'"'+(u.Email===SESS_FILTRO.utente?' selected':'')+'>'+att(u.Nome)+'</option>').join('');
+  const optG=[[1,"Oggi e ieri"],[7,"Ultimi 7 giorni"],[30,"Ultimi 30 giorni"],[90,"Ultimi 90 giorni"]].map(o=>'<option value="'+o[0]+'"'+(o[0]===SESS_FILTRO.giorni?' selected':'')+'>'+o[1]+'</option>').join('');
+  const dal=Date.now()-SESS_FILTRO.giorni*86400000;
+  const storico=d.sessioni.filter(x=>(!SESS_FILTRO.utente||x.Email===SESS_FILTRO.utente)&&new Date(x.Aperta).getTime()>=dal)
+    .sort((a,b)=>String(b.Aperta).localeCompare(String(a.Aperta)));
+  h+='<div class="op-sec">Storico degli accessi ('+storico.length+')</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    +'<select onchange="SESS_FILTRO.utente=this.value;document.getElementById(\'sess-box\').innerHTML=sessHTML();">'+optU+'</select>'
+    +'<select onchange="SESS_FILTRO.giorni=+this.value;document.getElementById(\'sess-box\').innerHTML=sessHTML();">'+optG+'</select></div>';
+  if(!storico.length)h+='<div class="card" style="color:var(--gray)">Nessun accesso in questo periodo.</div>';
+  else h+='<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+    +'<tr style="text-align:left;color:var(--gray);font-size:12px"><th style="padding:6px">Utente</th><th style="padding:6px">Dispositivo</th><th style="padding:6px">Entrato</th><th style="padding:6px">Uscito</th><th style="padding:6px">Durata</th><th style="padding:6px">Come e&#39; finita</th></tr>'
+    +storico.slice(0,400).map(function(x){
+      return '<tr style="border-top:1px solid var(--border)">'
+        +'<td style="padding:6px">'+att(nomeDi(x.Email))+'</td>'
+        +'<td style="padding:6px">'+att(x.Dispositivo||"-")+'</td>'
+        +'<td style="padding:6px;white-space:nowrap">'+sessQuando(x.Aperta)+'</td>'
+        +'<td style="padding:6px;white-space:nowrap">'+(x.Stato==="attiva"?'<span style="color:var(--green)">ancora dentro</span>':sessQuando(x.Chiusa))+'</td>'
+        +'<td style="padding:6px;white-space:nowrap">'+sessDurata(x.Aperta,x.Stato==="attiva"?null:x.Chiusa)+'</td>'
+        +'<td style="padding:6px">'+(x.Stato==="attiva"?'-':att(sessMotivoTxt(x.Motivo,x.ChiusaDa)))+'</td></tr>';
+    }).join('')+'</table>'
+    +(storico.length>400?'<div style="font-size:12px;color:var(--gray);margin-top:8px">Ne mostro 400 di '+storico.length+': stringi il periodo o scegli un utente.</div>':'')+'</div>';
+  return h;
+}
+function sessChiudiUna(id,email){
+  const mia=(id===SESS.id);
+  if(!confirm(mia?"Questa e' la sessione che stai usando adesso: chiudendola esci anche tu. Vado?"
+                 :"Chiudo questa sessione: su quel dispositivo l'app esce entro un minuto e chiede di nuovo la password. Vado?"))return;
+  if(!unSolo('sess-'+id))return;
+  call("sessioneChiudi",{id:id,motivo:"admin",da:(UTENTE_CORRENTE&&UTENTE_CORRENTE.Nome)||""}).then(function(r){
+    salvaSblocca('sess-'+id);
+    if(!r||r.ok===false){toast("Non sono riuscito a chiuderla: "+((r&&r.err)||"errore"),"err");return;}
+    if(mia){ sessEsci(null,"uscita"); return; }
+    toast(r.chiuse?"Sessione chiusa":"Era gia' chiusa");
+    sessCarica();
+  });
+}
+function sessChiudiTutte(email){
+  const io=(UTENTE_CORRENTE&&UTENTE_CORRENTE.Email)===email;
+  if(!confirm("Chiudo TUTTE le sessioni di "+email+(io?" (sei tu: esci anche da qui)":"")+". Vado?"))return;
+  if(!unSolo('sess-tutte-'+email))return;
+  call("sessioneChiudi",{email:email,motivo:"admin",da:(UTENTE_CORRENTE&&UTENTE_CORRENTE.Nome)||""}).then(function(r){
+    salvaSblocca('sess-tutte-'+email);
+    if(!r||r.ok===false){toast("Non sono riuscito a chiuderle: "+((r&&r.err)||"errore"),"err");return;}
+    if(io){ sessEsci(null,"uscita"); return; }
+    toast("Chiuse "+(r.chiuse||0)+" sessioni");
+    sessCarica();
+  });
+}
+function sessRegola(email,campo,valore){
+  const a={email:email}; a[campo]=(campo==="un_dispositivo"||campo==="contabilita")?!!valore:parseInt(valore,10);
+  call("salvaRegoleSessione",a).then(function(r){
+    if(!r||r.ok===false){toast((r&&r.err)||"Non salvato","err");sessCarica();return;}
+    toast("Regola salvata"+(r.chiuse?(": chiuse "+r.chiuse+" sessioni in piu'"):""));
+    // se la regola e' la mia, la applico subito anche qui
+    if(UTENTE_CORRENTE&&UTENTE_CORRENTE.Email===email&&campo!=="contabilita"){SESS.regole[campo==="un_dispositivo"?"un_dispositivo":"inattivita_min"]=a[campo];}
+    sessCarica();
+  });
+}
+
+function navTo(page){
+  // la contabilita' non e' una pagina del magazzino: si apre sopra, a parte
+  if(page==="contabilita"){ apriContabilita(); return; }
+  clearSel(true); STATE.pagina=page; document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===page)); renderPage(page); }
 function famTog(el){const g=el.nextElementSibling;if(!g)return;const c=el.querySelector(".fam-c");const hide=g.style.display!=="none";g.style.display=hide?"none":"";if(c)c.textContent=hide?"▸":"▾";}
 function collassaFam(){document.querySelectorAll("#main-content .piece-grid").forEach(g=>{const h=g.previousElementSibling;if(h&&h.querySelector&&h.querySelector(".fam-c")){g.style.display="none";}});document.querySelectorAll("#main-content .fam-c").forEach(c=>{c.textContent="▸";});}
 
@@ -548,6 +1015,8 @@ function collassaFam(){document.querySelectorAll("#main-content .piece-grid").fo
 function openMobileMenu(){
   const op = STATE.utente.Ruolo==="operator";
   const pages=[["dashboard","Dashboard"],["articoli","Articoli"],["pannelli","Pannelli"],["massicci","Massicci"],["voci","Altre voci"],["ore","Ore e trasferte"],["dettatura","Dettatura vocale"],["movimenti","Movimenti"],["report","Report"],["ordini","Crea ordine"],["evasi","Ordini"],["destinati","Destinati commesse"],["fornitori","Fornitori"],["commesse","Commesse"],["offerte","Offerte"],["modelli","Modelli documenti"],["etichette","Etichette QR"],["qr","QR Code"]];
+  if(STATE.utente.Ruolo==="admin")pages.push(["sessioni","Sessioni"]);
+  if(puoContabilita())pages.push(["contabilita","Contabilità"]);
   const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr","voci"]:[];
   const items=pages.filter(p=>hide.indexOf(p[0])<0).map(p=>{const att=STATE.pagina===p[0];return '<button class="det-btn" style="margin-top:0;text-align:left;background:'+(att?'var(--accent-light)':'#faf8f4')+';color:'+(att?'var(--accent)':'var(--ink)')+'" onclick="closeModal();navTo(\''+p[0]+'\')">'+p[1]+'</button>';}).join("");
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Menu</h2><div style="display:flex;flex-direction:column;gap:8px">'+items+'</div></div>');
@@ -629,6 +1098,8 @@ function renderPage(p){
   else if(p==="modelli")m.innerHTML=renderModelli();
   else if(p==="qr")m.innerHTML=renderQR();
   else if(p==="etichette")m.innerHTML=renderEtichette();
+  else if(p==="sessioni")m.innerHTML=renderSessioni();
+  if(p!=="sessioni")sessFermaAuto();
   if(p==="articoli"||p==="pannelli"||p==="massicci")collassaFam();
   acAttiva(m);
 }
@@ -847,7 +1318,8 @@ async function call(fn, args) {
           return { autorizzato: "__login__", motivo: righe.length ? "disattivato" : "cancellato" };
         }
         UTENTE_CORRENTE = { Email: righe[0].email, Nome: righe[0].nome || righe[0].email,
-                            Ruolo: righe[0].ruolo || "operator", autorizzato: true };
+                            Ruolo: righe[0].ruolo || "operator", autorizzato: true,
+                            Contabilita: righe[0].contabilita === true };
         try { localStorage.setItem("at_utente", JSON.stringify(UTENTE_CORRENTE)); } catch (e) {}
         return UTENTE_CORRENTE;
       }
@@ -1094,6 +1566,180 @@ async function call(fn, args) {
       await sbPatch("etichette", "codice=eq." + encodeURIComponent(args.codice), {
         stato: "dismessa", dismessa_il: new Date().toISOString() });
       return { ok: true };
+    }
+    // ============================================================
+    //  SESSIONI: chi e' dentro l'app, da dove e da quanto
+    //  Ogni ingresso (da un telefono, da un PC) e' una riga della
+    //  tabella "sessioni". Mentre si usa l'app la riga riceve un
+    //  segnale ogni minuto; quando si esce, o quando l'amministratore
+    //  la chiude, resta nello storico con il motivo.
+    //  Se la tabella non c'e' ancora (manca lo SQL 60_sessioni.sql)
+    //  queste funzioni rispondono {manca:true} e l'app lavora lo
+    //  stesso, senza controllo delle sessioni.
+    // ============================================================
+    const mancaTabSessioni = function (e) {
+      const m = String((e && e.message) || e).toLowerCase();
+      return m.indexOf("sessioni") >= 0 && (m.indexOf("does not exist") >= 0 || m.indexOf("42p01") >= 0
+        || m.indexOf("could not find") >= 0 || m.indexOf("schema cache") >= 0);
+    };
+    // le regole dell'utente; se le colonne non ci sono ancora, valgono "mai" e "piu' dispositivi"
+    const regoleDi = function (u) {
+      const im = parseInt(u && u.inattivita_min, 10);
+      return { inattivita_min: isNaN(im) ? 0 : im, un_dispositivo: !!(u && u.un_dispositivo === true),
+               contabilita: !!(u && u.contabilita === true) };
+    };
+    if (fn === "sessioneApri") {
+      if (!UTENTE_CORRENTE || !UTENTE_CORRENTE.Email) return { ok: false, err: "Nessun utente." };
+      const email = UTENTE_CORRENTE.Email;
+      let regole = { inattivita_min: 0, un_dispositivo: false };
+      try {
+        const u = await sbGet("utenti", "select=*&email=eq." + encodeURIComponent(email));
+        if (u.length) regole = regoleDi(u[0]);
+      } catch (e) { /* tengo le regole piu' larghe */ }
+      const id = newId("SES-");
+      const ora = new Date().toISOString();
+      try {
+        await sbPost("sessioni", { id: id, email: email, nome: UTENTE_CORRENTE.Nome || email,
+          dispositivo: String(args.dispositivo || "").slice(0, 120), aperta_il: ora,
+          ultimo_segnale: ora, ultima_attivita: ora, stato: "attiva" });
+      } catch (e) {
+        if (mancaTabSessioni(e)) return { ok: false, manca: true };
+        return { ok: false, err: String((e && e.message) || e) };
+      }
+      // "un dispositivo per utente": chiudo le altre sessioni ancora aperte
+      let chiuseAltre = 0;
+      if (regole.un_dispositivo) {
+        try {
+          const r = await sbPatch("sessioni",
+            "email=eq." + encodeURIComponent(email) + "&stato=eq.attiva&id=neq." + encodeURIComponent(id),
+            { stato: "chiusa", chiusa_il: ora, motivo_chiusura: "altro_dispositivo", chiusa_da: "" });
+          chiuseAltre = (r || []).length;
+        } catch (e) { /* non e' grave: al prossimo giro ci riprovo */ }
+      }
+      return { ok: true, id: id, regole: regole, chiuseAltre: chiuseAltre };
+    }
+    if (fn === "sessioneSegnale") {
+      let righe = [];
+      try { righe = await sbGet("sessioni", "select=*&id=eq." + encodeURIComponent(args.id)); }
+      catch (e) {
+        if (mancaTabSessioni(e)) return { ok: false, manca: true };
+        return { ok: false, err: String((e && e.message) || e) };   // rete giu': non butto fuori nessuno
+      }
+      if (!righe.length) return { ok: true, chiusa: true, motivo: "sparita" };
+      const sx = righe[0];
+      if (sx.stato !== "attiva") return { ok: true, chiusa: true, motivo: sx.motivo_chiusura || "", da: sx.chiusa_da || "" };
+      // le regole le rileggo ogni volta: se l'amministratore le cambia,
+      // valgono subito, senza aspettare che l'utente esca e rientri
+      let regole = null;
+      try {
+        const u = await sbGet("utenti", "select=*&email=eq." + encodeURIComponent(sx.email));
+        if (u.length) {
+          if (u[0].attivo === false) {
+            await sbPatch("sessioni", "id=eq." + encodeURIComponent(sx.id),
+              { stato: "chiusa", chiusa_il: new Date().toISOString(), motivo_chiusura: "utente_disattivato" });
+            return { ok: true, chiusa: true, motivo: "utente_disattivato" };
+          }
+          regole = regoleDi(u[0]);
+        }
+      } catch (e) {}
+      const agg = { ultimo_segnale: new Date().toISOString() };
+      if (args.ultimaAttivita) agg.ultima_attivita = args.ultimaAttivita;
+      try { await sbPatch("sessioni", "id=eq." + encodeURIComponent(sx.id) + "&stato=eq.attiva", agg); } catch (e) {}
+      return { ok: true, chiusa: false, regole: regole };
+    }
+    if (fn === "sessioneChiudi") {
+      const agg = { stato: "chiusa", chiusa_il: new Date().toISOString(),
+        motivo_chiusura: args.motivo || "uscita", chiusa_da: args.da || "" };
+      try {
+        const filtro = args.id ? ("id=eq." + encodeURIComponent(args.id))
+                               : ("email=eq." + encodeURIComponent(args.email || ""));
+        if (!args.id && !args.email) return { ok: false, err: "Manca la sessione da chiudere." };
+        const r = await sbPatch("sessioni", filtro + "&stato=eq.attiva", agg);
+        return { ok: true, chiuse: (r || []).length };
+      } catch (e) {
+        if (mancaTabSessioni(e)) return { ok: false, manca: true };
+        return { ok: false, err: String((e && e.message) || e) };
+      }
+    }
+    if (fn === "getSessioni") {
+      const giorni = Math.max(1, Math.min(365, parseInt(args && args.giorni, 10) || 90));
+      const dal = new Date(Date.now() - giorni * 86400000).toISOString();
+      let rows = [], utenti = [];
+      try {
+        // le sessioni ancora aperte le voglio TUTTE, anche se sono vecchie
+        const vecchieAperte = await sbGetTutto("sessioni", "aperta_il.desc,id.asc", "select=*&stato=eq.attiva&aperta_il=lt." + encodeURIComponent(dal));
+        const recenti = await sbGetTutto("sessioni", "aperta_il.desc,id.asc", "select=*&aperta_il=gte." + encodeURIComponent(dal));
+        rows = recenti.concat(vecchieAperte);
+      } catch (e) {
+        if (mancaTabSessioni(e)) return { ok: false, manca: true };
+        return { ok: false, err: String((e && e.message) || e) };
+      }
+      try { utenti = await sbGet("utenti", "select=*"); } catch (e) { utenti = []; }
+      // pulizia: chiudo le sessioni che hanno superato la regola del loro
+      // utente. Succede quando il telefono e' stato spento o l'app chiusa
+      // senza uscire: da solo non puo' piu' dire niente.
+      const regPer = {};
+      utenti.forEach(u => { regPer[u.email] = regoleDi(u); });
+      const adesso = Date.now();
+      const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+      for (const sx of rows) {
+        if (sx.stato !== "attiva") continue;
+        const rg = regPer[sx.email] || { inattivita_min: 0 };
+        let motivo = "";
+        if (rg.inattivita_min > 0) {
+          const fermo = adesso - new Date(sx.ultima_attivita || sx.aperta_il).getTime();
+          if (fermo > rg.inattivita_min * 60000) motivo = "inattivita";
+        } else if (rg.inattivita_min === -1) {
+          if (new Date(sx.aperta_il).getTime() < oggi.getTime()) motivo = "fine_giornata";
+        }
+        if (!motivo) continue;
+        try {
+          await sbPatch("sessioni", "id=eq." + encodeURIComponent(sx.id) + "&stato=eq.attiva",
+            { stato: "chiusa", chiusa_il: new Date().toISOString(), motivo_chiusura: motivo });
+          sx.stato = "chiusa"; sx.motivo_chiusura = motivo; sx.chiusa_il = new Date().toISOString();
+        } catch (e) {}
+      }
+      return {
+        ok: true,
+        sessioni: rows.map(r => ({ ID: r.id, Email: r.email, Nome: r.nome || r.email, Dispositivo: r.dispositivo || "",
+          Aperta: r.aperta_il, Segnale: r.ultimo_segnale, Attivita: r.ultima_attivita, Stato: r.stato,
+          Chiusa: r.chiusa_il, Motivo: r.motivo_chiusura || "", ChiusaDa: r.chiusa_da || "" })),
+        utenti: utenti.map(u => Object.assign({ Email: u.email, Nome: u.nome || u.email, Ruolo: u.ruolo || "operator",
+          Attivo: u.attivo !== false, HaColonne: (u.inattivita_min !== undefined && u.un_dispositivo !== undefined),
+          Contabilita: u.contabilita === true, HaColCont: u.contabilita !== undefined },
+          { Inattivita: regoleDi(u).inattivita_min, UnDispositivo: regoleDi(u).un_dispositivo }))
+      };
+    }
+    if (fn === "salvaRegoleSessione") {
+      const agg = {};
+      if (args.inattivita_min !== undefined) agg.inattivita_min = parseInt(args.inattivita_min, 10) || 0;
+      if (args.un_dispositivo !== undefined) agg.un_dispositivo = !!args.un_dispositivo;
+      if (args.contabilita !== undefined) agg.contabilita = !!args.contabilita;
+      try { await sbPatch("utenti", "email=eq." + encodeURIComponent(args.email), agg); }
+      catch (e) {
+        const m = String((e && e.message) || e);
+        if (/contabilita/.test(m))
+          return { ok: false, err: "Manca la colonna della contabilita': lancia lo SQL 61_contabilita.sql su Supabase." };
+        if (/inattivita_min|un_dispositivo/.test(m))
+          return { ok: false, err: "Mancano le colonne delle regole: lancia lo SQL 60_sessioni.sql su Supabase." };
+        return { ok: false, err: m };
+      }
+      // se ha appena acceso "un dispositivo solo" e ne ha aperti piu' d'uno,
+      // tengo il piu' recente e chiudo gli altri subito
+      let chiuse = 0;
+      if (agg.un_dispositivo) {
+        try {
+          const aperte = await sbGet("sessioni", "select=id,ultima_attivita&email=eq." + encodeURIComponent(args.email)
+            + "&stato=eq.attiva&order=ultima_attivita.desc");
+          for (const sx of aperte.slice(1)) {
+            await sbPatch("sessioni", "id=eq." + encodeURIComponent(sx.id),
+              { stato: "chiusa", chiusa_il: new Date().toISOString(), motivo_chiusura: "altro_dispositivo",
+                chiusa_da: (UTENTE_CORRENTE && UTENTE_CORRENTE.Nome) || "" });
+            chiuse++;
+          }
+        } catch (e) {}
+      }
+      return { ok: true, chiuse: chiuse };
     }
     // ============ DETTATURE VOCALI ============
     if (fn === "getUtentiElenco") {
@@ -2921,8 +3567,11 @@ async function doLogin(){
     const u=rows[0];
     if(u.password!==pwd){err.textContent="Password errata.";return;}
     if(!u.attivo){err.textContent="Account disabilitato.";return;}
-    UTENTE_CORRENTE={Email:u.email,Nome:u.nome||u.email,Ruolo:u.ruolo||"operator",autorizzato:true};
+    UTENTE_CORRENTE={Email:u.email,Nome:u.nome||u.email,Ruolo:u.ruolo||"operator",autorizzato:true,Contabilita:u.contabilita===true};
     localStorage.setItem("at_utente",JSON.stringify(UTENTE_CORRENTE));
+    // login nuovo = sessione nuova, mai quella di prima
+    try{localStorage.removeItem("at_sessione");}catch(e){}
+    sessSegnaAttivita(true);
     document.querySelector("aside").style.display="";
     document.querySelector(".mobile-nav").style.display="";
     document.querySelector(".fab").style.display="";
@@ -2934,9 +3583,7 @@ async function doLogin(){
 }
 function doLogout(){
   if(!confirm("Vuoi uscire dall'app? Dovrai reinserire la password al prossimo accesso."))return;
-  try{localStorage.removeItem("at_utente");}catch(e){}
-  UTENTE_CORRENTE=null;
-  location.reload();
+  sessEsci("uscita","");
 }
 // Aggiorna: ricarica i dati dal foglio senza cambiare pagina.
 // Reload completo della pagina con doppio click o pressione prolungata (utile dopo una nuova pubblicazione).
@@ -2964,8 +3611,8 @@ function refreshApp(){
   .then(([a,p,m,mv,c,f,fb,md,im,or,ri,cf,vc,pe,oe,de])=>{
     STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];
     STATE.commesse=c||[];STATE.fornitori=f||[];STATE.fabbisogni=fb||[];STATE.modelli=md||[];STATE.immagini=im||[];STATE.ordini=or||[];STATE.riserve=ri||[];STATE.config=cf||[];STATE.voci=vc||[];STATE.personale=pe||[];STATE.ore=oe||[];STATE.dettature=de||[];
+    // una volta sola, quando ci sono anche le etichette (prima si disegnava due volte)
     caricaEtichette().then(function(){renderPage(cur);});
-    renderPage(cur);
     if(guai)toast("Aggiornato, ma "+guai+" elenchi non sono arrivati: riprova fra poco.","err");
     else toast("Dati aggiornati");
   })
@@ -3081,6 +3728,14 @@ function scaricaCsv(nome,righe){
 // ---- CSV: movimenti e voci per commessa (dashboard) ----
 function csvReportScarico(anno,mese){
   const pref=mese?(anno+'-'+mese):anno;
+  scaricaCsv('movimenti-e-voci_'+(mese?(anno+'-'+mese):anno)+'.csv',righeMovimentiEVoci(pref));
+}
+// Le righe del report "Movimenti e voci per commessa". Le usa il CSV e le usa
+// la Contabilita', che prima importava proprio quel CSV a mano: adesso le
+// legge da qui, sempre aggiornate. Una funzione sola, cosi' le due cose non
+// possono raccontare storie diverse.
+function righeMovimentiEVoci(pref){
+  pref=String(pref||'');
   const out=[['Commessa','Tipo riga','Data','Materiale o voce','Categoria / cod. fornitore',
     'Codici pezzo','Codice etichetta','Quantita','Unita','% del caricato','Importo EUR','Fornitore','Bolla DDT','N. fattura','Stato','Note','Operatore']];
   STATE.movimenti.filter(m=>m.Annullato!=='SI'&&m.Tipo==='scarico'&&String(m.Data).startsWith(pref))
@@ -3110,7 +3765,7 @@ function csvReportScarico(anno,mese){
         (r.Descrizione||'')+(r.Destinazione?(' - '+r.Destinazione):'')+((+r.Km)?(' - '+nOre(r.Km)+' km'):'')+(r.Note?(' - '+r.Note):''),
         r.InseritoDa||'']);
     });
-  scaricaCsv('movimenti-e-voci_'+(mese?(anno+'-'+mese):anno)+'.csv',out);
+  return out;
 }
 
 // ---- CSV: rimanenze ----
@@ -4569,7 +5224,7 @@ function renderPannelli(){
     +'<div class="filters"><input id="pann-q" placeholder="Cerca pannello per codice o tipo..." oninput="filtraPannelli()">'+ctrlDispon()+'</div>'
     +'<div id="pann-cont">'+pannelliCont("")+'</div>';
 }
-function cardPannello(p){const pct=+p.Residuale_pct||0,c=colorPct(pct),iu=imgUrlFor(p.ArticoloID),art=STATE.articoli.find(a=>a.ID===p.ArticoloID);
+function cardPannello(p){const pct=+p.Residuale_pct||0,c=colorPct(pct),iu=imgUrlFor(p.ArticoloID);
   return '<div class="piece" onclick="openDettaglio(\'pannello\',\''+esc(p.ID)+'\')"><input type="checkbox" class="sel-chk" '+(SEL[p.ID]&&SELTIPO==='pannello'?'checked':'')+' onclick="toggleSel(event,\'pannello\',\''+esc(p.ID)+'\')"><div class="piece-row">'+(iu?'<img class="piece-thumb" src="'+iu+'" referrerpolicy="no-referrer">':'')+'<div class="piece-body"><h4>'+p.ID+'</h4><small>'+(PANN_VIEW==='griglia'?(nomeTipo(p.ArticoloID)+' - '):'')+p.Larghezza_mm+' x '+p.Altezza_mm+' mm</small><div class="bar-wrap" style="margin-bottom:7px"><div class="bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div><div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:600;color:'+c+'">'+pct.toFixed(0)+'%</span><span style="color:var(--gray)">'+(+p.M2_residuo||0).toFixed(2)+' m2</span></div>'+(p.Fornitore?'<div style="margin-top:5px;font-size:10.5px;color:var(--gray)">Forn: '+p.Fornitore+'</div>':'')+'</div></div><button class="btn btn-red" style="margin-top:9px;width:100%" onclick="event.stopPropagation();openScaricoPannello(\''+esc(p.ID)+'\')">Scarico</button></div>';
 }
 function pannelliCont(filtro){
@@ -4598,7 +5253,7 @@ function filtraPannelli(){document.getElementById("pann-cont").innerHTML=pannell
 // -- MASSICCI --
 let MASS_VIEW=VISTA_DEF;
 function setMassView(v){setVistaDefault(v);}
-function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct=orig>0?(res/orig)*100:0,c=colorPct(pct);const dim=p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3';const iu=imgUrlFor(p.ArticoloID),art=STATE.articoli.find(a=>a.ID===p.ArticoloID);
+function cardMassiccio(p){const orig=+p.M3_originale||0,res=+p.M3_residuo||0,pct=orig>0?(res/orig)*100:0,c=colorPct(pct);const dim=p.Lunghezza_mm?(p.Lunghezza_mm+' x '+p.Larghezza_mm+' x '+p.Spessore_mm+' mm'):'lotto m3';const iu=imgUrlFor(p.ArticoloID);
   return '<div class="piece" onclick="openDettaglio(\'massiccio\',\''+esc(p.ID)+'\')"><input type="checkbox" class="sel-chk" '+(SEL[p.ID]&&SELTIPO==='massiccio'?'checked':'')+' onclick="toggleSel(event,\'massiccio\',\''+esc(p.ID)+'\')"><div class="piece-row">'+(iu?'<img class="piece-thumb" src="'+iu+'" referrerpolicy="no-referrer">':'')+'<div class="piece-body"><h4>'+p.ID+'</h4><small>'+(MASS_VIEW==='griglia'?(nomeTipo(p.ArticoloID)+' - '):'')+dim+'</small><div class="bar-wrap" style="margin-bottom:7px"><div class="bar-fill" style="width:'+pct+'%;background:'+c+'"></div></div><div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:600;color:'+c+'">'+res.toFixed(3)+' m3</span><span style="color:var(--gray)">di '+orig.toFixed(3)+'</span></div>'+(p.Fornitore?'<div style="margin-top:5px;font-size:10.5px;color:var(--gray)">Forn: '+p.Fornitore+'</div>':'')+'</div></div><button class="btn btn-red" style="margin-top:9px;width:100%" onclick="event.stopPropagation();openScaricoMassiccio(\''+esc(p.ID)+'\')">Scarico</button></div>';
 }
 function renderMassicci(){
@@ -4635,8 +5290,8 @@ let MOV_VIS=[];
 function renderMovimenti(){
   return '<h1 class="page-title">Movimenti</h1>'
   +'<div class="filters"><select id="flt-tipo" onchange="filterMov()"><option value="">Tutti i tipi</option><option value="carico">Solo carichi</option><option value="scarico">Solo scarichi</option></select>'
-  +'<input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMov()">'
-  +'<input id="flt-txt" placeholder="Cerca materiale, pezzo, note..." oninput="filterMov()"></div>'
+  +'<input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMovPresto()">'
+  +'<input id="flt-txt" placeholder="Cerca materiale, pezzo, note..." oninput="filterMovPresto()"></div>'
   +'<div class="info-box">Spunta le caselle a sinistra per lavorare su piu movimenti insieme: cambiare la commessa o annullarli in blocco.</div>'
   +'<div class="table-wrap"><table><thead><tr><th style="width:34px"><input type="checkbox" id="mov-all" onclick="selAllMov(this)" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></th><th>Data</th><th>Operatore</th><th>Articolo</th><th>Cod. forn.</th><th>Tipo</th><th>Quantita</th><th>Fornitore</th><th>Bolla DDT</th><th>Commessa</th></tr></thead><tbody id="tbody-mov">'+rowsMov(STATE.movimenti.slice().reverse())+'</tbody></table></div>';
 }
@@ -4647,10 +5302,18 @@ function selAllMov(chk){
   document.getElementById("tbody-mov").innerHTML=rowsMov(movFiltrati());
   renderBulkBar();
 }
+// Se ne mostrano 300 alla volta: disegnarle tutte (migliaia) bloccava il telefono a ogni
+// lettera scritta nei filtri. La selezione "tutti" vale comunque su tutte quelle filtrate.
+let MOV_LIMITE=300;
 function rowsMov(list){
-  const cfDi=(m)=>{let art=(STATE.articoli||[]).find(a=>a.ID===m.ArticoloID);if(!art)art=(STATE.articoli||[]).find(a=>a.Nome===m.NomeArticolo||a.Nome===m.ArticoloID);return (art&&art.CodiceFornitore)||'-';};
+  const perId=new Map(), perNome=new Map();
+  (STATE.articoli||[]).forEach(function(a){perId.set(a.ID,a);if(!perNome.has(a.Nome))perNome.set(a.Nome,a);});
+  const cfDi=(m)=>{const art=perId.get(m.ArticoloID)||perNome.get(m.NomeArticolo)||perNome.get(m.ArticoloID);return (art&&art.CodiceFornitore)||'-';};
   MOV_VIS=list.map(m=>m.ID);
-  return list.map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(bollaDi(m).forn||m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(bollaDi(m).ddt||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa?commTxt(m.Commessa):"-")+'</td></tr>').join("")||'<tr><td colspan="10" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
+  const altri=list.length>MOV_LIMITE?('<tr><td colspan="10" style="text-align:center;padding:14px;color:var(--gray)">Ne mostro '+MOV_LIMITE+' di '+list.length
+    +' &middot; <button class="btn btn-ghost" onclick="event.stopPropagation();MOV_LIMITE+=500;filterMov(true)">Mostra altri 500</button>'
+    +' <span style="font-size:12px">oppure stringi i filtri</span></td></tr>'):'';
+  return list.slice(0,MOV_LIMITE).map(m=>'<tr style="opacity:'+(m.Annullato==='SI'?.45:1)+'" onclick="openDettaglio(\'movimento\',\''+esc(m.ID)+'\')"><td><input type="checkbox" '+(SEL[m.ID]&&SELTIPO==='movimento'?'checked':'')+' onclick="toggleSel(event,\'movimento\',\''+esc(m.ID)+'\')" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer"></td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+String(m.Data||"").slice(0,16)+'</td><td style="font-size:12px">'+(m.Utente||"")+'</td><td style="font-weight:600">'+(m.NomeArticolo||"")+'</td><td style="font-size:11.5px;color:var(--gray)">'+cfDi(m)+'</td><td><span class="badge '+(m.Tipo==='carico'?'badge-green':'badge-red')+'">'+(m.Tipo||"")+'</span></td><td style="font-weight:600;color:'+(m.Tipo==='carico'?'var(--green)':'var(--red)')+'">'+(m.Tipo==='carico'?'+':'-')+m.Quantita+' '+m.UnitaMisura+'</td><td style="font-size:11.5px;color:var(--gray)">'+(bollaDi(m).forn||m.Fornitore||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(bollaDi(m).ddt||'-')+'</td><td style="font-size:11px;font-family:monospace;color:var(--gray)">'+(m.Commessa?commTxt(m.Commessa):"-")+'</td></tr>').join("")+altri||'<tr><td colspan="10" style="text-align:center;color:var(--gray);padding:26px">Nessun movimento</td></tr>';
 }
 function movFiltrati(){
   const te=document.getElementById("flt-tipo"),ce=document.getElementById("flt-comm"),xe=document.getElementById("flt-txt");
@@ -4659,7 +5322,9 @@ function movFiltrati(){
     &&(!c||(m.Commessa||"").toLowerCase().includes(c))
     &&(!x||((m.NomeArticolo||'')+' '+(m.ArticoloID||'')+' '+(m.PezzoID||'')+' '+(m.Note||'')+' '+(m.Fornitore||'')+' '+(m.Utente||'')).toLowerCase().includes(x)));
 }
-function filterMov(){document.getElementById("tbody-mov").innerHTML=rowsMov(movFiltrati());}
+function filterMov(tieniLimite){ if(!tieniLimite)MOV_LIMITE=300; const t=document.getElementById("tbody-mov"); if(t)t.innerHTML=rowsMov(movFiltrati());}
+let _MOV_T=null;
+function filterMovPresto(){ clearTimeout(_MOV_T); _MOV_T=setTimeout(function(){filterMov();},220); }
 
 
 // ---- OPERAZIONI IN BLOCCO SUI MOVIMENTI ----
@@ -4915,14 +5580,15 @@ function utilizzoDati(filtro){
   });
   return g;
 }
-function dataIt(d){if(!d)return '-';const p=String(d).slice(0,10).split('-');return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):d;}
+// (c'era una seconda dataIt qui: valeva quella piu' sotto, che per una data vuota da' "")
+function dataOTrattino(d){ return d?dataIt(d):'-'; }
 function nDec(u){return (u==='pz'||!u)?0:3;}
 function periodoDi(x){let dal='',al='';Object.keys(x.comm).forEach(function(c){const cc=x.comm[c];
   if(cc.dal&&(!dal||cc.dal<dal))dal=cc.dal;if(cc.al&&(!al||cc.al>al))al=cc.al;});return [dal,al];}
 function metaDi(x){
   const p=periodoDi(x),meta=[x.nmov+(x.voce?' voci':' movimenti'),Object.keys(x.comm).length+' commesse'];
   if(!x.voce&&x.pezziTot.length)meta.push(x.pezziTot.length+' pezzi');
-  meta.push('dal '+dataIt(p[0])+' al '+dataIt(p[1]));
+  meta.push('dal '+dataOTrattino(p[0])+' al '+dataOTrattino(p[1]));
   if(x.forn.length)meta.push('fornitori: '+x.forn.join(', '));
   if(x.codForn)meta.push('cod. forn. '+x.codForn);
   if(x.voce&&x.ft&&x.ft.length)meta.push('fatture: '+x.ft.join(', '));
@@ -4959,7 +5625,7 @@ function utilizzoCont(filtro){
       return '<div style="padding:10px 0;border-top:1px solid var(--border)">'
         +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:3px">'
         +'<span style="font-family:monospace;font-weight:700">'+c+'</span><span style="font-weight:700">'+tot+'</span></div>'
-        +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">'+cc.n+(x.voce?' voci':' movimenti')+' &middot; dal '+dataIt(cc.dal)+' al '+dataIt(cc.al)+((!x.voce&&cc.pezzi.length)?(' &middot; '+cc.pezzi.length+' pezzi'):'')+'</div>'
+        +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">'+cc.n+(x.voce?' voci':' movimenti')+' &middot; dal '+dataOTrattino(cc.dal)+' al '+dataOTrattino(cc.al)+((!x.voce&&cc.pezzi.length)?(' &middot; '+cc.pezzi.length+' pezzi'):'')+'</div>'
         +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr>'
         +th.map(function(t){return '<th style="text-align:left;padding:3px 6px;color:var(--gray);font-size:10px;text-transform:uppercase;letter-spacing:.4px">'+t+'</th>';}).join("")
         +'</tr></thead><tbody>'+det+'</tbody></table></div></div>';
@@ -12016,7 +12682,9 @@ function qrModuli(codice){
 //  I DATI
 // ------------------------------------------------------------------
 function caricaEtichette(){
-  return call('getEtichette').then(function(e){STATE.etichette=e||[];return STATE.etichette;})
+  // "call" non va in eccezione: in errore risponde {ok:false}. Prima quell'oggetto finiva in
+  // STATE.etichette e dashboard, Articoli e contabilita' si fermavano con un errore.
+  return call('getEtichette').then(function(e){STATE.etichette=Array.isArray(e)?e:(STATE.etichette||[]);return STATE.etichette;})
     .catch(function(){STATE.etichette=STATE.etichette||[];return STATE.etichette;});
 }
 function etichetta(codice){
@@ -12069,7 +12737,15 @@ function etichetteDiCarico(movId){
 //  L'articolo si ricava dal carico, quindi nella sua scheda le
 //  etichette si vedono lo stesso.
 // ------------------------------------------------------------------
-function movimento(id){ return (STATE.movimenti||[]).filter(x=>x.ID===id)[0]||null; }
+// Cercare un movimento per codice scorrendo tutti i movimenti, per ogni etichetta e per ogni
+// articolo, era il punto piu' lento dell'app (milioni di confronti a ogni dashboard). Adesso
+// c'e' un indice, rifatto da solo quando l'elenco dei movimenti cambia.
+let _MOV_IDX=null,_MOV_SRC=null,_MOV_LEN=-1;
+function movimento(id){
+  const L=STATE.movimenti||[];
+  if(_MOV_SRC!==L||_MOV_LEN!==L.length){ _MOV_IDX=new Map(); L.forEach(function(m){_MOV_IDX.set(m.ID,m);}); _MOV_SRC=L; _MOV_LEN=L.length; }
+  return _MOV_IDX.get(id)||null;
+}
 // l'articolo di una cosa etichettata, qualunque cosa sia
 function etArticoloDi(cosa){
   if(!cosa)return '';
@@ -14689,10 +15365,11 @@ function vocSchedaConferma(d){
 function vocPezziDi(nome){
   if(!nome)return [];
   const out=[];
+  const per=p=>String(p.Commesse||'').trim();
   (STATE.pannelli||[]).filter(p=>p.ArticoloID===nome&&(+p.M2_residuo>0))
-    .forEach(p=>out.push({id:p.ID,resTxt:nfmt(+p.M2_residuo,2)+' m² liberi'}));
+    .forEach(p=>out.push({id:p.ID,resTxt:nfmt(+p.M2_residuo,2)+' m² '+(per(p)?('· destinato a '+per(p)):'liberi')}));
   (STATE.massicci||[]).filter(p=>p.ArticoloID===nome&&(+p.M3_residuo>0))
-    .forEach(p=>out.push({id:p.ID,resTxt:nfmt(+p.M3_residuo,3)+' m³ liberi'}));
+    .forEach(p=>out.push({id:p.ID,resTxt:nfmt(+p.M3_residuo,3)+' m³ '+(per(p)?('· destinato a '+per(p)):'liberi')}));
   return out.sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}));
 }
 function vocCambiaTipo(i){
@@ -15292,9 +15969,18 @@ function etObbligatoria(artId,nome){
 }
 // gli articoli veri (non pannelli e massicci) che non hanno nessuna etichetta
 function articoliSenzaEtichetta(){
+  // un giro solo sulle etichette, invece di uno per ogni articolo
+  const con=new Set();
+  (STATE.etichette||[]).forEach(function(x){
+    if(x.Stato!=='assegnata')return;
+    etCose(x).forEach(function(c){
+      if(c.tipo==='articolo')con.add(c.id);
+      else if(c.tipo==='carico'){const a=etArticoloDi(c);if(a)con.add(a);}
+    });
+  });
   return (STATE.articoli||[]).filter(function(a){
     if(a.Categoria==='Pannelli'||a.Categoria==='Massello'||a.IsPannello==='SI')return false;
-    return !etichetteDi('articolo',a.ID).length;
+    return !con.has(a.ID);
   });
 }
 // -- CARICO PANNELLI --
