@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v141 - Atelier</div>
+  <div id="ver-badge">v142 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -676,8 +676,9 @@ async function sessBatti(){
     // la contabilita' data o tolta dall'amministratore vale subito, senza ricaricare
     try{
       const prima=puoContabilita();
-      if(UTENTE_CORRENTE)UTENTE_CORRENTE.Contabilita=r.regole.contabilita===true;
-      if(STATE.utente)STATE.utente.Contabilita=r.regole.contabilita===true;
+      [UTENTE_CORRENTE,STATE.utente].forEach(function(x){ if(!x)return;
+        x.Contabilita=r.regole.contabilita===true;
+        if(r.regole.haTitolare!==undefined){ x.Titolare=r.regole.titolare===true; x.HaTitolare=r.regole.haTitolare===true; } });
       if(prima!==puoContabilita()){
         adattaRuolo((STATE.utente||{}).Ruolo);
         if(!puoContabilita()){
@@ -730,10 +731,18 @@ async function sessEsci(motivoDaScrivere,motivoLetto,da){
 //  Il "ponte" qui sotto e' l'unica cosa che la contabilita' chiede al
 //  magazzino: chi sono, e i movimenti/voci/ore aggiornati.
 // ============================================================
+// Con lo SQL 63 c'e' il TITOLARE: lui la vede sempre ed e' l'unico che decide chi altro
+// la vede. Un amministratore che non e' il titolare NON la vede (salvo spunta data dal
+// titolare): gestisce tutto il magazzino, ma la contabilita' per lui non esiste.
+// Prima dello SQL 63 vale la regola vecchia (ogni admin la vede).
 function puoContabilita(){
   const u=STATE.utente||UTENTE_CORRENTE||{};
+  if(u.HaTitolare) return u.Titolare===true||u.Contabilita===true;
   return u.Ruolo==="admin"||u.Contabilita===true;
 }
+function sonoTitolare(){ const u=STATE.utente||UTENTE_CORRENTE||{}; return u.Titolare===true; }
+// puo' decidere chi vede la contabilita'? il titolare; prima dello SQL 63, l'admin
+function decidoContabilita(){ const u=STATE.utente||UTENTE_CORRENTE||{}; return u.HaTitolare?u.Titolare===true:u.Ruolo==="admin"; }
 function apriContabilita(){
   if(!puoContabilita()){toast("La contabilità non è abilitata per il tuo utente: chiedila all'amministratore.","err");return;}
   let ov=document.getElementById("cont-ov");
@@ -796,7 +805,7 @@ window.ponteContabilita={
   versione:1,
   utente:function(){ const u=UTENTE_CORRENTE||{}; const s=STATE.utente||{};
     return {Email:u.Email||s.Email||"",Nome:u.Nome||s.Nome||"",Ruolo:u.Ruolo||s.Ruolo||"",
-            Contabilita:(u.Contabilita===true||s.Contabilita===true),puo:puoContabilita()}; },
+            Contabilita:(u.Contabilita===true||s.Contabilita===true),Titolare:sonoTitolare(),puo:puoContabilita()}; },
   sb:{ get:sbGet, getTutto:sbGetTutto, post:sbPost, postMinimo:sbPostMinimo, patch:sbPatch, del:sbDelete },
   // chi lavora nella contabilita' e' "attivo" anche per le sessioni
   attivita:function(){ try{ sessSegnaAttivita(false); }catch(e){} },
@@ -924,10 +933,11 @@ function sessHTML(){
   h+='<div class="op-sec">Regole per utente</div>';
   const senzaColonne=d.utenti.some(u=>!u.HaColonne);
   if(senzaColonne)h+='<div class="alert alert-amber">Per salvare le regole manca un passo su Supabase: lancia il file <strong>60_sessioni.sql</strong>.</div>';
-  if(d.utenti.some(u=>!u.HaColCont))h+='<div class="alert alert-amber">Per scegliere chi vede la contabilità manca un passo su Supabase: lancia il file <strong>61_contabilita.sql</strong>.</div>';
+  const vedoCont=decidoContabilita();
+  if(vedoCont&&d.utenti.some(u=>!u.HaColCont))h+='<div class="alert alert-amber">Per scegliere chi vede la contabilità manca un passo su Supabase: lancia il file <strong>61_contabilita.sql</strong>.</div>';
   const opz=[[0,"Mai"],[10,"10 minuti"],[30,"30 minuti"],[60,"1 ora"],[120,"2 ore"],[240,"4 ore"],[480,"8 ore"],[-1,"A fine giornata"]];
   h+='<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px">'
-    +'<tr style="text-align:left;color:var(--gray);font-size:12px"><th style="padding:6px">Utente</th><th style="padding:6px">Esce da solo se fermo per</th><th style="padding:6px">Un dispositivo alla volta</th><th style="padding:6px">Vede la contabilità</th></tr>'
+    +'<tr style="text-align:left;color:var(--gray);font-size:12px"><th style="padding:6px">Utente</th><th style="padding:6px">Esce da solo se fermo per</th><th style="padding:6px">Un dispositivo alla volta</th>'+(vedoCont?'<th style="padding:6px">Vede la contabilità</th>':'')+'</tr>'
     +d.utenti.slice().sort((a,b)=>a.Nome.localeCompare(b.Nome)).map(function(u){
       const scelte=opz.some(o=>o[0]===u.Inattivita)?opz:opz.concat([[u.Inattivita,sessTestoInattivita(u.Inattivita)]]);
       return '<tr style="border-top:1px solid var(--border)'+(u.Attivo?'':';opacity:.5')+'">'
@@ -936,10 +946,10 @@ function sessHTML(){
         +scelte.map(o=>'<option value="'+o[0]+'"'+(o[0]===u.Inattivita?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></td>'
         +'<td style="padding:8px 6px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" style="width:18px;height:18px;accent-color:var(--accent)" '
         +(u.UnDispositivo?'checked':'')+' onchange="sessRegola(\''+esc(u.Email)+'\',\'un_dispositivo\',this.checked)"> '+(u.UnDispositivo?'si':'no')+'</label></td>'
-        +'<td style="padding:8px 6px">'+(u.Ruolo==='admin'
-          ?'<span style="font-size:12px;color:var(--gray)">sempre (admin)</span>'
+        +(!vedoCont?'</tr>':'<td style="padding:8px 6px">'+(u.Titolare||(!(STATE.utente||{}).HaTitolare&&u.Ruolo==='admin')
+          ?'<span style="font-size:12px;color:var(--gray)">sempre ('+(u.Titolare?'titolare':'admin')+')</span>'
           :('<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" style="width:18px;height:18px;accent-color:var(--accent)" '
-            +(u.Contabilita?'checked':'')+' onchange="sessRegola(\''+esc(u.Email)+'\',\'contabilita\',this.checked)"> '+(u.Contabilita?'si':'no')+'</label>'))+'</td></tr>';
+            +(u.Contabilita?'checked':'')+' onchange="sessRegola(\''+esc(u.Email)+'\',\'contabilita\',this.checked)"> '+(u.Contabilita?'si':'no')+'</label>'))+'</td></tr>');
     }).join('')+'</table>'
     +'<div style="font-size:12px;color:var(--gray);margin-top:10px;line-height:1.5">Le regole valgono subito, entro un minuto, anche per chi e&#39; gia&#39; dentro. '
     +'"Un dispositivo alla volta": se lo stesso utente entra da un secondo telefono o PC, sul primo esce.</div></div>';
@@ -1319,7 +1329,8 @@ async function call(fn, args) {
         }
         UTENTE_CORRENTE = { Email: righe[0].email, Nome: righe[0].nome || righe[0].email,
                             Ruolo: righe[0].ruolo || "operator", autorizzato: true,
-                            Contabilita: righe[0].contabilita === true };
+                            Contabilita: righe[0].contabilita === true,
+                            Titolare: righe[0].titolare === true, HaTitolare: righe[0].titolare !== undefined };
         try { localStorage.setItem("at_utente", JSON.stringify(UTENTE_CORRENTE)); } catch (e) {}
         return UTENTE_CORRENTE;
       }
@@ -1586,7 +1597,8 @@ async function call(fn, args) {
     const regoleDi = function (u) {
       const im = parseInt(u && u.inattivita_min, 10);
       return { inattivita_min: isNaN(im) ? 0 : im, un_dispositivo: !!(u && u.un_dispositivo === true),
-               contabilita: !!(u && u.contabilita === true) };
+               contabilita: !!(u && u.contabilita === true),
+               titolare: !!(u && u.titolare === true), haTitolare: !!(u && u.titolare !== undefined) };
     };
     if (fn === "sessioneApri") {
       if (!UTENTE_CORRENTE || !UTENTE_CORRENTE.Email) return { ok: false, err: "Nessun utente." };
@@ -1654,6 +1666,16 @@ async function call(fn, args) {
         const filtro = args.id ? ("id=eq." + encodeURIComponent(args.id))
                                : ("email=eq." + encodeURIComponent(args.email || ""));
         if (!args.id && !args.email) return { ok: false, err: "Manca la sessione da chiudere." };
+        const io = UTENTE_CORRENTE || {};
+        if (io.HaTitolare && !io.Titolare) {
+          // le sessioni del titolare le chiude solo lui
+          let chi = args.email || "";
+          if (args.id) { const sx = await sbGet("sessioni", "select=email&id=eq." + encodeURIComponent(args.id)); chi = sx.length ? sx[0].email : ""; }
+          if (chi && chi !== io.Email) {
+            const t = await sbGet("utenti", "select=titolare&email=eq." + encodeURIComponent(chi));
+            if (t.length && t[0].titolare === true) return { ok: false, err: "Le sessioni del titolare le chiude solo lui." };
+          }
+        }
         const r = await sbPatch("sessioni", filtro + "&stato=eq.attiva", agg);
         return { ok: true, chiuse: (r || []).length };
       } catch (e) {
@@ -1706,11 +1728,23 @@ async function call(fn, args) {
           Chiusa: r.chiusa_il, Motivo: r.motivo_chiusura || "", ChiusaDa: r.chiusa_da || "" })),
         utenti: utenti.map(u => Object.assign({ Email: u.email, Nome: u.nome || u.email, Ruolo: u.ruolo || "operator",
           Attivo: u.attivo !== false, HaColonne: (u.inattivita_min !== undefined && u.un_dispositivo !== undefined),
-          Contabilita: u.contabilita === true, HaColCont: u.contabilita !== undefined },
+          Contabilita: u.contabilita === true, HaColCont: u.contabilita !== undefined,
+          Titolare: u.titolare === true },
           { Inattivita: regoleDi(u).inattivita_min, UnDispositivo: regoleDi(u).un_dispositivo }))
       };
     }
     if (fn === "salvaRegoleSessione") {
+      const io = UTENTE_CORRENTE || {};
+      if (io.HaTitolare && !io.Titolare) {
+        // chi non e' il titolare non decide niente sulla contabilita', e non tocca le regole del titolare
+        if (args.contabilita !== undefined)
+          return { ok: false, err: "Chi vede la contabilita' lo decide solo il titolare." };
+        try {
+          const t = await sbGet("utenti", "select=titolare&email=eq." + encodeURIComponent(args.email || ""));
+          if (t.length && t[0].titolare === true)
+            return { ok: false, err: "Le regole del titolare le cambia solo lui." };
+        } catch (e) { return { ok: false, err: String((e && e.message) || e) }; }
+      }
       const agg = {};
       if (args.inattivita_min !== undefined) agg.inattivita_min = parseInt(args.inattivita_min, 10) || 0;
       if (args.un_dispositivo !== undefined) agg.un_dispositivo = !!args.un_dispositivo;
@@ -3567,7 +3601,8 @@ async function doLogin(){
     const u=rows[0];
     if(u.password!==pwd){err.textContent="Password errata.";return;}
     if(!u.attivo){err.textContent="Account disabilitato.";return;}
-    UTENTE_CORRENTE={Email:u.email,Nome:u.nome||u.email,Ruolo:u.ruolo||"operator",autorizzato:true,Contabilita:u.contabilita===true};
+    UTENTE_CORRENTE={Email:u.email,Nome:u.nome||u.email,Ruolo:u.ruolo||"operator",autorizzato:true,Contabilita:u.contabilita===true,
+      Titolare:u.titolare===true,HaTitolare:u.titolare!==undefined};
     localStorage.setItem("at_utente",JSON.stringify(UTENTE_CORRENTE));
     // login nuovo = sessione nuova, mai quella di prima
     try{localStorage.removeItem("at_sessione");}catch(e){}
