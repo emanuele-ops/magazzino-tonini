@@ -17675,7 +17675,7 @@ async function salvaOnline(come){
     if(come==="a mano"||come==="prima di chiudere"||come==="in uscita") SOLO_A_MANO=false;
     /* niente "tutto salvato" a cieco: se l'archivio e' cambiato mentre salvavo, resta da salvare */
     let cambiato=false; try{ cambiato=JSON.stringify(D)!==testo; }catch(e){ cambiato=true; }
-    SPORCO=cambiato;
+    SPORCO=cambiato; CONTA_SALVI++;
     SALVO_ORA=false; aggiornaBarra(); try{disegnaStriscia();}catch(e){}
     toast("Salvato alle "+ULTIMO_SALVA.slice(11)+(come&&come!=="a mano"?" ("+come+")":"")
       +(cambiato?" · nel frattempo hai cambiato altro: lo salvo fra poco":""));
@@ -17855,7 +17855,7 @@ async function aggiornaDalMagazzino(silenzioso){
      l'elaborazione e' tutta di seguito, senza attese, quindi un tuo clic non ci si puo' infilare.
      (Prima lo fotografavo all'inizio: se modificavi qualcosa mentre il magazzino rispondeva,
      a fine lettura la tua modifica risultava "gia' salvata".) */
-  let SPORCO_PRIMA=SPORCO;
+  let SPORCO_PRIMA=SPORCO; const salviPrima=CONTA_SALVI;
   /* i messaggi delle funzioni di import li tengo da parte invece di mostrarli: se uno e'
      un errore, lo dico io, e non segno l'import come fatto */
   const msg=[];
@@ -17873,6 +17873,8 @@ async function aggiornaDalMagazzino(silenzioso){
        che non si confonde. */
     righe=righe.map(o=>{ if(!o||!Object.prototype.hasOwnProperty.call(o,"categoria / cod. fornitore")) return o;
       const x={}; Object.keys(o).forEach(k=>{ x[k==="categoria / cod. fornitore"?"categoria / cod. forn.":k]=o[k]; }); return x; });
+    /* 0. le commesse: prima di tutto, cosi' i consumi trovano gia' i codici giusti */
+    try{ await sincronizzaCommesse(esito); }catch(e){ console.error(e); esito.commErr=(e&&e.message)||String(e); }
     const tipo=o=>String(o["tipo riga"]||"").toLowerCase();
     const mat=righe.filter(o=>/materiale/.test(tipo(o))), ore=righe.filter(o=>/manodopera/.test(tipo(o))), altre=righe.filter(o=>/altra/.test(tipo(o)));
     const imp=o=>n(String(o["importo eur"]==null?"":o["importo eur"]));
@@ -17960,12 +17962,6 @@ async function aggiornaDalMagazzino(silenzioso){
       const pronte=(STAGV&&STAGV.righe||[]).filter(r=>r.prendi).length;
       if(pronte) esito.altre=pronte; else STAGV=null;
     }
-    /* 4. le commesse prendono il nome e il cliente scritti nel magazzino */
-    try{ PONTE.commesse().forEach(c=>{
-      const d=(D.destinazioni||[]).find(x=>x.nome===c.ID||x.codice===c.ID); if(!d) return;
-      const desc=[c.Nome&&c.Nome!==c.ID?c.Nome:"",c.Cliente||""].filter(Boolean).join(" — ");
-      if(desc&&(!d.descrizione||/^creata (dall|dalle)/i.test(d.descrizione))&&d.descrizione!==desc){ d.descrizione=desc; esito.commesse++; } });
-      }catch(e){}
     if(!IM.fornitoreGiusto){ esito.primaVoltaForn=esito.cambiati; IM.fornitoreGiusto=adesso(); }
     IM.quando=adesso();
     esito.proposte=Math.max(0,pendenti()-pendPrima);
@@ -17973,18 +17969,28 @@ async function aggiornaDalMagazzino(silenzioso){
   finally{
     toast=toastVero; SYNC_ORA=false; if(btn){ btn.disabled=false; btn.textContent="↻ Aggiorna dal magazzino"; }
     /* da salvare resta quello che era gia' da salvare prima di leggere il magazzino */
-    SPORCO=SPORCO_PRIMA;
+    /* se nel frattempo e' partito un salvataggio, vale quello che ha detto lui */
+    if(CONTA_SALVI===salviPrima) SPORCO=SPORCO_PRIMA||!!esito.commToccate;
+    else if(esito.commToccate) SPORCO=true;
     if(!SPORCO){ clearTimeout(TIMER_ONLINE); TIMER_ONLINE=null; }
     try{ aggiornaBarra(); }catch(e){}
   }
   /* se qualcosa e' sparito dal magazzino apro la solita revisione, con solo quelli */
   if(esito.revisione){ try{ zitto=false; window.mostraRevisioneMag(esito.revisione); }catch(e){ console.error(e); } delete esito.revisione; }
   try{ ricalcola(); render(); }catch(e){}
+  /* il materiale in attesa si rilegge insieme al resto */
+  try{ if(!esito.errore&&typeof crAttesaCarica==="function") crAttesaCarica(true); }catch(e){}
   const parti=[];
   if(esito.nuovi) parti.push(esito.nuovi+" consumi nuovi");
   if(esito.cambiati) parti.push(esito.cambiati+" corretti"+(esito.primaVoltaForn?" (solo questa volta: ho messo il fornitore giusto, prima veniva letto dalla colonna sbagliata)":""));
   if(esito.ore) parti.push("ore aggiornate");
-  if(esito.commesse) parti.push(esito.commesse+" commesse con il nome dal magazzino");
+  if(esito.commNuove) parti.push(esito.commNuove+" commesse nuove dal magazzino");
+  if(esito.commRinominate) parti.push(esito.commRinominate+" commesse con il codice cambiato (conti spostati)");
+  if(esito.commCambiate) parti.push(esito.commCambiate+" commesse aggiornate (nome o stato)");
+  if(esito.commTolte) parti.push(esito.commTolte+" commesse tolte dal magazzino");
+  if(esito.commMandate) parti.push(esito.commMandate+" modifiche di commesse portate nel magazzino");
+  if(esito.commOrfane&&esito.commOrfane.length) setTimeout(()=>toast("Tolte dal magazzino ma qui hanno dei conti, quindi restano solo in contabilità: "+esito.commOrfane.join(", ")),5000);
+  try{ if((_imC().daDecidere||[]).length) setTimeout(apriDecisioneCommesse,600); }catch(e){}
   if(esito.proposte) parti.push(esito.proposte+" abbinamenti con le fatture da confermare in «Associazioni»");
   if(esito.errore) toast("Non riesco a leggere il magazzino: "+esito.errore);
   else if(esito.daVedere) toast((parti.length?"Dal magazzino: "+parti.join(", ")+". ":"")+esito.daVedere+" consumi non ci sono più nel magazzino (annullati o cancellati): li vedi qui, decidi tu se toglierli.");
@@ -18087,6 +18093,208 @@ function dopoDecisione(p){
 { const _dv=decidi, _dmv=decidiMuto;
   decidi=function(i,v){ const p=(D.proposte||[])[i]; const r=_dv.apply(this,arguments); dopoDecisione(p); return r; };
   decidiMuto=function(i,v){ const p=(D.proposte||[])[i]; const r=_dmv.apply(this,arguments); dopoDecisione(p); return r; };
+}
+
+/* ================= COMMESSE: UN'ANAGRAFICA SOLA COL MAGAZZINO =================
+   Le commesse sono le stesse di qua e di la'. Il magazzino e' il posto dove stanno:
+   - commessa nuova, nome, cliente, stato cambiati nel magazzino  -> cambiano anche qui
+   - codice cambiato nel magazzino -> qui si spostano TUTTI i conti dal codice vecchio al nuovo
+   - commessa creata, rinominata, cambiata o tolta qui -> la stessa cosa succede nel magazzino
+     (passando dalle funzioni del magazzino, che spostano anche movimenti, ore, pezzi...)
+   Restano SOLO in contabilita' le voci che non sono commesse: i contenitori fra parentesi e
+   quelle di natura accessorio, da spartire, pluriennale, altra societa', magazzino.
+   Una commessa tolta qui ma che nel magazzino ha movimenti, nel magazzino resta (e quindi torna
+   anche qui): il magazzino non si rompe mai. */
+let SYNC_COMM=false, FLUSH_ORA=null, CONTA_SALVI=0;
+const NAT_SOLO_CONT=["accessorio","da_ribaltare","pluriennale","altra_societa","magazzino"];
+function _imC(){ D.config.magazzinoDiretta=D.config.magazzinoDiretta||{}; return D.config.magazzinoDiretta; }
+function _dest(nome){ return (D.destinazioni||[]).find(x=>x.nome===nome); }
+function _descAuto(t){ return !String(t||"").trim()||/^creata (dall|dalle|dai)/i.test(String(t)); }
+function commessaCondivisa(d){
+  if(!d||d.tipo!=="commessa") return false; const nm=String(d.nome||"").trim();
+  if(!nm||nm.startsWith("(")) return false;
+  if(NAT_SOLO_CONT.includes(d.natura)) return false;
+  return !(_imC().soloContabilita||[]).includes(nm);
+}
+function _tipoMag(d){ return (["interna","extra_utile"].includes(d.natura)||/^I\d/i.test(d.nome))?"interna":"cliente"; }
+function _statoMag(nome){ const s=statoDi(nome); return s==="offerta"?"offerta":(s==="chiusa"||s==="persa")?"chiusa":"in_lavorazione"; }
+function _statoCompat(m,a){ if(!a) return true; return m==="offerta"?a==="offerta":m==="chiusa"?(a==="chiusa"||a==="persa"):["lavorazione","consegnata","sospesa"].includes(a); }
+function _statoAcc(m,a){ return m==="offerta"?"offerta":m==="chiusa"?((a==="persa"||a==="offerta")?"persa":"chiusa"):(["lavorazione","consegnata","sospesa"].includes(a)?a:"lavorazione"); }
+function _usata(nome){ const eq=x=>x===nome;
+  return (D.imputazioni||[]).some(i=>eq(i.destinazione))||(D.ricavi||[]).some(r=>eq(r.destinazione))||(D.ore||[]).some(o=>eq(o.commessa))
+    ||(D.oreDettaglio||[]).some(o=>eq(o.commessa))||(D.magazzino||[]).some(m=>eq(m.commessa))||(D.rettifiche||[]).some(r=>eq(r.destinazione)); }
+function _viste(){ const IM=_imC(); return new Set(Array.isArray(IM.commesseViste)?IM.commesseViste:[]); }
+function _segnaViste(togli,metti){ const IM=_imC(); if(!Array.isArray(IM.commesseViste)) return; const S=new Set(IM.commesseViste);
+  (togli||[]).forEach(x=>S.delete(x)); (metti||[]).forEach(x=>S.add(x)); IM.commesseViste=[...S]; }
+
+/* sposta tutti i conti da un codice a un altro (quello che fa il magazzino quando rinomina) */
+function applicaRinomina(da,a){
+  if(!da||!a||da===a) return false;
+  const vecchia=_dest(da); if(!vecchia) return false;
+  const NO=new Set(["log","azioni","destinazioni","catalogo","mappingArticoli","mappingFornitori","config","ultimiImport"]);
+  Object.keys(D).forEach(k=>{ if(NO.has(k)||!Array.isArray(D[k])) return;
+    D[k].forEach(o=>{ if(!o||typeof o!=="object") return;
+      if(o.commessa===da) o.commessa=a; if(o.destinazione===da) o.destinazione=a; }); });
+  const M=D.mappaCommesse||{}; Object.keys(M).forEach(k=>{ if(M[k]===da) M[k]=a; }); if(M[da]===a) delete M[da];
+  const nuova=_dest(a);
+  if(nuova){ ["descrizione","natura","stato","preventivo","ricavoAtteso","costoAtteso","cliente","etc","storiaStati"].forEach(c=>{
+      if((nuova[c]==null||nuova[c]==="")&&vecchia[c]!=null&&vecchia[c]!=="") nuova[c]=vecchia[c]; });
+    D.destinazioni=D.destinazioni.filter(x=>x!==vecchia); }
+  else { vecchia.nome=a; vecchia.codice=a; }
+  (D.log=D.log||[]).push({quando:adesso(),cosa:"commessa "+da+" → "+a+" (cambiata nel magazzino): spostati qui tutti i conti"+(nuova?", unita a quella che c'era":"")});
+  return true;
+}
+
+/* ---- le modifiche fatte qui vanno nel magazzino (in coda: se la rete cade, riprovo) ---- */
+function accoda(op){ if(SYNC_COMM||!D) return; const IM=_imC(); IM.daMandare=IM.daMandare||[]; IM.daMandare.push(op); sporca(); setTimeout(()=>mandaAlMagazzino(false),50); }
+async function mandaAlMagazzino(zitto){
+  if(!PONTE||!PONTE.commessa||!D) return;
+  if(FLUSH_ORA) return FLUSH_ORA;
+  FLUSH_ORA=(async()=>{
+    const IM=_imC(); let fatti=0; const avvisi=[];
+    while((IM.daMandare||[]).length){
+      const op=IM.daMandare[0]; let r=null;
+      try{
+        if(op.op==="crea"){ const d=_dest(op.nome);
+          if(d&&commessaCondivisa(d)){ r=await PONTE.commessa.crea({ID:d.nome,Nome:_descAuto(d.descrizione)?"":d.descrizione,Cliente:d.cliente||"",Stato:_statoMag(d.nome),Tipo:_tipoMag(d)});
+            if(r&&r.ok!==false) _segnaViste([],[d.nome]); } else r={ok:true}; }
+        else if(op.op==="modifica"){ r=await PONTE.commessa.modifica(op.nome,op.campi); if(r&&r.manca) r={ok:true}; }
+        else if(op.op==="rinomina"){ r=await PONTE.commessa.rinomina(op.da,op.a); if(r&&r.manca) r={ok:true};
+          if(r&&r.ok!==false) _segnaViste([op.da],[op.a]); }
+        else if(op.op==="elimina"){ r=await PONTE.commessa.elimina(op.nome);
+          if(r&&r.usata){ avvisi.push("«"+op.nome+"» nel magazzino resta: "+r.err.replace(/^nel magazzino /,"")+". Quindi torna anche qui."); r={ok:true}; }
+          else if(r&&r.ok!==false) _segnaViste([op.nome],[]); }
+        else r={ok:true};
+      }catch(e){ r={ok:false,err:(e&&e.message)||String(e)}; }
+      if(!r||r.ok===false){ if(!zitto) toast("Non riesco ad aggiornare la commessa nel magazzino ("+((r&&r.err)||"errore")+"): riprovo al prossimo aggiornamento."); break; }
+      IM.daMandare.shift(); fatti++;
+    }
+    if(fatti) sporca();
+    avvisi.forEach((a,i)=>setTimeout(()=>toast(a),400+i*4500));
+    return fatti;
+  })();
+  try{ return await FLUSH_ORA; } finally{ FLUSH_ORA=null; }
+}
+{ const _cd=creaDest, _sd=setDest, _ss=setStato, _sp=spostaEpoiElimina, _et=eliminaTutto, _ed=eliminaDest, _cc=clienteDiCommessa;
+  creaDest=function(nome,descrizione){ const c=String(nome||"").trim(); const prima=!!(D.destinazioni||[]).find(d=>String(d.nome).toLowerCase()===c.toLowerCase());
+    const r=_cd.apply(this,arguments); if(r&&!prima&&commessaCondivisa(_dest(r))&&!_viste().has(r)) accoda({op:"crea",nome:r}); return r; };
+  setDest=function(nome,campo,v){
+    const d=_dest(nome); const legata=!!d&&_viste().has(nome)&&commessaCondivisa(d);
+    const primaD=d?d.descrizione:"";
+    _sd.apply(this,arguments);
+    if(!legata) return;
+    if(campo==="nome"){ const nuovo=String(v||"").trim(); if(nuovo&&nuovo!==nome&&_dest(nuovo)) accoda({op:"rinomina",da:nome,a:nuovo}); }
+    else if(campo==="descrizione"&&(d.descrizione||"")!==(primaD||"")) accoda({op:"modifica",nome,campi:{Nome:d.descrizione||nome}});
+  };
+  setStato=function(nome,v,silenzioso){
+    const prima=statoDi(nome); _ss.apply(this,arguments);
+    const d=_dest(nome); if(d&&statoDi(nome)!==prima&&_viste().has(nome)&&commessaCondivisa(d)) accoda({op:"modifica",nome,campi:{Stato:_statoMag(nome)}});
+  };
+  spostaEpoiElimina=function(){
+    const E=POP_ELIM, nLog=(D.log||[]).length; const legata=!!E&&_viste().has(E.nome)&&commessaCondivisa(_dest(E.nome));
+    _sp.apply(this,arguments);
+    if(!E||!legata||_dest(E.nome)) return;
+    const riga=(D.log||[]).slice(nLog).map(x=>x.cosa||"").find(c=>c.indexOf("commessa "+E.nome+" tolta: movimenti spostati su ")===0);
+    const dove=riga?riga.slice(("commessa "+E.nome+" tolta: movimenti spostati su ").length).replace(/ \(.*$/,""):"";
+    if(dove) accoda({op:"rinomina",da:E.nome,a:dove});
+  };
+  eliminaTutto=function(){ const E=POP_ELIM; const legata=!!E&&_viste().has(E.nome)&&commessaCondivisa(_dest(E.nome));
+    _et.apply(this,arguments); if(E&&legata&&!_dest(E.nome)) accoda({op:"elimina",nome:E.nome}); };
+  eliminaDest=function(nome){ const legata=_viste().has(nome)&&commessaCondivisa(_dest(nome));
+    _ed.apply(this,arguments); if(legata&&!_dest(nome)) accoda({op:"elimina",nome}); };
+  /* il cliente scritto nel magazzino vale quando non c'e' ancora una fattura che lo dica */
+  clienteDiCommessa=function(comm){ const r=_cc.apply(this,arguments); if(r) return r; const d=_dest(risolvi(comm))||_dest(comm); return (d&&d.cliente)||""; };
+}
+
+/* ---- il magazzino -> qui (e la prima volta, cosa fare con quelle che ci sono solo qui) ---- */
+async function sincronizzaCommesse(esito){
+  if(!D||!PONTE||typeof PONTE.commesse!=="function") return;
+  const IM=_imC(); let cambiate=false;
+  await mandaAlMagazzino(true);
+  SYNC_COMM=true;
+  try{
+    /* 1. i codici cambiati nel magazzino */
+    if(typeof PONTE.rinomine==="function"){
+      let L=[]; try{ L=await PONTE.rinomine(); }catch(e){}
+      const W0=new Set(PONTE.commesse().map(c=>c.ID));
+      L.filter(ev=>ev&&ev.quando&&(!IM.rinomineFino||ev.quando>IM.rinomineFino)).sort((a,b)=>String(a.quando).localeCompare(String(b.quando)))
+        .forEach(ev=>{ if(!W0.has(ev.da)&&applicaRinomina(ev.da,ev.a)){ esito.commRinominate=(esito.commRinominate||0)+1; cambiate=true; }
+          IM.rinomineFino=ev.quando; });
+    }
+    const W=PONTE.commesse(), perId={}; W.forEach(c=>perId[c.ID]=c);
+    const primaVolta=!Array.isArray(IM.commesseViste), viste=_viste();
+    const inCoda=new Set((IM.daMandare||[]).map(o=>o.nome||o.da||o.a));
+    const legateAlias=new Set();
+    /* 2. ogni commessa del magazzino */
+    W.forEach(c=>{
+      if(!c.ID||String(c.ID).startsWith("(")) return;
+      let d=_dest(c.ID);
+      if(!d){ const r=risolvi(c.ID); if(r!==c.ID&&_dest(r)){ legateAlias.add(r); return; } }
+      const wn=(c.Nome&&c.Nome!==c.ID)?String(c.Nome).trim():"";
+      if(!d){
+        D.destinazioni=D.destinazioni||[];
+        d={nome:c.ID,tipo:"commessa",codice:c.ID,descrizione:wn,cliente:c.Cliente||"",
+           natura:c.Tipo==="interna"?"interna":(c.Stato==="offerta"?"offerta":"produttiva")};
+        D.destinazioni.push(d);
+        if(c.Tipo!=="interna"){ d.stato=_statoAcc(c.Stato,""); d.storiaStati=[{stato:d.stato,quando:oggi()}]; }
+        esito.commNuove=(esito.commNuove||0)+1; cambiate=true; return;
+      }
+      if(inCoda.has(c.ID)||!commessaCondivisa(d)) return;
+      if(wn&&wn!==(d.descrizione||"")){ d.descrizione=wn; esito.commCambiate=(esito.commCambiate||0)+1; cambiate=true; }
+      else if(!wn&&!_descAuto(d.descrizione)){ IM.daMandare=IM.daMandare||[]; IM.daMandare.push({op:"modifica",nome:c.ID,campi:{Nome:d.descrizione}}); cambiate=true; }
+      if((c.Cliente||"")!==(d.cliente||"")){ d.cliente=c.Cliente||""; cambiate=true; }
+      if(haCicloDiVita(d.nome)){ const a=statoDi(d.nome);
+        if(!_statoCompat(c.Stato,a)){
+          if(primaVolta&&d.stato){ IM.daMandare=IM.daMandare||[]; IM.daMandare.push({op:"modifica",nome:c.ID,campi:{Stato:_statoMag(d.nome)}}); }
+          else { setStato(d.nome,_statoAcc(c.Stato,a),true); esito.commCambiate=(esito.commCambiate||0)+1; }
+          cambiate=true; } }
+    });
+    /* 3. quelle che ci sono solo qui */
+    const daDecidere=new Set(IM.daDecidere||[]); const nuoveRev=[];
+    (D.destinazioni||[]).slice().forEach(d=>{
+      if(!commessaCondivisa(d)||perId[d.nome]||legateAlias.has(d.nome)||inCoda.has(d.nome)) return;
+      if(daDecidere.has(d.nome)) return;
+      if(!primaVolta&&viste.has(d.nome)){
+        /* tolta nel magazzino */
+        if(!_usata(d.nome)){ D.destinazioni=D.destinazioni.filter(x=>x!==d); esito.commTolte=(esito.commTolte||0)+1; }
+        else { IM.soloContabilita=(IM.soloContabilita||[]).concat([d.nome]); (esito.commOrfane=esito.commOrfane||[]).push(d.nome); }
+        cambiate=true; return; }
+      if(primaVolta){ daDecidere.add(d.nome); nuoveRev.push(d.nome); cambiate=true; return; }
+      IM.daMandare=IM.daMandare||[]; IM.daMandare.push({op:"crea",nome:d.nome}); cambiate=true;
+    });
+    IM.daDecidere=[...daDecidere].filter(n=>_dest(n));
+    IM.commesseViste=W.map(c=>c.ID);
+  } finally { SYNC_COMM=false; }
+  if((IM.daMandare||[]).length){ const k=await mandaAlMagazzino(true); if(k) esito.commMandate=(esito.commMandate||0)+k; }
+  if(cambiate) esito.commToccate=true;
+}
+
+/* la prima volta: le commesse che ci sono solo qui le metto nel magazzino? decidi tu */
+function apriDecisioneCommesse(){
+  if(!D) return;
+  const IM=_imC(); const L=(IM.daDecidere||[]).map(_dest).filter(Boolean); if(!L.length) return;
+  /* se c'e' gia' una finestra aperta (per esempio il cambio della password) aspetto che si chiuda */
+  if(document.getElementById("onlFin")&&document.getElementById("onlFin").innerHTML.trim()){ clearTimeout(window._tDecC); window._tDecC=setTimeout(apriDecisioneCommesse,3000); return; }
+  const sembra=d=>/^[CI]\d{4}[.\d]*$/i.test(d.nome)&&!_descAuto(d.descrizione);
+  finestraOnl("Commesse che ci sono solo in contabilità",
+    `<p style="margin-top:0">Da adesso le commesse sono <b>le stesse</b> nel magazzino e qui. Queste ${L.length} ci sono solo in contabilità.
+     Quelle spuntate le aggiungo anche al magazzino (con nome, cliente e stato); quelle senza spunta restano <b>solo qui</b>.</p>
+     <p class="muted" style="font-size:12.5px">Ho spuntato quelle che hanno un codice da commessa e un nome. Le commesse chiuse finiscono nel magazzino come «Chiusa».</p>
+     <div style="max-height:52vh;overflow:auto"><table class="mini" style="width:100%">${L.map(d=>`<tr>
+       <td><input type="checkbox" class="onlDecC" value="${esc(d.nome)}" ${sembra(d)?"checked":""} style="width:17px;height:17px"></td>
+       <td><b>${esc(d.nome)}</b></td><td>${esc(_descAuto(d.descrizione)?"":d.descrizione)}</td><td class="muted">${esc(LBL_STATO[statoDi(d.nome)]||"")}</td></tr>`).join("")}</table></div>
+     <div class="filters" style="margin-top:12px"><button class="btn btn-main btn-sm" onclick="decidiCommesse()">Conferma</button>
+       <button class="btn btn-ghost btn-sm" onclick="chiudiFinestraOnl()">Decido dopo</button></div>`);
+}
+function decidiCommesse(){
+  const IM=_imC(); const si=new Set([...document.querySelectorAll(".onlDecC")].filter(x=>x.checked).map(x=>x.value));
+  const tutte=[...document.querySelectorAll(".onlDecC")].map(x=>x.value);
+  IM.daMandare=IM.daMandare||[]; IM.soloContabilita=IM.soloContabilita||[];
+  tutte.forEach(nm=>{ if(si.has(nm)) IM.daMandare.push({op:"crea",nome:nm}); else if(!IM.soloContabilita.includes(nm)) IM.soloContabilita.push(nm); });
+  IM.daDecidere=(IM.daDecidere||[]).filter(nm=>!tutte.includes(nm));
+  (D.log=D.log||[]).push({quando:adesso(),cosa:"commesse: "+si.size+" aggiunte al magazzino, "+(tutte.length-si.size)+" restano solo in contabilità"});
+  sporca(); chiudiFinestraOnl();
+  mandaAlMagazzino(false).then(k=>toast(k?"Aggiunte al magazzino "+si.size+" commesse. Da adesso sono le stesse di qua e di là.":"Fatto."));
 }
 
 function chiaveAltraVoce(r){ return [r.data,r.fornitore,r.voce,n(r.importo).toFixed(2),r.commessa].join("~"); }
@@ -18270,5 +18478,481 @@ window.onbeforeunload=function(e){ if(D&&SPORCO){ e.preventDefault(); e.returnVa
 document.title="Contabilità — Atelier Tonini";
 
 schermataApertura();
+
+
+/* =====================================================================================
+   CRUSCOTTI (v146) — vedere a che punto e' ogni commessa senza cercare
+   A. scheda della commessa in una pagina    B. materiale in attesa (dal magazzino)
+   C. finestre che parlano anche da chiuse   D. il lunedi' mattina
+   E. lavori in corso                         F. schede affiancate        G. "i" sui numeri
+   Niente qui scrive nei conti: legge e mostra. Le uniche modifiche passano dalle
+   funzioni di sempre (preventivo, stato).
+   ===================================================================================== */
+let ATTESA={quando:0,righe:[],err:"",inCorso:null};
+let _crPrezzi=null;
+const CR_FERMO=60;          /* giorni oltre i quali il materiale prenotato e' "fermo" */
+function crAttesaCarica(forza){
+  if(!D||!PONTE||typeof PONTE.inAttesa!=="function") return Promise.resolve();
+  if(ATTESA.inCorso) return ATTESA.inCorso;
+  if(!forza&&ATTESA.quando&&Date.now()-ATTESA.quando<120000) return Promise.resolve();
+  const pagina=PAGINA;
+  ATTESA.inCorso=PONTE.inAttesa().then(L=>{ _crPrezzi=null; ATTESA.righe=(L||[]).map(crValuta); ATTESA.quando=Date.now(); ATTESA.err=""; })
+    .catch(e=>{ ATTESA.err=(e&&e.message)||String(e); })
+    .then(()=>{ ATTESA.inCorso=null;
+      try{ if(D&&PAGINA===pagina&&(["attesa","lunedi","wip"].includes(PAGINA)||/^area/.test(PAGINA)||(typeof PILA!=="undefined"&&PILA.length)||AFF.length)) render(); }catch(e){} });
+  return ATTESA.inCorso;
+}
+function crIndicePrezzi(){
+  const byCod={}, byNome={};
+  (D.fatture||[]).forEach(f=>{ if(f.sospetta||f.manuale) return; const q=n(f.qta), imp=n(f.importo); if(!(q>0)||!(imp>0)) return;
+    const pr={p:imp/q,um:String(f.um||"").toUpperCase().replace(/[^A-Z0-9]/g,""),data:String(f.data||"")};
+    const put=(M,k)=>{ if(!k) return; if(!M[k]||M[k].data<pr.data) M[k]=pr; };
+    put(byCod,String(f.codForn||"").trim()); put(byNome,SQ(f.articolo||"")); });
+  return {byCod,byNome};
+}
+/* il valore di quello che aspetta: importo della voce, prezzo sull'ordine, o l'ultima fattura di quell'articolo */
+function crValuta(x){
+  x=Object.assign({},x);
+  if(x.valore!=null&&x.valore>0){ x.prezzoDa="importo della voce"; return x; }
+  if(x.prezzo!=null&&x.prezzo>0){ x.valore=Math.round(x.prezzo*n(x.q)*100)/100; x.prezzoDa="prezzo sull'ordine"; return x; }
+  if(!_crPrezzi) _crPrezzi=crIndicePrezzi();
+  const pr=(x.codForn&&_crPrezzi.byCod[String(x.codForn).trim()])||_crPrezzi.byNome[SQ(x.materiale||"")]||null;
+  const um=String(x.unita||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const quadra=!pr||!/^M[23Q]|MC/.test(um)||/^(M2|MQ|M3|MC)/.test(pr.um);   /* a metri: serve un prezzo a metri */
+  if(pr&&quadra){ x.valore=Math.round(pr.p*n(x.q)*100)/100; x.prezzoDa="ultima fattura del "+dataIt(pr.data); }
+  else { x.valore=null; x.prezzoDa=""; }
+  return x;
+}
+function crAttesaDi(comm){ const r=risolvi(comm); return ATTESA.righe.filter(x=>risolvi(x.commessa)===r); }
+function crSomma(L,stato,soloFermi){ return L.filter(x=>(!stato||x.stato===stato)&&(!soloFermi||(x.stato==="prenotato"&&n(x.giorni)>CR_FERMO))).reduce((a,x)=>a+n(x.valore),0); }
+const CR_STATI={prenotato:["prenotato in magazzino","t-acc"],ordinato:["ordinato, non arrivato","t-amb"],da_ordinare:["ancora da ordinare","t-red"]};
+function crQta(x){ const v=n(x.q); return (Math.abs(v-Math.round(v))<0.0005?num0(v):v.toLocaleString("it-IT",{maximumFractionDigits:3}))+" "+(x.unita||""); }
+function crStatoAperto(nome){ const s=statoDi(nome); return s==="lavorazione"||s==="consegnata"||s==="sospesa"; }
+
+/* ---------- i numeri di una commessa: sempre gli stessi, per scheda, lavori in corso e lunedi' ---------- */
+function crNumeri(nome){
+  const c=risolvi(nome);
+  const d=(D.destinazioni||[]).find(x=>x.tipo==="commessa"&&risolvi(x.nome)===c)||{nome:c};
+  let r=null; try{ r=contoEconomico(null).righe.find(x=>x.commessa===c)||null; }catch(e){}
+  const speso=r?n(r.diretti):0, fatturato=r?n(r.ricavi):0;
+  const A=crAttesaDi(c);
+  const impegnato=crSomma(A,"prenotato")+crSomma(A,"ordinato"), daOrd=crSomma(A,"da_ordinare");
+  const senzaPrezzo=A.filter(x=>x.valore==null).length;
+  const finita=d.finita===true||statoDi(c)==="chiusa";
+  const budget=(d.costoAtteso!=null&&d.costoAtteso!=="")?n(d.costoAtteso):null;
+  const prezzo=(d.ricavoAtteso!=null&&d.ricavoAtteso!=="")?n(d.ricavoAtteso):null;
+  const previsto=finita?speso:(budget!=null?Math.max(budget,speso+impegnato+daOrd):null);
+  const manca=previsto!=null?Math.max(0,previsto-speso-impegnato):null;
+  const sopra=(budget!=null&&previsto!=null)?previsto-budget:null;
+  const avanz=finita?1:((previsto&&previsto>0)?Math.min(1,speso/previsto):null);
+  const fattPct=prezzo?Math.min(1.5,fatturato/prezzo):null;
+  const lavoroNonFatt=(avanz!=null&&prezzo)?avanz*prezzo-fatturato:null;
+  const utile=(prezzo!=null&&previsto!=null)?prezzo-previsto:null;
+  const p=d.preventivo||{};
+  const oreFatte=r?n(r.ore):0, orePrev=n(p.ore)||null;
+  const cliente=(()=>{ try{ return clienteDiCommessa(c)||d.cliente||""; }catch(e){ return d.cliente||""; } })();
+  let creditiAperti=0, creditiScaduti=0;
+  if(cliente){ try{ const o=oggi(); scadenzario().forEach(x=>{ if(x.verso!=="entrata"||x.pagato||SQ(x.chi)!==SQ(cliente)) return;
+    creditiAperti+=n(x.importo); if(x.scad&&x.scad<o) creditiScaduti+=n(x.importo); }); }catch(e){} }
+  return {nome:c,d,r,speso,fatturato,impegnato,daOrd,senzaPrezzo,budget,prezzo,previsto,manca,sopra,avanz,fattPct,lavoroNonFatt,utile,
+    utilePct:(utile!=null&&prezzo)?utile/prezzo:null,oreFatte,orePrev,cliente,creditiAperti,creditiScaduti,finita,
+    matSpeso:r?n(r.materiali):0,mdoSpeso:r?n(r.manodopera):0,
+    matPrev:(n(p.materiali)+n(p.esterni)+n(p.altri))||null,mdoPrev:n(p.ore)?n(p.ore)*costoOrario():null,
+    fermo:crSomma(A,null,true),attesa:A,stato:statoDi(c)};
+}
+/* perche' guardarla: i motivi, con l'effetto in euro */
+function crMotivi(N){
+  const M=[];
+  if(N.sopra!=null&&N.sopra>100) M.push({t:"sopra il preventivo",c:"t-red",e:-N.sopra,d:"costo previsto "+eur(N.previsto)+" contro "+eur(N.budget)+" di preventivo"});
+  if(N.lavoroNonFatt!=null&&N.lavoroNonFatt>2000&&!N.finita) M.push({t:"fattura in ritardo",c:"t-amb",e:N.lavoroNonFatt,d:"lavoro fatto "+Math.round(N.avanz*100)+"%, fatturato "+Math.round(N.fattPct*100)+"%"});
+  if(N.finita&&N.prezzo&&N.prezzo-N.fatturato>500) M.push({t:"finita, non tutta fatturata",c:"t-amb",e:N.prezzo-N.fatturato,d:"mancano "+eur(N.prezzo-N.fatturato)+" di fatture"});
+  if(N.orePrev&&N.oreFatte>N.orePrev*1.05) M.push({t:"ore oltre il previsto",c:"t-amb",e:-(N.oreFatte-N.orePrev)*costoOrario(),d:num0(N.oreFatte)+" ore su "+num0(N.orePrev)});
+  if(N.fermo>300) M.push({t:"materiale fermo",c:"t-acc",e:N.fermo,d:"prenotato da piu' di "+CR_FERMO+" giorni"});
+  if(N.creditiScaduti>100) M.push({t:"incasso scaduto",c:"t-red",e:N.creditiScaduti,d:"il cliente "+N.cliente+" ha "+eur(N.creditiScaduti)+" scaduti"});
+  if(N.budget==null&&!N.finita&&crStatoAperto(N.nome)) M.push({t:"senza preventivo",c:"t-gry",e:0,d:"senza preventivo non si vede se va sopra o sotto"});
+  return M;
+}
+const crE=v=>v==null?'<span class="muted">—</span>':eur(v);
+const crBarra=(f,col)=>`<div style="background:#eee7db;border-radius:5px;height:9px;min-width:80px"><div style="width:${Math.max(0,Math.min(100,Math.round((f||0)*100)))}%;height:9px;border-radius:5px;background:${col||"var(--accent)"}"></div></div>`;
+
+/* ---------------------------------------------------------------- A. la scheda della commessa */
+function apriSchedaCommessa(nome){
+  const c=risolvi(nome);
+  crAttesaCarica();
+  apriDrawer("Commessa "+c,()=>crScheda(c));
+}
+function crScheda(c){
+  const N=crNumeri(c), d=N.d, M=crMotivi(N);
+  const st=N.stato, lbl=(typeof LBL_STATO!=="undefined"&&LBL_STATO[st])||st||"";
+  const cell=(l,v,col,tip)=>`<div class="kpi" style="cursor:default" title="${att(tip||"")}"><div class="et">${l}</div><div class="val" style="font-size:15.5px;white-space:nowrap${col?";color:"+col:""}">${v}</div></div>`;
+  const perMob={}; N.attesa.forEach(x=>{ const k=x.mobile||"(senza mobile)"; (perMob[k]=perMob[k]||[]).push(x); });
+  return `<p class="muted" style="margin:0 0 6px">${esc(descComm(c)||d.descrizione||"")}${N.cliente?" · cliente <b>"+esc(N.cliente)+"</b>":""}</p>
+  <div class="filters" style="margin:4px 0 8px">${lbl?`<span class="tag ${(typeof COLORE_STATO!=="undefined"&&COLORE_STATO[st])||"t-gry"}">${esc(lbl)}</span>`:""}
+    ${M.map(m=>`<span class="tag ${m.c}" title="${att(m.d)}">${esc(m.t)}</span>`).join(" ")}
+    <span style="flex:1"></span>
+    <button class="btn btn-ghost btn-sm" onclick="apriPreventivo('${att(c)}')">Preventivo ›</button></div>
+  ${N.avanz!=null?`<div class="muted" style="font-size:12.5px">Lavoro fatto <b>${Math.round(N.avanz*100)}%</b> (speso ÷ costo previsto)${N.fattPct!=null?` · fatturato <b>${Math.round(N.fattPct*100)}%</b> del prezzo`:""}</div>
+    <div style="display:flex;height:18px;border-radius:5px;overflow:hidden;border:1px solid var(--border);margin:5px 0 10px;font-size:10.5px;color:#fff;font-weight:600">
+      <div style="width:${Math.round(N.speso/N.previsto*100)}%;background:#8a6040;display:flex;align-items:center;justify-content:center;overflow:hidden">speso</div>
+      <div style="width:${Math.round(N.impegnato/N.previsto*100)}%;background:#2d5d86;display:flex;align-items:center;justify-content:center;overflow:hidden">impegnato</div>
+      <div style="flex:1;background:#eee7db"></div></div>`:""}
+  <div class="kpiG" style="grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:6px 0">
+    ${cell("Preventivo costi",crE(N.budget),"","Il costo previsto scritto nel preventivo della commessa")}
+    ${cell("Speso finora",eur(N.speso),"","Materiali, lavorazioni e ore già sulla commessa, tutta la sua vita")}
+    ${cell("Impegnato",eur(N.impegnato),"#2d5d86","Prenotato in magazzino + ordinato e non ancora arrivato: soldi già decisi ma non ancora in fattura")}
+    ${cell("Da ordinare",eur(N.daOrd),"","Richieste nel magazzino non ancora ordinate")}
+    ${cell("Previsto a finire",crE(N.previsto),"","Il più alto fra il preventivo e speso + impegnato + da ordinare")}
+    ${cell("Sopra / sotto",N.sopra==null?'<span class="muted">—</span>':(N.sopra>0?"+":"")+eur(N.sopra),N.sopra>100?"var(--red)":"var(--green)","Previsto a finire meno preventivo: più di zero vuol dire che sfora")}
+  </div>
+  <div class="kpiG" style="grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:6px 0 12px">
+    ${cell("Prezzo",crE(N.prezzo),"","Il ricavo del preventivo")}
+    ${cell("Fatturato",eur(N.fatturato),"","Fatture emesse su questa commessa")}
+    ${cell("Da fatturare",N.prezzo!=null?eur(Math.max(0,N.prezzo-N.fatturato)):'<span class="muted">—</span>',"","Prezzo meno fatturato")}
+    ${cell("Da incassare",N.cliente?eur(N.creditiAperti):'<span class="muted">—</span>',N.creditiScaduti>0?"var(--red)":"","Tutte le fatture aperte del cliente "+N.cliente+(N.creditiScaduti?", di cui scadute "+eur(N.creditiScaduti):""))}
+    ${cell("Utile previsto",N.utile==null?'<span class="muted">—</span>':eur(N.utile)+(N.utilePct!=null?` <span style="font-size:12px" class="muted">${Math.round(N.utilePct*1000)/10}%</span>`:""),N.utile!=null&&N.utile<0?"var(--red)":"","Prezzo meno previsto a finire, prima delle spese comuni")}
+  </div>
+  <div class="tw" style="max-height:none"><table><thead><tr><th>Voce</th><th class="num">Preventivo</th><th class="num">Speso</th><th class="num">Uso</th></tr></thead><tbody>
+    <tr><td>Materiali e lavorazioni</td><td class="num">${crE(N.matPrev)}</td><td class="num">${eur(N.matSpeso)}</td><td>${N.matPrev?crBarra(N.matSpeso/N.matPrev,N.matSpeso>N.matPrev?"var(--red)":""):""}</td></tr>
+    <tr><td>Manodopera <span class="muted">· ${num0(N.oreFatte)} ore${N.orePrev?" su "+num0(N.orePrev):""}</span></td><td class="num">${crE(N.mdoPrev)}</td><td class="num">${eur(N.mdoSpeso)}</td><td>${N.mdoPrev?crBarra(N.mdoSpeso/N.mdoPrev,N.mdoSpeso>N.mdoPrev?"var(--red)":""):""}</td></tr>
+  </tbody></table></div>
+  <h4 style="margin:16px 0 6px">Materiale in attesa ${ATTESA.inCorso?'<span class="muted">· leggo dal magazzino…</span>':""}</h4>
+  ${ATTESA.err?`<p class="manca">Non riesco a leggere il magazzino: ${esc(ATTESA.err)}</p>`:""}
+  ${N.attesa.length?Object.keys(perMob).sort().map(k=>`<div style="margin:8px 0 2px;font-weight:600">${esc(k)} <span class="muted" style="font-weight:400">· ${eur(crSomma(perMob[k]))}</span></div>
+     ${perMob[k].slice(0,12).map(x=>`<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0;border-bottom:1px dashed var(--border)">
+        <span class="tag ${CR_STATI[x.stato][1]}">${CR_STATI[x.stato][0]}</span><span style="flex:1">${esc(x.materiale)}${x.pezzi?` <span class="muted">${esc(x.pezzi)}</span>`:""}</span>
+        <span class="mono">${esc(crQta(x))}</span><span class="mono" style="min-width:76px;text-align:right">${x.valore==null?'<span class="muted" title="non trovo un prezzo in fattura">—</span>':eur(x.valore)}</span>
+        ${x.stato==="prenotato"&&x.giorni!=null?`<span class="muted" style="min-width:52px;text-align:right${x.giorni>CR_FERMO?";color:var(--red)":""}">${x.giorni} gg</span>`:'<span style="min-width:52px"></span>'}</div>`).join("")}
+     ${perMob[k].length>12?`<div class="muted" style="font-size:12px">… e altre ${perMob[k].length-12}</div>`:""}`).join("")
+    :`<p class="muted">${ATTESA.quando?"Niente in attesa: tutto quello che è stato prenotato o ordinato è già stato usato.":"Leggo dal magazzino…"}</p>`}
+  <div class="filters" style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="fAtt.comm='${att(c)}';fAtt.mobile='';vaiE('attesa')">Tutto il materiale in attesa ›</button>
+    <button class="btn btn-ghost btn-sm" onclick="vaiE('wip')">Lavori in corso ›</button></div>`;
+}
+
+/* ---------------------------------------------------------------- B. il materiale in attesa */
+let fAtt={comm:"",mobile:"",stato:""};
+NUOVE.attesa=function(){
+  _REG=[]; crAttesaCarica();
+  const tutti=ATTESA.righe, L0=fAtt.comm?crAttesaDi(fAtt.comm):tutti;
+  const mobili=[...new Set(L0.map(x=>x.mobile||""))].sort();
+  const L=L0.filter(x=>(!fAtt.mobile||(x.mobile||"")===fAtt.mobile)&&(!fAtt.stato||x.stato===fAtt.stato));
+  const k=(et,v,sotto,col)=>`<div class="kpi" style="cursor:default"><div class="et">${et}</div><div class="val"${col?` style="color:${col}"`:""}>${v}</div><div class="sotto">${sotto}</div></div>`;
+  const perC={}; L.forEach(x=>{ const c=risolvi(x.commessa||"(senza commessa)"); (perC[c]=perC[c]||[]).push(x); });
+  const comms=[...new Set(tutti.map(x=>risolvi(x.commessa||"(senza commessa)")))].sort();
+  $("main").innerHTML=`<h1>Materiale in attesa</h1>
+  <p class="lead">Quello che il magazzino tiene da parte per le commesse, mobile per mobile: <b>prenotato</b> (è in magazzino), <b>ordinato</b> (non è ancora arrivato) e <b>ancora da ordinare</b>.
+    È letto in diretta dal magazzino; il valore è il prezzo dell'ultima fattura di quell'articolo.</p>
+  <div class="filters"><select class="inl" onchange="fAtt.comm=this.value;fAtt.mobile='';NUOVE.attesa()"><option value="">Tutte le commesse</option>
+    ${comms.map(c=>`<option value="${att(c)}" ${fAtt.comm===c?"selected":""}>${esc(c)} ${esc(descComm(c)||"")}</option>`).join("")}</select>
+    <select class="inl" onchange="fAtt.stato=this.value;NUOVE.attesa()"><option value="">Ogni stato</option>
+    ${Object.keys(CR_STATI).map(s=>`<option value="${s}" ${fAtt.stato===s?"selected":""}>${CR_STATI[s][0]}</option>`).join("")}</select>
+    ${fAtt.comm?`<button class="btn btn-ghost btn-sm" onclick="apriSchedaCommessa('${att(fAtt.comm)}')">Scheda della commessa ›</button>`:""}
+    <span style="flex:1"></span><span class="muted">${ATTESA.inCorso?"leggo dal magazzino…":ATTESA.quando?"letto alle "+new Date(ATTESA.quando).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}):""}</span>
+    <button class="btn btn-ghost btn-sm" onclick="crAttesaCarica(true)">↻</button></div>
+  ${ATTESA.err?`<p class="manca">Non riesco a leggere il magazzino: ${esc(ATTESA.err)}</p>`:""}
+  ${fAtt.comm&&mobili.length>1?`<div class="filters">${[""].concat(mobili).map(m=>`<button class="btn btn-sm ${fAtt.mobile===m?"btn-main":"btn-ghost"}" onclick="fAtt.mobile='${att(m)}';NUOVE.attesa()">${m?esc(m):"Tutti i mobili"}</button>`).join("")}</div>`:""}
+  <div class="kpiG">
+    ${k("Prenotato in magazzino",eu(crSomma(L,"prenotato")),num0(L.filter(x=>x.stato==="prenotato").length)+" righe")}
+    ${k("Ordinato, non arrivato",eu(crSomma(L,"ordinato")),num0(L.filter(x=>x.stato==="ordinato").length)+" righe")}
+    ${k("Ancora da ordinare",eu(crSomma(L,"da_ordinare")),num0(L.filter(x=>x.stato==="da_ordinare").length)+" righe")}
+    ${k("Fermo da più di "+CR_FERMO+" giorni",eu(crSomma(L,null,true)),"prenotato e non ancora usato",crSomma(L,null,true)>0?"var(--red)":"")}
+    ${k("Senza prezzo",num0(L.filter(x=>x.valore==null).length),"righe che non trovano una fattura",L.some(x=>x.valore==null)?"var(--amber)":"")}
+  </div>
+  ${!L.length?`<p class="muted">${ATTESA.quando?"Niente in attesa con questi filtri.":"Leggo dal magazzino…"}</p>`:
+   fAtt.comm?`<div class="tw" style="max-height:none"><table><thead><tr><th>Mobile</th><th>Materiale</th><th>Stato</th><th class="num">Quantità</th><th class="num">Valore €</th><th class="num">Da</th><th>Fornitore</th></tr></thead><tbody>
+     ${L.slice().sort((a,b)=>String(a.mobile).localeCompare(String(b.mobile))||a.stato.localeCompare(b.stato)).map((x,i,A)=>`<tr>
+       <td>${i===0||A[i-1].mobile!==x.mobile?`<b>${esc(x.mobile||"(senza mobile)")}</b>`:""}</td>
+       <td>${esc(x.materiale)}${x.pezzi?` <span class="muted mono">${esc(x.pezzi)}</span>`:""}${x.ordine?` <span class="muted">· ordine ${esc(x.ordine)}</span>`:""}</td>
+       <td><span class="tag ${CR_STATI[x.stato][1]}">${CR_STATI[x.stato][0]}</span></td>
+       <td class="num">${esc(crQta(x))}</td><td class="num" title="${att(x.prezzoDa||"nessuna fattura trovata per questo materiale")}">${x.valore==null?'<span class="muted">—</span>':eur(x.valore)}</td>
+       <td class="num"${n(x.giorni)>CR_FERMO&&x.stato==="prenotato"?' style="color:var(--red)"':""}>${x.giorni==null?"":x.giorni+" gg"}</td><td class="muted">${esc(x.fornitore||"")}</td></tr>`).join("")}</tbody></table></div>`
+   :`<div class="tw" style="max-height:none"><table><thead><tr><th>Commessa</th><th class="num">Prenotato</th><th class="num">Ordinato</th><th class="num">Da ordinare</th><th class="num">Fermo</th><th class="num">Righe</th></tr></thead><tbody>
+     ${Object.keys(perC).sort((a,b)=>crSomma(perC[b])-crSomma(perC[a])).map(c=>`<tr style="cursor:pointer" onclick="fAtt.comm='${att(c)}';fAtt.mobile='';NUOVE.attesa()">
+       <td><b class="mono">${esc(c)}</b> <span class="muted">${esc(descComm(c)||"")}</span></td><td class="num">${eur(crSomma(perC[c],"prenotato"))}</td><td class="num">${eur(crSomma(perC[c],"ordinato"))}</td>
+       <td class="num">${eur(crSomma(perC[c],"da_ordinare"))}</td><td class="num"${crSomma(perC[c],null,true)>0?' style="color:var(--red)"':""}>${eur(crSomma(perC[c],null,true))}</td><td class="num">${perC[c].length}</td></tr>`).join("")}</tbody></table></div>`}`;
+};
+
+/* ---------------------------------------------------------------- E. lavori in corso */
+NUOVE.wip=function(){
+  _REG=[]; crAttesaCarica();
+  const tutte=(D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&!String(d.nome).startsWith("(")&&crStatoAperto(d.nome)).map(d=>crNumeri(d.nome));
+  const con=tutte.filter(N=>N.prezzo&&N.previsto), senza=tutte.filter(N=>!(N.prezzo&&N.previsto));
+  const nonF=con.reduce((a,N)=>a+Math.max(0,n(N.lavoroNonFatt)),0), ant=con.reduce((a,N)=>a+Math.max(0,-n(N.lavoroNonFatt)),0);
+  const ricT=con.reduce((a,N)=>a+N.prezzo,0), utT=con.reduce((a,N)=>a+n(N.utile),0);
+  $("main").innerHTML=`<h1>Lavori in corso</h1>
+  <p class="lead">Per ogni commessa aperta: quanto è avanti con il lavoro e quanto è avanti con le fatture. <b>Lavoro fatto</b> = speso ÷ costo previsto a finire.
+    Se il lavoro corre più delle fatture stai anticipando i soldi al cliente; se le fatture corrono più del lavoro hai incassato in anticipo.</p>
+  <div class="kpiG">
+    <div class="kpi" style="cursor:default"><div class="et">Lavoro fatto non fatturato</div><div class="val" style="color:${nonF>0?"var(--amber)":"inherit"}">${eu(nonF)}</div><div class="sotto">${con.filter(N=>n(N.lavoroNonFatt)>0).length} commesse</div></div>
+    <div class="kpi" style="cursor:default"><div class="et">Fatturato in anticipo</div><div class="val">${eu(ant)}</div><div class="sotto">${con.filter(N=>n(N.lavoroNonFatt)<0).length} commesse</div></div>
+    <div class="kpi" style="cursor:default"><div class="et">Portafoglio da produrre</div><div class="val">${eu(con.reduce((a,N)=>a+N.prezzo*(1-n(N.avanz)),0))}</div><div class="sotto">prezzo del lavoro ancora da fare</div></div>
+    <div class="kpi" style="cursor:default"><div class="et">Margine previsto</div><div class="val">${ricT?Math.round(utT/ricT*1000)/10+"%":"—"}</div><div class="sotto">${eur(utT)} su ${eur(ricT)} di prezzo</div></div>
+  </div>
+  <div class="tw" style="max-height:none"><table><thead><tr><th>Commessa</th><th>Stato</th><th>Lavoro fatto</th><th>Fatturato</th><th class="num">Differenza</th><th class="num">Previsto a finire</th><th class="num">Margine previsto</th></tr></thead><tbody>
+  ${con.sort((a,b)=>Math.abs(n(b.lavoroNonFatt))-Math.abs(n(a.lavoroNonFatt))).map(N=>{ const M=crMotivi(N), lnf=n(N.lavoroNonFatt);
+    return `<tr style="cursor:pointer" onclick="apriSchedaCommessa('${att(N.nome)}')"><td><b class="mono">${esc(N.nome)}</b> <span class="muted">${esc(descComm(N.nome)||"")}</span>
+      <div>${M.filter(m=>m.t!=="fattura in ritardo").map(m=>`<span class="tag ${m.c}">${esc(m.t)}</span>`).join(" ")}</div></td>
+      <td><span class="tag ${(typeof COLORE_STATO!=="undefined"&&COLORE_STATO[N.stato])||"t-gry"}">${esc((LBL_STATO||{})[N.stato]||N.stato)}</span></td>
+      <td>${crBarra(N.avanz,N.sopra>100?"var(--red)":"#8a6040")}<div class="muted" style="font-size:11px">${Math.round(n(N.avanz)*100)}%</div></td>
+      <td>${crBarra(N.fattPct,"#2d5d86")}<div class="muted" style="font-size:11px">${Math.round(n(N.fattPct)*100)}%</div></td>
+      <td class="num" style="color:${lnf>500?"var(--amber)":lnf<-500?"var(--green)":"inherit"}">${Math.abs(lnf)<500?"in pari":lnf>0?"da fatturare "+eur(lnf):"anticipo "+eur(-lnf)}</td>
+      <td class="num">${eur(N.previsto)}${N.sopra>100?`<div style="font-size:11px;color:var(--red)">+${eur(N.sopra)} sul preventivo</div>`:""}</td>
+      <td class="num" style="color:${n(N.utilePct)<0?"var(--red)":"inherit"}">${N.utilePct==null?"—":Math.round(N.utilePct*1000)/10+"%"}</td></tr>`; }).join("")}
+  </tbody></table></div>
+  ${senza.length?`<div class="spiegaPagina" style="margin-top:12px"><b>${senza.length} commesse aperte non hanno prezzo o costo previsto</b>, quindi qui non si possono misurare:
+    ${senza.map(N=>`<a style="cursor:pointer;color:var(--accent)" onclick="apriPreventivo('${att(N.nome)}')">${esc(N.nome)}</a>`).join(", ")}. Clicca per scrivere il preventivo.</div>`:""}`;
+};
+
+/* ---------------------------------------------------------------- D. il lunedi' mattina */
+NUOVE.lunedi=function(){
+  _REG=[]; crAttesaCarica();
+  const an=String((D.config&&D.config.anno)||new Date().getFullYear()), o=oggi();
+  let A={}; try{ A=datiAnno(an); }catch(e){}
+  let fc=null; try{ fc=forecastAnno().riga.ante.fc; }catch(e){}
+  let C=null, min13=null, dataMin=""; try{ C=cassaScenari(); const s=C.certo.s.slice(0,13); min13=Math.min(...s); const i=s.indexOf(min13);
+    const dd=new Date(C.og+"T00:00:00"); dd.setDate(dd.getDate()+i*7); dataMin=dd.toISOString().slice(0,10); }catch(e){}
+  const S=(()=>{ try{ return scadenzario().filter(x=>!x.pagato); }catch(e){ return []; } })();
+  const tra7=(()=>{ const d=new Date(); d.setDate(d.getDate()+7); return d.toISOString().slice(0,10); })();
+  const credScad=S.filter(x=>x.verso==="entrata"&&x.scad&&x.scad<o), pag7=S.filter(x=>x.verso==="uscita"&&x.scad&&x.scad<=tra7);
+  const aperte=(D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&!String(d.nome).startsWith("(")&&crStatoAperto(d.nome)).map(d=>crNumeri(d.nome));
+  const con=aperte.filter(N=>N.prezzo&&N.previsto);
+  const nonF=con.reduce((a,N)=>a+Math.max(0,n(N.lavoroNonFatt)),0);
+  const portaf=con.reduce((a,N)=>a+N.prezzo*(1-n(N.avanz)),0);
+  const fermo=crSomma(ATTESA.righe,null,true);
+  const guarda=[]; aperte.concat((D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&d.finita!==true&&statoDi(d.nome)==="chiusa").map(d=>crNumeri(d.nome)))
+    .forEach(N=>crMotivi(N).filter(m=>m.t!=="senza preventivo").forEach(m=>guarda.push({N,m})));
+  guarda.sort((a,b)=>Math.abs(b.m.e)-Math.abs(a.m.e));
+  let prop=0, senzaPr=0; try{ prop=(D.proposte||[]).filter(p=>!p.conferma).length; }catch(e){} try{ senzaPr=quantiDaPrezzare(); }catch(e){}
+  const senzaPrev=aperte.filter(N=>N.budget==null);
+  const k=(et,v,sotto,col,click,tip)=>`<div class="kpi" ${click?`onclick="${click}"`:'style="cursor:default"'} title="${att(tip||"")}"><div class="et">${et} <span class="muted" style="font-size:11px">ⓘ</span></div><div class="val"${col?` style="color:${col}"`:""}>${v}</div><div class="sotto">${sotto}</div></div>`;
+  const dec=(t,n2,pag,col)=>n2?`<tr style="cursor:pointer" onclick="vai('${pag}')"><td>${t}</td><td class="num"><span class="tag ${col||"t-acc"}">Apri</span></td></tr>`:"";
+  $("main").innerHTML=`<h1>Il lunedì mattina</h1>
+  <p class="lead">Come va l'azienda e cosa c'è da fare questa settimana. Ogni numero ha la sua <b>ⓘ</b>: passaci sopra per sapere come è calcolato. Clicca per andare al dettaglio.</p>
+  <div class="kpiG">
+    ${k("Utile "+an+" a oggi",eu(n(A.utile)),fc!=null?"previsto a fine anno "+eur(fc):"",n(A.utile)<0?"var(--red)":"var(--green)","vai('home')","Tutti i ricavi meno tutti i costi del "+an+", spese comuni comprese. È lo stesso numero della Home e del Riepilogo. Il previsto viene dal Forecast di fine anno.")}
+    ${k("Portafoglio da produrre",eu(portaf),"lavoro ancora da fare, al prezzo","","vai('wip')","Sulle commesse aperte con preventivo: prezzo × (1 − lavoro fatto).")}
+    ${k("Lavoro fatto non fatturato",eu(nonF),con.filter(N=>n(N.lavoroNonFatt)>2000).length+" commesse in ritardo di fattura",nonF>0?"var(--amber)":"","vai('wip')","Per ogni commessa aperta: prezzo × lavoro fatto − fatturato, solo dove è positivo.")}
+    ${k("Cassa oggi",C&&C.haSaldo?eu(C.saldo0):"—",min13!=null?"minimo nelle 13 settimane "+eur(min13)+(dataMin?" ("+dataIt(dataMin)+")":""):"",min13!=null&&min13<0?"var(--red)":"","vai('cassaScen')","Saldo in banca e il punto più basso previsto nelle prossime 13 settimane, scenario certo (solo scadenze sicure).")}
+    ${k("Crediti scaduti",eu(credScad.reduce((a,x)=>a+n(x.importo),0)),new Set(credScad.map(x=>x.chi)).size+" clienti",credScad.length?"var(--red)":"","vai('scadenze')","Fatture emesse con la scadenza passata e non ancora incassate.")}
+    ${k("Materiale fermo",eu(fermo),"prenotato da più di "+CR_FERMO+" giorni",fermo>0?"var(--amber)":"","fAtt.comm='';fAtt.stato='prenotato';vai('attesa')","Materiale prenotato in magazzino per una commessa e non ancora usato dopo "+CR_FERMO+" giorni, al prezzo dell'ultima fattura.")}
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px">
+    <div><h3 style="margin:6px 0">Commesse da guardare</h3>
+      ${guarda.length?`<div class="tw" style="max-height:none"><table><thead><tr><th>Commessa</th><th>Perché</th><th class="num">Effetto</th></tr></thead><tbody>
+      ${guarda.slice(0,12).map(g=>`<tr style="cursor:pointer" onclick="apriSchedaCommessa('${att(g.N.nome)}')"><td><b class="mono">${esc(g.N.nome)}</b> <span class="muted">${esc(descComm(g.N.nome)||"")}</span></td>
+        <td><span class="tag ${g.m.c}">${esc(g.m.t)}</span> <span class="muted" style="font-size:12px">${esc(g.m.d)}</span></td><td class="num" style="color:${g.m.e<0?"var(--red)":"inherit"}">${g.m.e?eur(g.m.e):""}</td></tr>`).join("")}</tbody></table></div>`
+      :`<p class="muted">Nessuna commessa con segnali. ${senzaPrev.length?"Ma "+senzaPrev.length+" commesse aperte non hanno il preventivo: senza, non posso dire se sforano.":""}</p>`}</div>
+    <div><h3 style="margin:6px 0">Da decidere</h3>
+      <div class="tw" style="max-height:none"><table><tbody>
+        ${dec(prop+" abbinamenti fattura ↔ magazzino da confermare",prop,"associazioni")}
+        ${dec(senzaPr+" consumi di magazzino senza prezzo",senzaPr,"magazzino","t-amb")}
+        ${dec(pag7.length+" pagamenti da fare entro 7 giorni ("+eur(pag7.reduce((a,x)=>a+n(x.importo),0))+")",pag7.length,"scadenze","t-red")}
+        ${dec(credScad.length+" fatture emesse scadute da sollecitare",credScad.length,"scadenze","t-red")}
+        ${dec(senzaPrev.length+" commesse aperte senza preventivo",senzaPrev.length,"wip","t-gry")}
+      </tbody></table></div>
+      ${!prop&&!senzaPr&&!pag7.length&&!credScad.length&&!senzaPrev.length?'<p class="muted">Niente da decidere.</p>':""}</div>
+  </div>`;
+};
+
+/* ---------------------------------------------------------------- le pagine nuove nel menu */
+(function(){
+  const g=n2=>GRUPPI.find(x=>x[0]===n2);
+  const h=g("Home"); if(h&&!h[1].some(x=>x[0]==="lunedi")) h[1].unshift(["lunedi","Il lunedì mattina"]);
+  const c=g("Commesse"); if(c){ if(!c[1].some(x=>x[0]==="wip")) c[1].splice(1,0,["wip","Lavori in corso"]);
+    if(!c[1].some(x=>x[0]==="attesa")) c[1].splice(2,0,["attesa","Materiale in attesa"]); }
+  if(typeof SPIEGA_PAGINA!=="undefined"){
+    SPIEGA_PAGINA.lunedi=["I numeri chiave dell'azienda, le commesse da guardare e cosa c'è da decidere questa settimana."];
+    SPIEGA_PAGINA.wip=["Per ogni commessa aperta: quanto lavoro è fatto e quanto è fatturato."];
+    SPIEGA_PAGINA.attesa=["Il materiale prenotato, ordinato o da ordinare per le commesse, mobile per mobile."]; }
+})();
+
+/* ---------------------------------------------------------------- C. le finestre che parlano anche da chiuse */
+(function(){
+  const an=()=>String((D.config&&D.config.anno)||new Date().getFullYear());
+  const T=(f)=>{ try{ return f(); }catch(e){ return []; } };
+  Object.assign(ANTE,{
+    lunedi:()=>T(()=>{ const S=scadenzario().filter(x=>!x.pagato&&x.verso==="entrata"&&x.scad&&x.scad<oggi()); const A=datiAnno(an());
+      return [[eur(A.utile),"utile "+an()+" a oggi",A.utile<0?"var(--red)":"var(--green)"],[eur(S.reduce((a,x)=>a+n(x.importo),0)),"crediti scaduti",S.length?"var(--red)":""]]; }),
+    attesa:()=>ATTESA.quando?[[eur(crSomma(ATTESA.righe,"prenotato")+crSomma(ATTESA.righe,"ordinato")),"impegnato (prenotato + ordinato)"],
+      [eur(crSomma(ATTESA.righe,null,true)),"fermo da più di "+CR_FERMO+" giorni",crSomma(ATTESA.righe,null,true)>0?"var(--amber)":""]]:[["…","leggo dal magazzino"]],
+    wip:()=>T(()=>{ const L=(D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&!String(d.nome).startsWith("(")&&crStatoAperto(d.nome)).map(d=>crNumeri(d.nome)).filter(N=>N.prezzo&&N.previsto);
+      const nf=L.reduce((a,N)=>a+Math.max(0,n(N.lavoroNonFatt)),0);
+      return [[num0(L.length),"commesse aperte misurabili"],[eur(nf),"lavoro fatto non fatturato",nf>0?"var(--amber)":""]]; }),
+    etc:()=>T(()=>{ const E=etcRighe(), C=E.filter(r=>r.margFin!==null);
+      return [[eur(C.reduce((a,r)=>a+n(r.margFin),0)),"margine finale previsto ("+C.length+" commesse)"],[num0(E.filter(r=>r.etcTot===null&&!r.finita).length),"senza costo atteso",E.some(r=>r.etcTot===null&&!r.finita)?"var(--amber)":""]]; }),
+    forecast:()=>T(()=>{ const F=forecastAnno(); return [[eur(F.riga.ante.fc),"risultato previsto "+F.anno,F.riga.ante.fc<0?"var(--red)":"var(--green)"],[eur(F.riga.ricavi.fc),"ricavi previsti"]]; }),
+    previsioni:()=>T(()=>{ const L=(D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&!String(d.nome).startsWith("(")&&crStatoAperto(d.nome));
+      const k=L.filter(d=>d.costoAtteso!=null&&d.costoAtteso!=="").length; return [[k+" / "+L.length,"commesse aperte con preventivo",k<L.length?"var(--amber)":"var(--green)"]]; }),
+    cassaScen:()=>T(()=>{ const C=cassaScenari(), s=C.certo.s.slice(0,13), m=Math.min(...s);
+      return [[C.haSaldo?eur(C.saldo0):"—","in banca oggi"],[eur(m),"minimo nelle prossime 13 settimane",m<0?"var(--red)":""]]; }),
+    cassa:()=>T(()=>{ const C=cassaScenari(), s=C.certo.s.slice(0,13), m=Math.min(...s); return [[eur(s[12]),"fra 13 settimane"],[eur(m),"il punto più basso",m<0?"var(--red)":""]]; }),
+    noteCredito:()=>T(()=>{ const L=(D.ricavi||[]).filter(r=>/nota|credito/i.test(String(r.documento||""))&&String(r.data||"").slice(0,4)===an());
+      return [[num0(new Set(L.map(r=>r.numero)).size),"note di credito "+an()],[eur(L.reduce((a,r)=>a+n(r.imponibile),0)),"imponibile"]]; }),
+    carte:()=>T(()=>{ const L=(D.fatture||[]).filter(f=>f.carta&&String(f.data||"").slice(0,4)===an()); return [[eur(L.reduce((a,f)=>a+n(f.importo),0)),"spese con carta "+an()],[num0(L.length),"righe"]]; }),
+    manuali:()=>T(()=>{ const L=(D.fatture||[]).filter(f=>f.manuale&&String(f.data||"").slice(0,4)===an()); return [[num0(L.length),"voci a mano "+an()],[eur(L.reduce((a,f)=>a+n(f.importo),0)),"in tutto"]]; }),
+    rifili:()=>T(()=>{ const L=(D.fatture||[]).filter(f=>String(f.origine||"").indexOf("rifilo")===0); return [[num0(L.length),"rifili a costo"],[eur(L.reduce((a,f)=>a+n(f.importo),0)),"valore"]]; }),
+    riepilogo:()=>T(()=>{ const A=datiAnno(an()); return [[eur(A.utile),"utile netto "+an()+" (come la Home)",A.utile<0?"var(--red)":"var(--green)"]]; }),
+    report:()=>[[an(),"anno del report"],["PDF · Excel","da scaricare"]],
+    mutui:()=>T(()=>[[eur((D.finanziamenti||[]).reduce((s,f)=>s+n(f.residuo),0)),"debito residuo"]]),
+    assicurazioni:()=>T(()=>{ const L=(D.scadenzeExtra||[]).filter(x=>/assicur|polizz/i.test(String(x.descrizione||"")+" "+String(x.categoria||"")));
+      return L.length?[[num0(L.length),"rate di polizze"],[eur(L.reduce((a,x)=>a+n(x.importo),0)),"in tutto"]]:[["—","nessuna polizza inserita"]]; })
+  });
+})();
+
+/* ---------------------------------------------------------------- G. ogni numero dice cos'e' */
+const CR_DEF={
+  home:"Utile netto dell'anno solare: tutti i ricavi meno tutti i costi dell'anno, spese comuni, ammortamenti e interessi compresi. È lo stesso numero di Riepilogo e del lunedì.",
+  contoeco:"Margine di contribuzione: ricavi meno i costi diretti delle commesse (materiali, lavorazioni, ore), prima delle spese comuni.",
+  commesse:"Margine sui diretti delle commesse che hanno movimenti nell'anno: ricavi meno materiali e ore delle commesse. NON è l'utile: mancano le spese comuni. Dentro la finestra c'è anche il risultato a vita intera, che conta gli anni passati.",
+  etc:"Somma, sulle commesse con prezzo e costo atteso, di prezzo − costo finale previsto (già speso + ancora da spendere).",
+  forecast:"Consuntivo dell'anno + quello che ti aspetti da oggi a dicembre (residuo delle commesse e ritmo dei mesi passati). È una previsione.",
+  wip:"Lavoro fatto = speso ÷ costo previsto a finire. Lavoro fatto non fatturato = prezzo × lavoro fatto − fatturato.",
+  attesa:"Impegnato = materiale prenotato in magazzino + ordinato e non ancora arrivato, al prezzo dell'ultima fattura. Letto in diretta dal magazzino.",
+  lunedi:"L'utile è quello della Home. I crediti scaduti sono le fatture emesse con scadenza passata non ancora incassate.",
+  cassaScen:"Saldo in banca oggi e punto più basso previsto nelle prossime 13 settimane contando solo le scadenze sicure.",
+  scadenze:"Pagamenti ai fornitori con la scadenza passata, e quelli che scadono nei prossimi 30 giorni."
+};
+finestra=function(k,t,aperta){
+  let v=[]; try{ v=ANTE[k]?ANTE[k]():[]; }catch(e){ v=[]; }
+  const d=(typeof SPIEGA_PAGINA!=="undefined"&&SPIEGA_PAGINA[k])?SPIEGA_PAGINA[k][0]:"";
+  let df=0; try{ df=daFare(k); }catch(e){}
+  const def=CR_DEF[k]||"";
+  return `<div class="fin${aperta?" aperta":""}" onclick="apriFinestra('${k}')">
+    <div class="ft">${esc(t)}${def?` <span class="muted" style="font-size:11px;font-weight:400" title="${att(def)}">ⓘ</span>`:""}${df?`<span class="pill">${df}</span>`:""}</div>
+    ${v.length?`<div class="fv"${def?` title="${att(def)}"`:""}>${v.map(([a,b,c])=>`<div><b${c?` style="color:${c}"`:""}>${esc(String(a))}</b><span>${esc(b)}</span></div>`).join("")}</div>`:""}
+    ${d?`<div class="fd">${esc(d)}</div>`:""}</div>`;
+};
+
+/* ---------------------------------------------------------------- F. schede affiancate */
+let AFF=[];
+function crAffianca(){
+  const q=(typeof PILA!=="undefined")?PILA[PILA.length-1]:null; if(!q) return;
+  if(AFF.some(a=>a.titolo===q.titolo)){ toast("È già affiancata"); return; }
+  if(AFF.length>=3){ AFF.shift(); toast("Al massimo tre schede: ho tolto la più vecchia"); }
+  AFF.push({titolo:q.titolo,fn:q.fn}); chiudiDrawer(); crDisegnaAff(); window.scrollTo({top:0,behavior:"smooth"});
+}
+function crTogliAff(i){ AFF.splice(i,1); crDisegnaAff(); }
+function crDisegnaAff(){
+  let box=$("crAff");
+  if(!box){ const m=$("finestre")||$("main"); if(!m) return; box=document.createElement("div"); box.id="crAff"; m.parentNode.insertBefore(box,m); }
+  if(!AFF.length||!D){ box.innerHTML=""; box.style.display="none"; return; }
+  box.style.cssText="display:grid;gap:10px;margin:0 0 14px;grid-template-columns:repeat("+AFF.length+",minmax(0,1fr))";
+  box.innerHTML=AFF.map((a,i)=>{ let corpo=""; try{ corpo=a.fn(); }catch(e){ corpo='<p class="manca">'+esc(e.message)+'</p>'; }
+    return `<div style="background:#fff;border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:460px;min-width:0">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)"><b style="flex:1;font-size:14px">${esc(a.titolo)}</b>
+        <button class="btn btn-ghost btn-sm" title="Chiudi questa scheda" onclick="crTogliAff(${i})">✕</button></div>
+      <div style="overflow:auto;padding:8px 12px;font-size:13px">${corpo}</div></div>`; }).join("");
+}
+{ const _dd=disegnaDrawer; disegnaDrawer=function(){ const r=_dd.apply(this,arguments);
+    try{ const t=document.querySelector("#drawer .dTesta"); if(t&&!t.querySelector(".crAffBtn")){ const b=document.createElement("button");
+      b.className="btn btn-ghost btn-sm crAffBtn"; b.textContent="⇆ Affianca"; b.title="Tieni questa scheda aperta in alto, accanto alle altre (fino a tre)";
+      b.onclick=crAffianca; const ch=t.querySelector("button"); t.insertBefore(b,ch||null); } }catch(e){}
+    return r; }; }
+{ const _rnd=render; render=function(){ const r=_rnd.apply(this,arguments); try{ crDisegnaAff(); }catch(e){} return r; }; }
+
+/* ---------------------------------------------------------------- ogni codice di commessa apre la sua scheda */
+{ const _cc=commCli; commCli=function(comm){ const h=_cc.apply(this,arguments);
+    if(!comm||comm==="(senza commessa)") return h;
+    return `<a class="crLnk" style="cursor:pointer;color:inherit;text-decoration:underline dotted" title="Apri la scheda della commessa" onclick="event.stopPropagation();apriSchedaCommessa('${att(comm)}')">${h}</a>`; }; }
+
+/* =====================================================================================
+   v147 — energia sulla finestra chiusa, ricerca anche nel magazzino, preventivo veloce
+   ===================================================================================== */
+ANTE.energia=()=>{ try{
+  let sel=[]; try{ sel=catEnergia()||[]; }catch(e){}
+  if(!sel.length) return [["—","scegli le categorie dell'energia"]];
+  const M=(mesiEnergia(null)||[]).slice().sort().reverse();
+  if(!M.length){
+    /* le fatture dell'energia non hanno il periodo di competenza: faccio una stima per mese della fattura, e lo dico */
+    const per={}; valide().forEach(f=>{ if(!eCostoAOre(f)) return; const m=String(f.data||"").slice(0,7); if(/^\d{4}-\d{2}$/.test(m)) per[m]=(per[m]||0)+n(f.importo); });
+    const ora=oggi().slice(0,7);
+    for(const m of Object.keys(per).sort().reverse()){ if(m>=ora) continue; const O=oreDelMese(m); if(per[m]>0&&n(O.totDentro)>0)
+      return [["≈ "+eur(per[m]/O.totDentro)+" €/h","stima per data fattura ("+meseIt(m)+")","var(--amber)"],[num0(Object.keys(per).length),"mesi senza periodo di competenza"]]; }
+    return [["—","nessuna fattura nella categoria «"+sel.join(", ")+"»"]]; }
+  for(const m of M){ const E=energiaDelMese(m), O=oreDelMese(m);
+    if(n(E.totale)>0&&n(O.totDentro)>0) return [[eur(E.totale/O.totDentro)+" €/h","energia per ora lavorata"],[eur(E.totale),"in "+meseIt(m)]]; }
+  return [["—","nessun mese con energia e ore"]]; }catch(e){ return []; } };
+CR_DEF.energia="Il costo dell'energia del mese diviso le ore lavorate nello stesso mese (ultimo mese completo che ha tutti e due i dati).";
+
+/* ---------------- la ricerca: anche quello che c'e' nel magazzino ---------------- */
+{ const _vr=vRicerca; vRicerca=function(){
+    _vr.apply(this,arguments);
+    const q=String(qR||"").trim(); if(q.length<2) return;
+    const box=document.createElement("div");
+    /* le commesse della contabilita' che corrispondono: un clic apre la scheda */
+    const C=(D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&[d.nome,d.descrizione,d.cliente].join(" ").toLowerCase().includes(q.toLowerCase()));
+    let W=[]; try{ W=(PONTE&&typeof PONTE.cerca==="function")?PONTE.cerca(q):[]; }catch(e){ W=[]; }
+    const lbl={commessa:"commessa",mobile:"mobile",articolo:"articolo",pannello:"pannello",massiccio:"massiccio",ordine:"ordine"};
+    box.innerHTML=`<div class="card"><h3>Commesse <span class="muted">${C.length}</span></h3>
+      ${C.length?C.map(d=>`<div style="padding:4px 0;border-bottom:1px dashed var(--border);cursor:pointer" onclick="apriSchedaCommessa('${att(d.nome)}')"><b class="mono">${esc(d.nome)}</b> <span class="muted">${esc(d.descrizione||"")}</span> <span style="color:var(--accent)">scheda ›</span></div>`).join(""):'<div class="muted">Niente.</div>'}</div>
+      <div class="card"><h3>Nel magazzino <span class="muted">${W.length}${W.length>=200?"+ (i primi 200)":""}</span></h3>
+      ${W.length?`<div class="tw"><table><thead><tr><th>Cosa</th><th>Codice</th><th>Dettaglio</th><th>Commessa</th></tr></thead><tbody>
+        ${W.map(x=>`<tr${x.commessa?` style="cursor:pointer" onclick="apriSchedaCommessa('${att(x.commessa)}')"`:""}><td><span class="tag t-gry">${lbl[x.tipo]||x.tipo}</span></td>
+          <td class="mono">${esc(x.id)}</td><td>${esc(x.testo||"")}</td><td class="mono">${esc(x.commessa||"")}</td></tr>`).join("")}</tbody></table></div>`:'<div class="muted">Niente.</div>'}</div>`;
+    const m=$("main"), dopo=m.querySelector(".filters");
+    if(dopo&&dopo.nextSibling) m.insertBefore(box,dopo.nextSibling); else m.appendChild(box);
+  }; }
+
+/* ---------------- il preventivo veloce ----------------
+   Per le commesse aperte senza preventivo: prezzo (proposto dall'offerta del magazzino, se c'e'),
+   margine che ti aspetti e, se le sai, le ore. Il costo previsto = prezzo × (1 − margine);
+   la manodopera = ore × costo orario, il resto va ai materiali. Scrive nel preventivo di sempre:
+   se poi lo vuoi dettagliare voce per voce, lo apri e lo correggi li'. */
+let OFFERTE_MAG={quando:0,L:[],err:""};
+function crCaricaOfferte(){
+  if(!PONTE||typeof PONTE.offerte!=="function") return Promise.resolve();
+  return PONTE.offerte().then(L=>{ OFFERTE_MAG={quando:Date.now(),L:L||[],err:""}; }).catch(e=>{ OFFERTE_MAG.err=(e&&e.message)||String(e); });
+}
+function crOffertaDi(nome){ const r=risolvi(nome); const L=OFFERTE_MAG.L.filter(o=>o.Commessa&&risolvi(o.Commessa)===r&&o.totale>0).sort((a,b)=>String(b.Data).localeCompare(String(a.Data))); return L[0]||null; }
+function crSenzaPreventivo(){ return (D.destinazioni||[]).filter(d=>d.tipo==="commessa"&&!String(d.nome).startsWith("(")&&crStatoAperto(d.nome)&&!(d.costoAtteso!=null&&d.costoAtteso!==""&&d.ricavoAtteso!=null&&d.ricavoAtteso!=="")); }
+function apriPrevVeloce(solo){
+  crCaricaOfferte().then(()=>{ try{ if(typeof PILA!=="undefined"&&PILA.length) disegnaDrawer(); }catch(e){} });
+  apriDrawer(solo?"Preventivo veloce "+solo:"Preventivi veloci",()=>crPrevVeloce(solo));
+}
+function crPrevVeloce(solo){
+  const L=solo?[(D.destinazioni||[]).find(d=>d.tipo==="commessa"&&risolvi(d.nome)===risolvi(solo))].filter(Boolean):crSenzaPreventivo();
+  const mg=n((D.config&&D.config.margineVeloce)||30);
+  if(!L.length) return `<p>Tutte le commesse aperte hanno già prezzo e costo previsto.</p>`;
+  return `<p class="muted" style="margin-top:0">Per ogni commessa scrivi il <b>prezzo</b>, il <b>margine</b> che ti aspetti e, se le sai, le <b>ore</b>.
+    Costo previsto = prezzo × (1 − margine); le ore × ${eur(costoOrario())} €/h vanno alla manodopera, il resto ai materiali.
+    Il prezzo è già proposto dall'<b>offerta del magazzino</b> quando la trovo. ${OFFERTE_MAG.quando?"":'<span class="muted">· leggo le offerte…</span>'}${OFFERTE_MAG.err?`<span class="manca"> Offerte non lette: ${esc(OFFERTE_MAG.err)}</span>`:""}</p>
+  <div class="tw" style="max-height:none"><table><thead><tr><th>Commessa</th><th class="num">Prezzo €</th><th class="num">Margine %</th><th class="num">Ore</th><th></th></tr></thead><tbody>
+  ${L.map((d,i)=>{ const o=crOffertaDi(d.nome), p=d.preventivo||{};
+    const prezzo=n(d.ricavoAtteso)||(o?o.totale:"");
+    return `<tr><td><b class="mono">${esc(d.nome)}</b> <span class="muted">${esc(d.descrizione||"")}</span>
+        ${o?`<div class="muted" style="font-size:11.5px">offerta ${esc(o.ID)} del ${esc(dataIt(String(o.Data).slice(0,10)))}: ${eur(o.totale)}</div>`:""}
+        ${(p.voci||[]).length?`<div style="font-size:11.5px;color:var(--amber)">ha già delle voci: aprilo per correggerlo</div>`:""}</td>
+      <td class="num"><input class="inl n" id="pv-p-${i}" style="width:96px" value="${prezzo===""?"":n(prezzo).toFixed(0)}" placeholder="—"></td>
+      <td class="num"><input class="inl n" id="pv-m-${i}" style="width:56px" value="${mg}"></td>
+      <td class="num"><input class="inl n" id="pv-o-${i}" style="width:64px" value="${n(p.ore)||""}" placeholder="—"></td>
+      <td><button class="btn btn-main btn-sm" onclick="crSalvaVeloce('${att(d.nome)}',${i})">Salva</button>
+        <button class="btn btn-ghost btn-sm" onclick="apriPreventivo('${att(d.nome)}')">dettaglio ›</button></td></tr>`; }).join("")}
+  </tbody></table></div>`;
+}
+function crSalvaVeloce(nome,i){
+  const prezzo=n(($("pv-p-"+i)||{}).value), mg=n(($("pv-m-"+i)||{}).value), ore=n(($("pv-o-"+i)||{}).value);
+  if(!(prezzo>0)){ toast("Scrivi il prezzo"); return; }
+  if(!(mg>-100&&mg<100)){ toast("Il margine va da -99 a 99 %"); return; }
+  const d=(D.destinazioni||[]).find(x=>x.tipo==="commessa"&&x.nome===nome); if(!d) return;
+  const p=prevDi(nome); if(!p) return;
+  if((p.voci||[]).length){ toast("Questo preventivo ha già delle voci: lo apro, correggilo lì"); apriPreventivo(nome); return; }
+  const costo=prezzo*(1-mg/100), mdo=Math.min(costo,ore*costoOrario());
+  p.ricavo=Math.round(prezzo*100)/100; p.ore=ore||0; p.materiali=Math.round((costo-mdo)*100)/100; p.esterni=0; p.altri=0;
+  p.note=(p.note?p.note+" · ":"")+"preventivo veloce del "+dataIt(oggi())+" (margine "+mg+"%)";
+  D.config.margineVeloce=mg;
+  syncAttesoPrev(d);
+  (D.log=D.log||[]).push({quando:adesso(),cosa:"preventivo veloce "+nome+": prezzo "+eur(prezzo)+", margine "+mg+"%, ore "+(ore||0)});
+  sporca(); ricalcola(); render();
+  toast("Preventivo di "+nome+" salvato: costo previsto "+eur(costo));
+}
+/* i pulsanti: in Lavori in corso e nella scheda della commessa */
+{ const _w=NUOVE.wip; NUOVE.wip=function(){ _w.apply(this,arguments);
+    const k=crSenzaPreventivo().length; if(!k) return;
+    const b=document.createElement("div"); b.className="filters";
+    b.innerHTML=`<button class="btn btn-main btn-sm" onclick="apriPrevVeloce()">Preventivo veloce per le ${k} commesse senza ›</button><span class="muted">prezzo, margine e ore: un minuto a commessa</span>`;
+    const lead=$("main").querySelector("p.lead"); if(lead) lead.after(b); else $("main").prepend(b); }; }
+{ const _s=crScheda; crScheda=function(c){ let h=_s.apply(this,arguments);
+    const N=crNumeri(c);
+    if(N.budget==null&&!N.finita) h=h.replace(`>Preventivo ›</button>`,`>Preventivo ›</button> <button class="btn btn-main btn-sm" onclick="apriPrevVeloce('${att(c)}')">Preventivo veloce</button>`);
+    return h; }; }
 </script>
 </body></html>
