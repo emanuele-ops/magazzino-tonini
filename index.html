@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v142 - Atelier</div>
+  <div id="ver-badge">v147 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -761,7 +761,11 @@ function apriContabilita(){
       +'<iframe id="cont-if" src="contabilita.html" title="Contabilità" style="flex:1;border:0;width:100%;background:#fff"></iframe>';
     document.body.appendChild(ov);
   }
+  const giaAperta=ov.style.display!=="none"&&document.body.classList.contains("cont-aperta");
   ov.style.display="flex"; document.body.style.overflow="hidden"; document.body.classList.add("cont-aperta");
+  // tornando alla contabilita' riprende quello che e' cambiato nel magazzino nel frattempo (commesse comprese)
+  if(!giaAperta){ try{ const w=document.getElementById("cont-if").contentWindow;
+    if(w&&typeof w.contabilitaStato==="function"&&w.contabilitaStato().aperta&&typeof w.aggiornaDalMagazzino==="function") w.aggiornaDalMagazzino(true); }catch(e){} }
 }
 // tornando al magazzino la contabilita' NON si chiude: resta aperta dietro,
 // col lavoro a meta', e la ritrovi com'era
@@ -801,6 +805,101 @@ function cellaPulita(v){
      .replace(/&euro;/g,'EUR').replace(/&middot;/g,'-').replace(/&mdash;/g,'-')
      .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&sup2;/g,'2').replace(/&sup3;/g,'3').trim();
 }
+// dopo una modifica fatta dalla contabilita' il magazzino si aggiorna da solo
+// ============================================================
+//  IL MATERIALE IN ATTESA (prenotato, ordinato, da ordinare), riga
+//  per riga con commessa e mobile. Lo usano la contabilita' (con i
+//  prezzi) e il report della commessa qui nel magazzino (senza).
+// ============================================================
+function materialeInAttesa(){
+    const oggiMs=Date.now(), giorni=function(d){ const t=Date.parse(String(d||'').slice(0,10)); return isNaN(t)?null:Math.max(0,Math.round((oggiMs-t)/864e5)); };
+    const art=function(id){ return (STATE.articoli||[]).filter(function(a){return a.ID===id;})[0]||{}; };
+    const out=[];
+    // 1. articoli prenotati (per mobile)
+    (STATE.riserve||[]).forEach(function(r){ if(!(+r.Quantita>0))return; const a=art(r.ArticoloID);
+      // da quanto e' li': l'ultimo carico di quell'articolo per quella commessa
+      let ult=''; (STATE.movimenti||[]).forEach(function(m){ if(m.Tipo==='carico'&&m.Annullato!=='SI'&&m.ArticoloID===r.ArticoloID
+        &&(m.Commessa===r.Commessa||String(m.Note||'').indexOf('§ '+r.Commessa+' §')>=0)&&String(m.Data)>ult)ult=String(m.Data); });
+      out.push({commessa:r.Commessa,mobile:r.Mobile||'',stato:'prenotato',tipo:'articolo',materiale:a.Nome||r.ArticoloID,artId:r.ArticoloID,
+        codForn:a.CodiceFornitore||'',q:+r.Quantita,unita:a.UnitaMisura||'',giorni:giorni(ult),fornitore:a.Fornitore||''}); });
+    // 2. pannelli e massicci prenotati (quello che ne resta)
+    [['pannello',STATE.pannelli,'M2_residuo','m2'],['massiccio',STATE.massicci,'M3_residuo','m3']].forEach(function(t){
+      (t[1]||[]).forEach(function(p){ const res=+p[t[2]]||0; const l=String(p.Commesse||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
+        if(!(res>0)||!l.length)return;
+        out.push({commessa:l[l.length-1],mobile:p.Mobile||'',stato:'prenotato',tipo:t[0],materiale:(typeof nomeTipo==='function'?nomeTipo(p.ArticoloID):p.ArticoloID),
+          artId:p.ArticoloID,pezzi:p.ID,q:res,unita:t[3],giorni:giorni(p.DataCarico),fornitore:p.Fornitore||''}); }); });
+    // 3. ordinato e non ancora arrivato
+    (STATE.ordini||[]).forEach(function(o){ if(String(o.Stato||'').toLowerCase()==='ricevuto')return;
+      (o.Righe||[]).forEach(function(r){ if(r.ricevuto)return;
+        const art2=(r.tipo==='articolo'||r.tipo==='generico'), vuole=art2?(+r.quantita||0):(+r.numPezzi||0);
+        const gia=(r.qtaRic===undefined||r.qtaRic===null)?0:(+r.qtaRic||0), rest=Math.max(0,vuole-gia); if(!(rest>0))return;
+        const m2=(r.tipo==='pannello'&&+r.dim1&&+r.dim2)?rest*(+r.dim1)*(+r.dim2)/1e6:null;
+        const m3=(r.tipo==='massiccio'&&+r.dim1&&+r.dim2&&+r.dim3)?rest*(+r.dim1)*(+r.dim2)*(+r.dim3)/1e9:null;
+        out.push({commessa:o.Commessa||'',mobile:mobileDiRiga(r),stato:'ordinato',tipo:r.tipo||'articolo',materiale:r.descrizione||r.nome||r.artId||'',
+          artId:r.artId||'',codForn:(art(r.artId).CodiceFornitore||''),q:m2!=null?m2:(m3!=null?m3:rest),unita:m2!=null?'m2':(m3!=null?'m3':(art2?(r.unita||''):'pz')),
+          pezziN:art2?null:rest,giorni:giorni(o.Data),fornitore:o.Fornitore||'',ordine:o.ID,prezzo:(r.prezzo!=null&&r.prezzo!=='')?+r.prezzo:null}); }); });
+    // 4. ancora da ordinare
+    (STATE.fabbisogni||[]).forEach(function(f){ if(f.Stato!=='da_ordinare')return;
+      let st='da_ordinare'; try{ st=statoEffettivo(f); }catch(e){}
+      if(st!=='da_ordinare'&&st!=='parziale')return;
+      const art2=f.Tipo==='articolo', vuole=art2?(+f.Quantita||0):(+f.NumPezzi||1);
+      let gia=0; try{ gia=assegnatoReale(f)||0; }catch(e){}
+      const rest=Math.max(0,vuole-gia); if(!(rest>0))return;
+      const m2=(f.Tipo==='pannello'&&+f.Dim1&&+f.Dim2)?rest*(+f.Dim1)*(+f.Dim2)/1e6:null;
+      out.push({commessa:f.Commessa||'',mobile:fabMobile(f),stato:'da_ordinare',tipo:f.Tipo||'articolo',materiale:f.Descrizione||(art(f.ArticoloID).Nome)||f.ArticoloID||'',
+        artId:f.ArticoloID||'',codForn:(art(f.ArticoloID).CodiceFornitore||''),q:m2!=null?m2:rest,unita:m2!=null?'m2':(art2?(f.UnitaMisura||''):'pz'),
+        giorni:null,fornitore:f.Fornitore||''}); });
+    // 5. altre voci (lavorazioni esterne, trasporti...) in ordine o da ordinare
+    (STATE.voci||[]).forEach(function(v){ if(!v.InOrdine||v.Stato==='ricevuto'||v.Stato==='solo_costo')return;
+      out.push({commessa:v.Commessa||'',mobile:fabMobile(v),stato:v.Stato==='ordinato'?'ordinato':'da_ordinare',tipo:'voce',materiale:v.Descrizione||'',
+        q:+v.Quantita||1,unita:v.Unita||'',giorni:giorni(v.Data),fornitore:v.Fornitore||'',valore:(+v.Importo>0)?+v.Importo:null}); });
+    return out;
+}
+// cercare una parola in tutto il magazzino: commesse, mobili, articoli, pezzi, ordini
+function cercaNelMagazzino(q){
+  q=String(q||'').trim().toLowerCase(); if(q.length<2)return [];
+  const ha=function(){ return [].slice.call(arguments).join(' ').toLowerCase().indexOf(q)>=0; }, out=[];
+  (STATE.commesse||[]).forEach(function(c){ if(ha(c.ID,c.Nome,c.Cliente))out.push({tipo:'commessa',id:c.ID,testo:(c.Nome||'')+(c.Cliente?' · '+c.Cliente:''),commessa:c.ID}); });
+  const mob={}; (STATE.fabbisogni||[]).concat(STATE.voci||[]).forEach(function(f){ const m=fabMobile(f); if(m&&ha(m))mob[f.Commessa+'|'+m]={tipo:'mobile',id:m,testo:'mobile della commessa '+f.Commessa,commessa:f.Commessa}; });
+  Object.keys(mob).forEach(function(k){out.push(mob[k]);});
+  (STATE.articoli||[]).forEach(function(a){ if(ha(a.ID,a.Nome,a.CodiceFornitore,a.Fornitore))out.push({tipo:'articolo',id:a.ID,testo:a.Nome+' · giacenza '+a.Stock+' '+(a.UnitaMisura||'')+(a.Fornitore?' · '+a.Fornitore:'')}); });
+  [['pannello',STATE.pannelli,'M2_residuo','m2'],['massiccio',STATE.massicci,'M3_residuo','m3']].forEach(function(t){ (t[1]||[]).forEach(function(p){
+    if(ha(p.ID,p.ArticoloID,nomeTipo(p.ArticoloID),p.Commesse,p.Mobile,p.Fornitore,p.Ddt))out.push({tipo:t[0],id:p.ID,testo:nomeTipo(p.ArticoloID)+' · resta '+(+p[t[2]]||0).toFixed(3)+' '+t[3]+(p.Commesse?' · '+p.Commesse:'')+(p.Mobile?' · '+p.Mobile:''),commessa:String(p.Commesse||'').split(',')[0].trim()}); }); });
+  (STATE.ordini||[]).forEach(function(o){ const righe=(o.Righe||[]).map(function(r){return (r.descrizione||'')+' '+(r.mobile||'');}).join(' ');
+    if(ha(o.ID,o.Fornitore,o.Commessa,righe))out.push({tipo:'ordine',id:o.ID,testo:(o.Fornitore||'')+' · '+String(o.Data||'').slice(0,10)+' · '+(o.Stato||''),commessa:o.Commessa}); });
+  return out.slice(0,200);
+}
+// ============================================================
+//  NEL REPORT DELLA COMMESSA: A CHE PUNTO E' OGNI MOBILE
+//  Senza importi: quante righe sono da ordinare, ordinate e non
+//  arrivate, prenotate in magazzino; e quanti scarichi ha gia' avuto.
+// ============================================================
+function buildAvanzamentoMobili(comm){
+  let L=[]; try{ L=materialeInAttesa().filter(function(x){return x.commessa===comm;}); }catch(e){ L=[]; }
+  const sc={}; (STATE.movimenti||[]).forEach(function(m){ if(m.Tipo!=='scarico'||m.Annullato==='SI'||m.Commessa!==comm)return;
+    const g=String(m.Note||'').match(/mobile: ([^\]]*)\]/); const k=g?g[1].trim():''; sc[k]=(sc[k]||0)+1; });
+  const mob={}; L.forEach(function(x){ const k=x.mobile||''; (mob[k]=mob[k]||{da:0,ord:0,pren:0,fermi:0,righe:[]}); const o=mob[k];
+    if(x.stato==='da_ordinare')o.da++; else if(x.stato==='ordinato')o.ord++; else { o.pren++; if((x.giorni||0)>60)o.fermi++; } o.righe.push(x); });
+  Object.keys(sc).forEach(function(k){ mob[k]=mob[k]||{da:0,ord:0,pren:0,fermi:0,righe:[]}; });
+  const nomi=Object.keys(mob).sort(function(a,b){return a.localeCompare(b);});
+  if(!nomi.length)return '';
+  const pill=function(n2,t,c){ return n2?'<span style="display:inline-block;font-size:11px;padding:2px 8px;border-radius:9px;margin:1px;background:'+c+'">'+n2+' '+t+'</span>':''; };
+  return '<div class="card" style="margin-top:14px"><div class="card-title">A che punto è ogni mobile</div>'
+   +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Righe da ordinare, ordinate e non ancora arrivate, prenotate in magazzino; e quanti scarichi ha già avuto.</div>'
+   +nomi.map(function(k){ const o=mob[k];
+     return '<details style="border-top:1px solid var(--border);padding:7px 0"><summary style="cursor:pointer;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+      +'<strong style="min-width:140px">'+att(k||'(senza mobile)')+'</strong>'
+      +pill(o.da,'da ordinare','#fdecea')+pill(o.ord,'ordinate','#fff4dc')+pill(o.pren,'prenotate','#e8f0f8')+pill(o.fermi,'ferme da 60 gg','#fdecea')
+      +pill(sc[k]||0,'scarichi','#e7f4ec')+(!o.da&&!o.ord&&!o.pren?'<span style="font-size:11.5px;color:var(--green)">niente in attesa</span>':'')+'</summary>'
+      +o.righe.map(function(x){ return '<div style="display:flex;gap:8px;font-size:12.5px;padding:3px 0 3px 12px"><span style="flex:1">'+att(x.materiale)+(x.pezzi?' <span style="color:var(--gray)">'+att(x.pezzi)+'</span>':'')
+        +'</span><span>'+(x.stato==='da_ordinare'?'da ordinare':x.stato==='ordinato'?'ordinato'+(x.ordine?' ('+att(x.ordine)+')':''):'prenotato')+'</span><span style="min-width:80px;text-align:right">'
+        +(Math.round((+x.q||0)*1000)/1000)+' '+att(x.unita||'')+'</span><span style="min-width:48px;text-align:right;color:'+((x.giorni||0)>60&&x.stato==='prenotato'?'var(--red)':'var(--gray)')+'">'+(x.giorni!=null&&x.stato==='prenotato'?x.giorni+' gg':'')+'</span></div>'; }).join('')
+      +'</details>'; }).join('')+'</div>';
+}
+async function ponteRicaricaCommesse(){
+  try{ const c=await call("getCommesse"); if(Array.isArray(c)){ STATE.commesse=c;
+    if(["commesse","dashboard"].indexOf(STATE.pagina)>=0 && !document.body.classList.contains("cont-aperta")) renderPage(STATE.pagina); } }catch(e){}
+}
 window.ponteContabilita={
   versione:1,
   utente:function(){ const u=UTENTE_CORRENTE||{}; const s=STATE.utente||{};
@@ -809,7 +908,76 @@ window.ponteContabilita={
   sb:{ get:sbGet, getTutto:sbGetTutto, post:sbPost, postMinimo:sbPostMinimo, patch:sbPatch, del:sbDelete },
   // chi lavora nella contabilita' e' "attivo" anche per le sessioni
   attivita:function(){ try{ sessSegnaAttivita(false); }catch(e){} },
-  commesse:function(){ return (STATE.commesse||[]).map(function(c){return {ID:c.ID,Nome:c.Nome||"",Cliente:c.Cliente||""};}); },
+  commesse:function(){ return (STATE.commesse||[]).map(function(c){return {ID:c.ID,Nome:c.Nome||"",Cliente:c.Cliente||"",
+    Stato:normStatoComm(c.Stato),Tipo:c.Tipo||tipoDaCodice(c.ID),Anno:c.Anno||""};}); },
+  // ============================================================
+  //  IL MATERIALE IN ATTESA, commessa per commessa e mobile per mobile:
+  //  prenotato in magazzino, ordinato e non ancora arrivato, ancora da
+  //  ordinare. Fresco dal database. Le quantita' le da' il magazzino; il
+  //  valore lo mette la contabilita' (che conosce i prezzi delle fatture).
+  // ============================================================
+  inAttesa:async function(){
+    const nomi=["getRiserve","getPannelli","getMassicci","getFabbisogno","getOrdini","getVoci","getArticoli"];
+    const res=await Promise.all(nomi.map(function(f){return call(f);}));
+    const male=nomi.filter(function(f,i){return !Array.isArray(res[i]);});
+    if(male.length)throw new Error("non riesco a leggere dal magazzino: "+male.join(", "));
+    STATE.riserve=res[0]; STATE.pannelli=res[1]; STATE.massicci=res[2]; STATE.fabbisogni=res[3]; STATE.ordini=res[4]; STATE.voci=res[5]; STATE.articoli=res[6];
+    return materialeInAttesa();
+  },
+  // le offerte del magazzino, con il totale: servono al preventivo veloce della contabilita'
+  offerte:async function(){
+    const L=await call("getOfferte"); if(!Array.isArray(L))return [];
+    return L.map(function(o){ let tot=0; ((o.Dati&&o.Dati.righe)||[]).forEach(function(r){ tot+=(parseFloat(String(r.qta).replace(',','.'))||0)*(parseFloat(String(r.prezzo).replace(',','.'))||0); });
+      return {ID:o.ID,Data:o.Data,Commessa:o.Commessa||"",Cliente:o.Cliente||"",Oggetto:o.Oggetto||"",totale:Math.round(tot*100)/100}; });
+  },
+  // cercare nel magazzino dalla contabilita'
+  cerca:function(q){ return cercaNelMagazzino(q); },
+
+  // le rinomine fatte nel magazzino (piu' vecchie prima)
+  rinomine:async function(){
+    const r=await sbGet("config","select=valore&chiave=eq.commesse_rinominate");
+    let L=[]; try{ L=JSON.parse((r[0]&&r[0].valore)||"[]"); }catch(e){ L=[]; }
+    return Array.isArray(L)?L:[];
+  },
+  // scrivere le commesse dalla contabilita': passano dalle stesse funzioni del magazzino
+  commessa:{
+    crea:async function(d){
+      const id=String(d.ID||"").trim(); if(!id)return {ok:false,err:"manca il codice"};
+      if((STATE.commesse||[]).some(function(c){return c.ID===id;}))return {ok:true,gia:true};
+      const r=await call("salvaCommessa",{Nome:id,Cliente:d.Cliente||"",Stato:d.Stato||"in_lavorazione"});
+      if(!r||r.ok===false){ if(r&&/Esiste gi/.test(r.err||""))return {ok:true,gia:true}; return r||{ok:false,err:"errore"}; }
+      if((d.Nome&&d.Nome!==id)||d.Tipo){
+        const r2=await call("salvaCommessa",{ID:id,Nome:d.Nome||id,Cliente:d.Cliente||"",Stato:d.Stato||"in_lavorazione",Note:"",Tipo:d.Tipo||tipoDaCodice(id)});
+        if(!r2||r2.ok===false)return r2||{ok:false,err:"errore"};
+      }
+      await ponteRicaricaCommesse(); return {ok:true};
+    },
+    modifica:async function(id,campi){
+      const c=(STATE.commesse||[]).filter(function(x){return x.ID===id;})[0];
+      if(!c)return {ok:false,err:"nel magazzino non c'e' la commessa "+id,manca:true};
+      const d={ID:id,Nome:c.Nome,Cliente:c.Cliente,Stato:normStatoComm(c.Stato),Note:c.Note||"",Anno:c.Anno,Tipo:c.Tipo||tipoDaCodice(id)};
+      Object.keys(campi||{}).forEach(function(k){ d[k]=campi[k]; });
+      const r=await call("salvaCommessa",d); if(!r||r.ok===false)return r||{ok:false,err:"errore"};
+      await ponteRicaricaCommesse(); return {ok:true};
+    },
+    rinomina:async function(da,a){
+      if(!(STATE.commesse||[]).some(function(c){return c.ID===da;}))return {ok:false,err:"nel magazzino non c'e' la commessa "+da,manca:true};
+      const unisci=(STATE.commesse||[]).some(function(c){return c.ID===a;});
+      const r=await call("cambiaCodiceCommessa",{vecchio:da,nuovo:a,unisci:unisci});
+      await ponteRicaricaCommesse(); return r||{ok:false,err:"errore"};
+    },
+    // la tolgo dal magazzino SOLO se li' non c'e' niente attaccato
+    elimina:async function(id){
+      if(!(STATE.commesse||[]).some(function(c){return c.ID===id;}))return {ok:true,gia:true};
+      const usi=[];
+      for(const t of [["movimenti","movimenti"],["voci_commessa","altre voci"],["ore","ore"],["ordini","ordini"],["fabbisogni","righe da ordinare"],["riserve","riserve"],["offerte","offerte"],["dettature","dettature"]]){
+        try{ const r=await sbGet(t[0],"select=commessa&commessa=eq."+encodeURIComponent(id)+"&limit=1"); if(r.length)usi.push(t[1]); }catch(e){}
+      }
+      ["pannelli","massicci"].forEach(function(t){ if((STATE[t]||[]).some(function(p){return String(p.Commesse||p.commesse||"").split(",").map(function(x){return x.trim();}).indexOf(id)>=0;}))usi.push(t); });
+      if(usi.length)return {ok:false,usata:true,err:"nel magazzino la commessa "+id+" ha "+usi.join(", ")};
+      const r=await call("eliminaCommessa",{id:id}); await ponteRicaricaCommesse(); return r||{ok:false,err:"errore"};
+    }
+  },
   // i movimenti, le voci e le ore di TUTTI gli anni, freschi dal database,
   // nello stesso formato del CSV "Movimenti e voci per commessa"
   righe:async function(){
@@ -1075,7 +1243,21 @@ function openScaricoBulk(){
 function submitBulk(){
   const ids=Object.keys(SEL),tipo=SELTIPO,c=document.getElementById("bk-comm").value,n=document.getElementById("bk-note").value;
   if(!ids.length){closeModal();return;}
-  call("scaricaBulk",{tipo:tipo,ids:ids,commessa:c,note:n}).then(r=>{
+  // chi perde qualcosa con questo scarico? lo dico prima
+  const avvisi=[];
+  ids.forEach(function(id){
+    if(tipo==='articolo'){
+      const a=STATE.articoli.find(function(x){return x.ID===id;})||{};
+      const altri=risRighe(id,null).filter(function(r){return r.Commessa!==c;});
+      if(altri.length)avvisi.push((a.Nome||id)+': prenotato anche per '+altri.map(function(r){return r.Commessa+(r.Mobile?' · '+r.Mobile:'')+' ('+qtaBreve(r.Quantita)+')';}).join(', '));
+    } else {
+      const p=(tipo==='pannello'?STATE.pannelli:STATE.massicci).find(function(x){return x.ID===id;})||{};
+      const l=pzLista(p);
+      if(l.length&&l.indexOf(c)<0)avvisi.push(id+': prenotato per '+l.join(', ')+(p.Mobile?' · '+p.Mobile:''));
+    }
+  });
+  if(avvisi.length&&!confirm('Attenzione, scaricando tutto togli materiale prenotato per altri:\n\n'+avvisi.join('\n')+'\n\nVai avanti lo stesso?'))return;
+  call("scaricaBulk",{tipo:tipo,ids:ids,commessa:c,note:n,confermato:true}).then(r=>{
     if(!r.ok){showErr("bk-err",r.err||"Errore.");return;}
     const falliti=(r.risultati||[]).filter(x=>!x.ok);
     closeModal(); SEL={};SELTIPO=null;
@@ -1275,7 +1457,7 @@ async function call(fn, args) {
         ID: r.id, ArticoloID: r.articolo_id, Larghezza_mm: r.larghezza_mm, Altezza_mm: r.altezza_mm,
         Residuale_pct: r.residuale_pct, M2_originale: r.m2_originale, M2_residuo: r.m2_residuo,
         Commesse: r.commesse || "", DataCarico: r.data_carico || "", Note: r.note || "", Fornitore: r.fornitore || "",
-        Ddt: r.ddt || "", DataDdt: r.data_ddt || ""
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || "", Mobile: String(r.mobile || "")
       }));
     }
     if (fn === "getMassicci") {
@@ -1284,7 +1466,7 @@ async function call(fn, args) {
         ID: r.id, ArticoloID: r.articolo_id, Lunghezza_mm: r.lunghezza_mm, Larghezza_mm: r.larghezza_mm,
         Spessore_mm: r.spessore_mm, M3_originale: r.m3_originale, M3_residuo: r.m3_residuo,
         Commesse: r.commesse || "", Fornitore: r.fornitore || "", DataCarico: r.data_carico || "", Note: r.note || "",
-        Ddt: r.ddt || "", DataDdt: r.data_ddt || ""
+        Ddt: r.ddt || "", DataDdt: r.data_ddt || "", Mobile: String(r.mobile || "")
       }));
     }
     if (fn === "getMovimenti") {
@@ -1364,7 +1546,7 @@ async function call(fn, args) {
     if (fn === "getWebAppUrl") { return window.location.origin + window.location.pathname; }
     if (fn === "getRiserve") {
       const rows = await sbGetTutto("riserve", "articolo_id.asc,commessa.asc");
-      return rows.map(r => ({ ArticoloID: r.articolo_id, Commessa: r.commessa, Quantita: parseFloat(r.quantita) || 0 }));
+      return rows.map(r => ({ ArticoloID: r.articolo_id, Commessa: r.commessa, Mobile: String(r.mobile || ""), Quantita: parseFloat(r.quantita) || 0 }));
     }
     if (fn === "getRettifiche") {
       const rows = await sbGetTutto("rettifiche", "id.asc");
@@ -1832,6 +2014,7 @@ async function call(fn, args) {
       if (!rows.length) return { ok: false, err: "Non trovo il pezzo " + id + "." };
       const p = rows[0];
       const res = +p[campoRes] || 0;
+      { const al = pezzoDiAltri(p, args.Commessa, res); if (al && !args.Confermato) return { ok: false, serveConferma: true, err: al }; }
       if (q > res + 0.0001) return { ok: false, err: "Il pezzo " + id + " ha solo " + res.toFixed(3) + " " + un + " disponibili." };
       const nuovo = round5(res - q);
       const upd = {}; upd[campoRes] = nuovo;
@@ -1849,7 +2032,7 @@ async function call(fn, args) {
         utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente",
         articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico",
         quantita: q, unita_misura: un, commessa: args.Commessa || "", pezzo_id: id,
-        note: args.Note || "", annullato: false, fornitore: "" });
+        note: (args.Note || "") + tagPezzoPrima(p), annullato: false, fornitore: "" });
       return { ok: true, id: movId };
     }
     // Conferma: trasforma la dettatura nel record vero
@@ -1939,7 +2122,7 @@ async function call(fn, args) {
     // ---- MOVIMENTI ARTICOLO ----
     if (fn === "registraMovimento") {
       const d = args;
-      const artRows = await sbGet("articoli", "select=stock,unita_misura,nome,soglia_riordino&id=eq." + encodeURIComponent(d.ArticoloID));
+      const artRows = await sbGet("articoli", "select=stock,unita_misura,nome,soglia_riordino,impegnato&id=eq." + encodeURIComponent(d.ArticoloID));
       if (!artRows.length) return { ok: false, err: "Articolo non trovato." };
       const art = artRows[0];
       // Senza questo controllo una quantita' vuota o scritta male diventava
@@ -1951,6 +2134,12 @@ async function call(fn, args) {
       if (!isFinite(qty) || qty <= 0)
         return { ok: false, err: "Quantita' non valida: scrivi un numero maggiore di zero." };
       if (d.Tipo === "scarico" && qty > art.stock) return { ok: false, err: "Stock insufficiente. Disponibile: " + art.stock + " " + art.unita_misura };
+      let piano = null;
+      if (d.Tipo === "scarico") {
+        piano = await pianoScarico(d.ArticoloID, qty, parseFloat(art.stock) || 0, d.Commessa || "", d.Mobile,
+          d.PrendiDa, !!d.PrendiTutto, !!d.SenzaPrenotazioni);
+        if (!piano.ok) return piano;
+      }
       const nuovoStock = d.Tipo === "carico" ? round5(art.stock + qty) : round5(art.stock - qty);
       await sbPatch("articoli", "id=eq." + encodeURIComponent(d.ArticoloID), { stock: Math.max(0, nuovoStock) });
       const id = newId("MOV-");
@@ -1974,28 +2163,67 @@ async function call(fn, args) {
       // se un domani lo annullo devo sapere quanto rimettere indietro, e
       // non c'e' modo di indovinarlo dopo (la quantita' scaricata puo'
       // essere piu' grande della prenotazione che c'era).
-      let consumata = 0;
-      if (d.Tipo === "scarico" && d.Commessa) {
-        try {
-          const ris = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(d.ArticoloID)
-            + "&commessa=eq." + encodeURIComponent(d.Commessa));
-          const prenotata = ris.length ? (parseFloat(ris[0].quantita) || 0) : 0;
-          consumata = Math.min(prenotata, qty);
-          if (consumata > 0) {
-            await setRiserva(d.ArticoloID, d.Commessa, -consumata);
-            await aggiornaImpegnato(d.ArticoloID, consumata, "sub");
-            await sbPatch("movimenti", "id=eq." + encodeURIComponent(id),
-              { note: (d.Note || "") + ((d.Note ? " " : "") + "[prenotazione scalata: " + consumata + "]") });
-          }
-        } catch (e) { /* se non riesco, lascio la prenotazione dov'e' */ }
+      // Quello che esce dalle prenotazioni lo SCRIVO sul movimento (con il mobile):
+      // annullandolo devo sapere cosa rimettere e a chi.
+      let consumata = 0; const segni = [];
+      if (piano) {
+        for (const c of piano.consumi) {
+          try { await setRiserva(d.ArticoloID, c.commessa, -c.q, c.mobile); await aggiornaImpegnato(d.ArticoloID, c.q, "sub");
+                consumata = round5(consumata + c.q); segni.push("[prenotazione scalata: " + c.q + (c.mobile ? " | mobile: " + c.mobile : "") + "]"); } catch (e) {}
+        }
+        for (const p2 of piano.prese) {
+          try { await setRiserva(d.ArticoloID, p2.commessa, -p2.q, p2.mobile); await aggiornaImpegnato(d.ArticoloID, p2.q, "sub");
+                segni.push("[presa: " + p2.commessa + " § " + p2.mobile + " § " + p2.q + "]"); } catch (e) {}
+        }
+        if (segni.length) {
+          try { await sbPatch("movimenti", "id=eq." + encodeURIComponent(id),
+            { note: (d.Note || "") + (d.Note ? " " : "") + segni.join(" ") }); } catch (e) {}
+        }
       }
-      return { ok: true, id, nuovoStock: Math.max(0, nuovoStock), prenotazioneConsumata: consumata };
+      // quanto resta prenotato per quella commessa (e quel mobile, se detto)
+      let restaPrenotato = 0;
+      if (d.Tipo === "scarico" && d.Commessa) {
+        try { const rr = await riserveDi(d.ArticoloID, d.Commessa);
+          restaPrenotato = round5(rr.filter(r => d.Mobile === undefined || d.Mobile === null || r.mobile === String(d.Mobile || "").trim())
+            .reduce((a, r) => a + r.q, 0)); } catch (e) {}
+      }
+      try { await aggiornaImpegnato(d.ArticoloID); } catch (e) {}
+      return { ok: true, id, nuovoStock: Math.max(0, nuovoStock), prenotazioneConsumata: consumata,
+               consumi: piano ? piano.consumi : [], prese: piano ? piano.prese : [], restaPrenotato: restaPrenotato };
     }
     // Annullando uno scarico, il materiale torna sul pezzo: se quella
     // commessa non ha piu' NESSUN altro scarico da quel pezzo, allora non
     // l'ha mai usato e il suo nome non deve restare scritto sopra. Prima
     // restava per sempre, e il pezzo risultava "usato per" una commessa che
     // non gli aveva tolto niente.
+    // ============================================================
+    //  ANNULLARE DEVE RIMETTERE TUTTO COM'ERA
+    //  Ogni scarico di un pezzo si scrive com'era il pezzo PRIMA (per chi
+    //  era prenotato e per quale mobile). Annullandolo, se dopo non ci sono
+    //  stati altri scarichi di quel pezzo, torna esattamente cosi'. Prima
+    //  si toglieva la commessa dal pezzo: un pannello prenotato per C1,
+    //  tagliato per C1 e poi annullato, NON era piu' prenotato per C1.
+    // ============================================================
+    function tagPezzoPrima(p) {
+      return " [pezzo prima: " + String((p && p.commesse) || "").replace(/[\]§]/g, " ") + " § " + String((p && p.mobile) || "").replace(/[\]§]/g, " ") + "]";
+    }
+    async function rimettiPezzo(tabella, pezzo, mov) {
+      const g = String(mov.note || "").match(/\[pezzo prima: (.*?) § (.*?)\]/);
+      if (g) {
+        let dopo = [];
+        try {
+          dopo = await sbGet("movimenti", "select=id&pezzo_id=eq." + encodeURIComponent(pezzo.id)
+            + "&tipo=eq.scarico&annullato=is.false&id=neq." + encodeURIComponent(mov.id)
+            + "&data=gt." + encodeURIComponent(mov.data || ""));
+        } catch (e) { dopo = null; }
+        if (dopo && !dopo.length) {
+          await sbPatch(tabella, "id=eq." + encodeURIComponent(pezzo.id), { commesse: g[1].trim() });
+          await mobileDelPezzo(tabella, pezzo.id, g[2].trim());
+          return true;
+        }
+      }
+      return togliCommessaDalPezzo(tabella, pezzo, mov);
+    }
     async function togliCommessaDalPezzo(tabella, pezzo, mov) {
       const comm = mov.commessa || "";
       if (!comm) return false;
@@ -2060,7 +2288,10 @@ async function call(fn, args) {
       // roba che non era mai stata aggiunta: l'articolo finiva a zero.
       const pezziDelCarico = String(m.pezzo_id || "").split(",").map(x => x.trim()).filter(Boolean);
       const caricoDiPezzi = (m.tipo === "carico" && pezziDelCarico.length > 0);
-      const artRows = caricoDiPezzi ? [] : await sbGet("articoli", "select=stock&id=eq." + encodeURIComponent(m.articolo_id));
+      // e lo stesso vale per lo SCARICO di un pezzo: non aveva tolto niente allo stock
+      // dell'articolo, quindi annullandolo non devo rimettercelo
+      const scaricoDiPezzo = (m.tipo === "scarico" && pezziDelCarico.length > 0);
+      const artRows = (caricoDiPezzi || scaricoDiPezzo) ? [] : await sbGet("articoli", "select=stock&id=eq." + encodeURIComponent(m.articolo_id));
       if (artRows.length) {
         const st = artRows[0].stock;
         const nuovo = m.tipo === "carico" ? round5(st - m.quantita) : round5(st + m.quantita);
@@ -2113,7 +2344,7 @@ async function call(fn, args) {
               m2_residuo: nuovo,
               residuale_pct: (+p.m2_originale > 0) ? Math.round((nuovo / +p.m2_originale) * 10000) / 100 : 0
             });
-            await togliCommessaDalPezzo("pannelli", p, m);
+            await rimettiPezzo("pannelli", p, m);
             pezziRipristinati++;
             continue;
           }
@@ -2122,7 +2353,7 @@ async function call(fn, args) {
             const p = mr[0];
             const nuovo = Math.min(+p.m3_originale, round5((+p.m3_residuo || 0) + quota));
             await sbPatch("massicci", "id=eq." + encodeURIComponent(pid), { m3_residuo: nuovo });
-            await togliCommessaDalPezzo("massicci", p, m);
+            await rimettiPezzo("massicci", p, m);
             pezziRipristinati++;
           }
         }
@@ -2150,17 +2381,41 @@ async function call(fn, args) {
       // scaricavi 57 pezzi su una commessa, annullavi, e quei 57 restavano
       // fuori da ogni prenotazione per sempre. E con la spunta "togli la
       // prenotazione" se ne toglievano ancora, anche quelli di altri.
-      if (m.tipo === "scarico" && m.commessa && m.articolo_id) {
-        const seg = String(m.note || "").match(/\[prenotazione scalata: ([0-9.]+)\]/);
-        const rimetto = seg ? (parseFloat(seg[1]) || 0) : 0;
-        if (rimetto > 0) {
-          await setRiserva(m.articolo_id, m.commessa, rimetto);
-          await aggiornaImpegnato(m.articolo_id, rimetto, "add");
-          pulito.riservaRimessa = rimetto;
+      if (m.tipo === "scarico" && m.articolo_id) {
+        const nota = String(m.note || "");
+        let rimessa = 0;
+        if (m.commessa) {
+          for (const g of nota.matchAll(/\[prenotazione scalata: ([0-9.]+)(?: \| mobile: ([^\]]*))?\]/g)) {
+            const q = parseFloat(g[1]) || 0;
+            if (q > 0) { await setRiserva(m.articolo_id, m.commessa, q, g[2] || ""); await aggiornaImpegnato(m.articolo_id, q, "add"); rimessa = round5(rimessa + q); }
+          }
         }
+        // e quella liberata subito dopo lo scarico ("hai finito con questo mobile?") torna prenotata
+        if (m.commessa) {
+          for (const g of nota.matchAll(/\[liberato dopo: ([0-9.]+) § (.*?)\]/g)) {
+            const q = parseFloat(g[1]) || 0;
+            if (q > 0) { await setRiserva(m.articolo_id, m.commessa, q, g[2].trim()); await aggiornaImpegnato(m.articolo_id, q, "add"); rimessa = round5(rimessa + q); }
+          }
+        }
+        // e quella presa ad altri torna a loro
+        for (const g of nota.matchAll(/\[presa: (.*?) § (.*?) § ([0-9.]+)\]/g)) {
+          const q = parseFloat(g[3]) || 0;
+          if (q > 0 && g[1]) { await setRiserva(m.articolo_id, g[1], q, g[2] || ""); await aggiornaImpegnato(m.articolo_id, q, "add"); rimessa = round5(rimessa + q); }
+        }
+        if (rimessa > 0) pulito.riservaRimessa = rimessa;
       }
       // la spunta "togli la prenotazione" vale solo per i CARICHI: su uno
       // scarico la prenotazione si rimette, non si toglie
+      const prenSuCarico = [...String(m.note || "").matchAll(/\[prenotato: ([0-9.]+) § (.*?) § (.*?)\]/g)];
+      if (args.togliRiserva && m.tipo === "carico" && m.articolo_id && prenSuCarico.length) {
+        let tolte = 0;
+        for (const g of prenSuCarico) {
+          const rr = (await riserveDi(m.articolo_id, g[2].trim())).filter(x => x.mobile === g[3].trim());
+          const t = Math.min(parseFloat(g[1]) || 0, rr.reduce((a, x) => a + x.q, 0));
+          if (t > 0) { await setRiserva(m.articolo_id, g[2].trim(), -t, g[3].trim()); await aggiornaImpegnato(m.articolo_id, t, "sub"); tolte = round5(tolte + t); }
+        }
+        pulito.riserva = tolte;
+      } else
       if (args.togliRiserva && m.tipo === "carico" && m.commessa && m.articolo_id) {
         // La prenotazione per la commessa e la quota "impegnato" dell'articolo
         // sono due facce della stessa cosa e vanno mosse SEMPRE INSIEME.
@@ -2168,17 +2423,11 @@ async function call(fn, args) {
         // dell'impegnato: annullavi un carico da 50 e l'articolo restava
         // segnato 50 impegnati per una commessa che non lo aspettava piu'.
         // I "liberi" restavano a zero per sempre.
-        const rr = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(m.articolo_id) + "&commessa=eq." + encodeURIComponent(m.commessa));
-        if (rr.length) {
-          const vecchia = parseFloat(rr[0].quantita) || 0;
-          const tolgo = Math.min(vecchia, parseFloat(m.quantita) || 0);
-          if (tolgo > 0) {
-            await setRiserva(m.articolo_id, m.commessa, -tolgo);
-            await aggiornaImpegnato(m.articolo_id, tolgo, "sub");
-          }
-          pulito.riserva = tolgo;
-        }
+        const tolgo = await togliDaRiserve(m.articolo_id, m.commessa, parseFloat(m.quantita) || 0, "", false);
+        pulito.riserva = tolgo;
       }
+      // l'impegnato dell'articolo torna a combaciare con le prenotazioni e lo stock di adesso
+      if (m.articolo_id && !caricoDiPezzi && !scaricoDiPezzo) { try { await aggiornaImpegnato(m.articolo_id); } catch (e) {} }
       if (args.etichetta === "libera" || args.etichetta === "dismessa") {
         let trovate = [];
         if (!args.soloCodici) {
@@ -2287,11 +2536,7 @@ async function call(fn, args) {
       // senza che si capisse perche'.
       let daPrenotare = q;
       if (vecchia) {
-        const ris = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(artId) + "&commessa=eq." + encodeURIComponent(vecchia));
-        const cur = ris.length ? (parseFloat(ris[0].quantita) || 0) : 0;
-        const giu = Math.min(q, cur);
-        if (giu > 0) { await setRiserva(artId, vecchia, -giu); await aggiornaImpegnato(artId, giu, "sub"); }
-        daPrenotare = giu;
+        daPrenotare = await togliDaRiserve(artId, vecchia, q, "", false);
       }
       if (nuova && daPrenotare > 0) { await aggiornaImpegnato(artId, daPrenotare, "add"); await setRiserva(artId, nuova, daPrenotare); }
       const dove = function (c) { return c || "magazzino libero"; };
@@ -2463,11 +2708,22 @@ async function call(fn, args) {
       await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: desc, nome_articolo: desc, tipo: "carico", quantita: m2, unita_misura: "m²", commessa: "", pezzo_id: pid, note: "Carico refilo: " + desc, annullato: false, fornitore: forn, ddt: d.Ddt || "", data_ddt: d.DataDdt || null });
       return { ok: true, id: pid, m2 };
     }
+    // un pezzo prenotato per un'altra commessa (o scaricato senza commessa) non si
+    // scarica senza conferma: prima finiva in silenzio a chi lo prendeva per primo
+    function pezzoDiAltri(p, commessa, residuo) {
+      const lista = String(p.commesse || "").split(",").map(x => x.trim()).filter(Boolean);
+      if (!(residuo > 0) || !lista.length) return "";
+      if (commessa && lista.indexOf(commessa) >= 0) return "";
+      return "Il pezzo " + p.id + " e' prenotato per " + lista.join(", ") + (p.mobile ? " (" + p.mobile + ")" : "")
+        + (commessa ? ": scaricandolo su " + commessa + " lo togli a loro." : ": lo stai scaricando senza commessa.")
+        + " Conferma dalla finestra di scarico del pezzo.";
+    }
     if (fn === "scaricaPannello") {
       const d = args;
       const pRows = await sbGet("pannelli", "select=*&id=eq." + encodeURIComponent(d.PannelloID));
       if (!pRows.length) return { ok: false, err: "Pannello non trovato." };
       const p = pRows[0];
+      { const al = pezzoDiAltri(p, d.Commessa, parseFloat(p.m2_residuo) || 0); if (al && !d.Confermato) return { ok: false, serveConferma: true, err: al }; }
       const m2_pezzo = round5((d.PezzoW/1000)*(d.PezzoH/1000));
       if (!isFinite(m2_pezzo) || m2_pezzo <= 0)
         return { ok: false, err: "Misure del pezzo non valide." };
@@ -2478,7 +2734,7 @@ async function call(fn, args) {
       if (d.Commessa && comm.indexOf(d.Commessa) === -1) comm.push(d.Commessa);
       await sbPatch("pannelli", "id=eq." + encodeURIComponent(d.PannelloID), { m2_residuo: nuovo_m2, residuale_pct: nuova_pct, commesse: comm.join(", ") });
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: m2_pezzo, unita_misura: "m²", commessa: d.Commessa || "", pezzo_id: d.PannelloID, note: d.Note || ("Pezzo " + d.PezzoW + "×" + d.PezzoH + "mm"), annullato: false, fornitore: "" });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: m2_pezzo, unita_misura: "m²", commessa: d.Commessa || "", pezzo_id: d.PannelloID, note: (d.Note || ("Pezzo " + d.PezzoW + "×" + d.PezzoH + "mm")) + tagPezzoPrima(p), annullato: false, fornitore: "" });
       return { ok: true, nuova_pct, nuovo_m2_residuo: nuovo_m2, newStock: null };
     }
     // Di un pezzo gia' finito non c'e' piu' niente da scaricare: prima si
@@ -2490,13 +2746,14 @@ async function call(fn, args) {
       if (!pRows.length) return { ok: false, err: "Pannello non trovato." };
       const p = pRows[0];
       const m2_usati = parseFloat(p.m2_residuo) || 0;
+      { const al = pezzoDiAltri(p, d.Commessa, m2_usati); if (al && !d.Confermato) return { ok: false, serveConferma: true, err: al }; }
       if (m2_usati <= 0)
         return { ok: false, err: "Del pannello " + d.PannelloID + " non resta niente da scaricare." };
       const comm = p.commesse ? p.commesse.split(",").map(s=>s.trim()).filter(Boolean) : [];
       if (d.Commessa && comm.indexOf(d.Commessa) === -1) comm.push(d.Commessa);
       await sbPatch("pannelli", "id=eq." + encodeURIComponent(d.PannelloID), { m2_residuo: 0, residuale_pct: 0, commesse: comm.join(", ") });
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: m2_usati, unita_misura: "m²", commessa: d.Commessa || "", pezzo_id: d.PannelloID, note: d.Note || "Scarico totale residuo", annullato: false, fornitore: "" });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: m2_usati, unita_misura: "m²", commessa: d.Commessa || "", pezzo_id: d.PannelloID, note: (d.Note || "Scarico totale residuo") + tagPezzoPrima(p), annullato: false, fornitore: "" });
       return { ok: true, newStock: null };
     }
     // Modifica anagrafica di un pezzo gia caricato (pannello o massiccio).
@@ -2642,6 +2899,7 @@ async function call(fn, args) {
       const pRows = await sbGet("massicci", "select=*&id=eq." + encodeURIComponent(d.MassiccioID));
       if (!pRows.length) return { ok: false, err: "Massiccio non trovato." };
       const p = pRows[0];
+      { const al = pezzoDiAltri(p, d.Commessa, parseFloat(p.m3_residuo) || 0); if (al && !d.Confermato) return { ok: false, serveConferma: true, err: al }; }
       let uso = 0;
       if (d.modo === "misure") uso = round5((d.L/1000)*(d.W/1000)*(d.S/1000));
       else uso = round5(parseFloat(d.UsoM3));
@@ -2651,7 +2909,7 @@ async function call(fn, args) {
       if (d.Commessa && comm.indexOf(d.Commessa) === -1) comm.push(d.Commessa);
       await sbPatch("massicci", "id=eq." + encodeURIComponent(d.MassiccioID), { m3_residuo: nuovo, commesse: comm.join(", ") });
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: uso, unita_misura: "m³", commessa: d.Commessa || "", pezzo_id: d.MassiccioID, note: d.Note || "", annullato: false, fornitore: "" });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: uso, unita_misura: "m³", commessa: d.Commessa || "", pezzo_id: d.MassiccioID, note: (d.Note || "") + tagPezzoPrima(p), annullato: false, fornitore: "" });
       return { ok: true, nuovo_m3_residuo: nuovo, newStock: null };
     }
     if (fn === "scaricaMassiccioTotale") {
@@ -2662,11 +2920,12 @@ async function call(fn, args) {
       const uso = parseFloat(p.m3_residuo) || 0;
       if (uso <= 0)
         return { ok: false, err: "Del massiccio " + d.MassiccioID + " non resta niente da scaricare." };
+      { const al = pezzoDiAltri(p, d.Commessa, uso); if (al && !d.Confermato) return { ok: false, serveConferma: true, err: al }; }
       const comm = p.commesse ? p.commesse.split(",").map(s=>s.trim()).filter(Boolean) : [];
       if (d.Commessa && comm.indexOf(d.Commessa) === -1) comm.push(d.Commessa);
       await sbPatch("massicci", "id=eq." + encodeURIComponent(d.MassiccioID), { m3_residuo: 0, commesse: comm.join(", ") });
       const movId = newId("MOV-");
-      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: uso, unita_misura: "m³", commessa: d.Commessa || "", pezzo_id: d.MassiccioID, note: d.Note || "Scarico totale", annullato: false, fornitore: "" });
+      await sbPost("movimenti", { id: movId, data: nowStr(), utente: UTENTE_CORRENTE ? UTENTE_CORRENTE.Nome : "Utente", articolo_id: p.articolo_id, nome_articolo: p.articolo_id, tipo: "scarico", quantita: uso, unita_misura: "m³", commessa: d.Commessa || "", pezzo_id: d.MassiccioID, note: (d.Note || "Scarico totale") + tagPezzoPrima(p), annullato: false, fornitore: "" });
       return { ok: true, newStock: null };
     }
     if (fn === "eliminaMassiccio") {
@@ -2684,9 +2943,9 @@ async function call(fn, args) {
       const risultati = [];
       for (const id of args.ids) {
         let r;
-        if (args.tipo === "pannello") r = await call("scaricaPannelloTotale", { PannelloID: id, Commessa: args.commessa, Note: args.note });
-        else if (args.tipo === "massiccio") r = await call("scaricaMassiccioTotale", { MassiccioID: id, Commessa: args.commessa, Note: args.note });
-        else r = await call("registraMovimento", { ArticoloID: id, Tipo: "scarico", Quantita: (STATE.articoli.find(a=>a.ID===id)||{}).Stock || 0, Commessa: args.commessa, Note: args.note });
+        if (args.tipo === "pannello") r = await call("scaricaPannelloTotale", { PannelloID: id, Commessa: args.commessa, Note: args.note, Confermato: !!args.confermato });
+        else if (args.tipo === "massiccio") r = await call("scaricaMassiccioTotale", { MassiccioID: id, Commessa: args.commessa, Note: args.note, Confermato: !!args.confermato });
+        else r = await call("registraMovimento", { ArticoloID: id, Tipo: "scarico", Quantita: (STATE.articoli.find(a=>a.ID===id)||{}).Stock || 0, Commessa: args.commessa, Note: args.note, PrendiTutto: !!args.confermato });
         risultati.push(r);
       }
       return { ok: true, risultati };
@@ -2850,6 +3109,17 @@ async function call(fn, args) {
              + "La commessa " + v + " resta dov'e': sistemiamo prima quelle righe, se no restano puntate a un codice che non esiste." };
       }
       await sbDelete("commesse", "id=eq." + encodeURIComponent(v));
+      // me lo segno: la contabilita' sposta anche i suoi conti dal codice vecchio a quello nuovo
+      try {
+        const k = "commesse_rinominate";
+        const cr = await sbGet("config", "select=valore&chiave=eq." + k);
+        let L = []; try { L = JSON.parse((cr[0] && cr[0].valore) || "[]"); } catch (e) { L = []; }
+        if (!Array.isArray(L)) L = [];
+        L.push({ da: v, a: n, quando: new Date().toISOString(), unito: !!esiste.length });
+        const val = JSON.stringify(L.slice(-500));
+        if (cr.length) await sbPatch("config", "chiave=eq." + k, { valore: val });
+        else await sbPost("config", { chiave: k, valore: val });
+      } catch (e) {}
       return { ok: true, risultato: risultato, unito: !!esiste.length };
     }
     // ---- CREAZIONE DI PIU' COMMESSE IN UNA VOLTA ----
@@ -2897,6 +3167,7 @@ async function call(fn, args) {
         nuovoCampo = ins.join(", ");
       } else nuovoCampo = args.commessa;
       await sbPatch(tabP, "id=eq." + encodeURIComponent(args.id), { commesse: nuovoCampo });
+      await mobileDelPezzo(tabP, args.id, nuovoCampo ? (args.mobile || "") : "");
       // I report leggono i MOVIMENTI, non il campo commesse del pezzo: se il
       // pezzo era gia' stato scaricato va allineato anche lo scarico, se no
       // resta nel report della commessa vecchia.
@@ -2953,28 +3224,157 @@ async function call(fn, args) {
     }
 
     // ---- RISERVE ----
-    async function setRiserva(artId, commessa, delta) {
-      const rows = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(artId) + "&commessa=eq." + encodeURIComponent(commessa));
+    // ============================================================
+    //  LA PRENOTAZIONE HA ANCHE IL MOBILE (la stanza)
+    //  Con lo SQL 64 una prenotazione e' articolo + commessa + MOBILE:
+    //  20 cerniere per il "D08 BAGNO" e 12 per la "CUCINA" sono due righe.
+    //  Prima del 64 il mobile non c'e' e tutto va come prima.
+    // ============================================================
+    async function setRiserva(artId, commessa, delta, mobile) {
+      const conMob = await risMobOk();
+      const mb = conMob ? String(mobile || "").trim() : "";
+      const filtro = "articolo_id=eq." + encodeURIComponent(artId) + "&commessa=eq." + encodeURIComponent(commessa)
+        + (conMob ? "&mobile=eq." + encodeURIComponent(mb) : "");
+      const rows = await sbGet("riserve", "select=*&" + filtro);
       const cur = rows.length ? (parseFloat(rows[0].quantita) || 0) : 0;
       const nuovo = round5(cur + delta);
       if (rows.length) {
-        if (nuovo <= 0) await sbDelete("riserve", "articolo_id=eq." + encodeURIComponent(artId) + "&commessa=eq." + encodeURIComponent(commessa));
-        else await sbPatch("riserve", "articolo_id=eq." + encodeURIComponent(artId) + "&commessa=eq." + encodeURIComponent(commessa), { quantita: nuovo });
+        if (nuovo <= 0) await sbDelete("riserve", filtro);
+        else await sbPatch("riserve", filtro, { quantita: nuovo });
       } else if (nuovo > 0) {
-        await sbPost("riserve", { articolo_id: artId, commessa: commessa, quantita: nuovo });
+        const riga = { articolo_id: artId, commessa: commessa, quantita: nuovo };
+        if (conMob) riga.mobile = mb;
+        await sbPost("riserve", riga);
       }
+      try { await aggiornaImpegnato(artId); } catch (e) {}
       return Math.max(0, nuovo);
     }
+    // sul movimento di carico: "[prenotato: q § commessa § mobile]"
+    async function segnaPrenotatoSulCarico(movId, commessa, q, mobile) {
+      if (!movId || !(q > 0)) return;
+      try {
+        const r = await sbGet("movimenti", "select=note&id=eq." + encodeURIComponent(movId));
+        if (!r.length) return;
+        const t = "[prenotato: " + round5(q) + " § " + String(commessa || "").replace(/[\]§]/g, " ") + " § " + String(mobile || "").replace(/[\]§]/g, " ") + "]";
+        await sbPatch("movimenti", "id=eq." + encodeURIComponent(movId), { note: (r[0].note || "") + (r[0].note ? " " : "") + t });
+      } catch (e) {}
+    }
+    async function risMobOk() {
+      if (window.__RIS_MOB === true || window.__RIS_MOB === false) return window.__RIS_MOB;
+      try { await sbGet("riserve", "select=mobile&limit=1"); window.__RIS_MOB = true; }
+      catch (e) { const m = String((e && e.message) || e); window.__RIS_MOB = /mobile/i.test(m) ? false : null; return false; }
+      return true;
+    }
+    // le prenotazioni di un articolo (di una commessa, se la dico), riga per mobile
+    async function riserveDi(artId, commessa) {
+      const conMob = await risMobOk();
+      const rows = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(artId)
+        + (commessa != null ? "&commessa=eq." + encodeURIComponent(commessa) : ""));
+      return rows.map(r => ({ commessa: r.commessa, mobile: conMob ? String(r.mobile || "") : "", q: parseFloat(r.quantita) || 0 }))
+        .filter(r => r.q > 0);
+    }
+    // tolgo fino a q dalle prenotazioni di una commessa: prima dal mobile indicato,
+    // poi da quella senza mobile, poi dalle altre. Con "soloQuello" solo da quel mobile.
+    async function togliDaRiserve(artId, commessa, q, mobile, soloQuello) {
+      let rows = await riserveDi(artId, commessa);
+      const mb = String(mobile || "");
+      if (soloQuello) rows = rows.filter(r => r.mobile === mb);
+      rows.sort((a, b) => ((b.mobile === mb) - (a.mobile === mb)) || ((b.mobile === "") - (a.mobile === "")) || a.mobile.localeCompare(b.mobile));
+      let resto = (q === Infinity || q == null) ? Infinity : (parseFloat(q) || 0), tolte = 0;
+      for (const r of rows) {
+        if (!(resto > 0)) break;
+        const t = Math.min(r.q, resto);
+        if (t > 0) { await setRiserva(artId, commessa, -t, r.mobile); tolte = round5(tolte + t); resto = round5(resto - t); }
+      }
+      if (tolte > 0) await aggiornaImpegnato(artId, tolte, "sub");
+      return tolte;
+    }
+    // ============================================================
+    //  PRIMA DI SCARICARE UN ARTICOLO: da quale prenotazione esce?
+    //  1. da quella della commessa (e del mobile, se lo dici)
+    //  2. il di piu' dalla roba LIBERA
+    //  3. se la libera non basta NON prendo in silenzio quella prenotata
+    //     per altri: rispondo "serve conferma" con l'elenco di chi l'ha
+    //     prenotata. Prima succedeva senza dire niente.
+    // ============================================================
+    async function pianoScarico(artId, qty, stock, commessa, mobile, prendiDa, prendiTutto, senzaPrenotazioni) {
+      const tutte = await riserveDi(artId, null);
+      const totRis = tutte.reduce((a, r) => a + r.q, 0);
+      const libero = Math.max(0, round5(stock - totRis));
+      const conMobile = mobile !== undefined && mobile !== null;
+      const mb = String(mobile || "").trim();
+      let mie = [];
+      if (commessa && !senzaPrenotazioni) {
+        mie = tutte.filter(r => r.commessa === commessa && (!conMobile || r.mobile === mb));
+        mie.sort((a, b) => ((b.mobile === "") - (a.mobile === "")) || a.mobile.localeCompare(b.mobile));
+      }
+      let resto = qty; const consumi = [];
+      for (const r of mie) {
+        if (!(resto > 0)) break;
+        const t = round5(Math.min(r.q, resto));
+        if (t > 0) { consumi.push({ commessa: commessa, mobile: r.mobile, q: t }); resto = round5(resto - t); }
+      }
+      const prese = [];
+      const altre = tutte.filter(r => mie.indexOf(r) < 0)
+        .sort((a, b) => ((b.commessa === commessa) - (a.commessa === commessa)) || a.commessa.localeCompare(b.commessa) || a.mobile.localeCompare(b.mobile));
+      // con "senza prenotazioni" (carico e scarico subito) la roba appena entrata e' libera
+      const liberoUsabile = senzaPrenotazioni ? Math.max(libero, qty) : libero;
+      if (resto > liberoUsabile + 0.00001) {
+        let manca = round5(resto - liberoUsabile);
+        const lista = prendiTutto ? altre.map(r => ({ commessa: r.commessa, mobile: r.mobile, q: r.q })) : (Array.isArray(prendiDa) ? prendiDa : []);
+        for (const pd of lista) {
+          if (!(manca > 0)) break;
+          const r = altre.find(x => x.commessa === pd.commessa && x.mobile === String(pd.mobile || ""));
+          if (!r) continue;
+          const gia = prese.filter(x => x.commessa === r.commessa && x.mobile === r.mobile).reduce((a, x) => a + x.q, 0);
+          const t = round5(Math.min(r.q - gia, parseFloat(pd.q) || 0, manca));
+          if (t > 0) { prese.push({ commessa: r.commessa, mobile: r.mobile, q: t }); manca = round5(manca - t); }
+        }
+        if (manca > 0.00001) {
+          const chi = altre.map(r => r.commessa + (r.mobile ? " (" + r.mobile + ")" : "") + ": " + r.q).join(", ");
+          return { ok: false, serveConferma: true, libero: libero, manca: manca,
+            prenotatoQui: round5(consumi.reduce((a, c) => a + c.q, 0)),
+            altre: altre.map(r => ({ commessa: r.commessa, mobile: r.mobile, q: r.q })),
+            err: "La roba libera non basta: ne mancano " + manca + ". Il resto e' prenotato per " + (chi || "altre commesse")
+              + ". Per prenderla lo stesso scarica dalla finestra Movimento dell'articolo: ti chiede la conferma e la toglie a chi l'aveva prenotata." };
+        }
+      }
+      return { ok: true, consumi: consumi, prese: prese, libero: libero };
+    }
+    // ============================================================
+    //  L'"IMPEGNATO" DELL'ARTICOLO = la somma delle sue prenotazioni
+    //  Prima si aggiungeva e toglieva a pezzi (delta), tagliando ogni
+    //  volta al valore dello stock: in uno scarico che toccava piu'
+    //  prenotazioni, i tagli intermedi facevano perdere dei pezzi, e
+    //  annullando lo scarico l'impegnato non tornava com'era (62 -> 52).
+    //  Adesso lo ricalcolo sempre dalle prenotazioni vere: non puo'
+    //  piu' andare fuori strada, in nessun ordine.
+    // ============================================================
     async function aggiornaImpegnato(artId, delta, segno) {
       const rows = await sbGet("articoli", "select=stock,impegnato&id=eq." + encodeURIComponent(artId));
       if (!rows.length) return null;
-      const cur = parseFloat(rows[0].impegnato) || 0, stock = parseFloat(rows[0].stock) || 0;
-      let nuovo = (segno === "add") ? cur + (+delta) : cur - (+delta);
-      nuovo = Math.max(0, Math.min(round5(nuovo), stock));
-      await sbPatch("articoli", "id=eq." + encodeURIComponent(artId), { impegnato: nuovo });
+      const stock = parseFloat(rows[0].stock) || 0;
+      let somma = 0;
+      try { const rr = await sbGet("riserve", "select=quantita&articolo_id=eq." + encodeURIComponent(artId));
+            somma = rr.reduce((a, r) => a + (parseFloat(r.quantita) || 0), 0); }
+      catch (e) { return parseFloat(rows[0].impegnato) || 0; }
+      const nuovo = Math.max(0, Math.min(round5(somma), stock));
+      if (Math.abs(nuovo - (parseFloat(rows[0].impegnato) || 0)) > 0.000001)
+        await sbPatch("articoli", "id=eq." + encodeURIComponent(artId), { impegnato: nuovo });
       return nuovo;
     }
+    if (fn === "liberaRiserva" && args && args.mobile !== undefined && args.mobile !== null) {
+      // solo quel mobile: le prenotazioni degli altri mobili della commessa restano
+      const q = await togliDaRiserve(args.artId, args.commessa, Infinity, args.mobile, true);
+      if (args.movId && q > 0) {
+        try { const r = await sbGet("movimenti", "select=note&id=eq." + encodeURIComponent(args.movId));
+          if (r.length) await sbPatch("movimenti", "id=eq." + encodeURIComponent(args.movId),
+            { note: (r[0].note || "") + " [liberato dopo: " + q + " § " + String(args.mobile || "").replace(/[\]§]/g, " ") + "]" }); } catch (e) {}
+      }
+      return { ok: true, liberato: q };
+    }
     if (fn === "liberaRiserva") {
+      if (await risMobOk()) return { ok: true, liberato: await togliDaRiserve(args.artId, args.commessa, Infinity, "", false) };
       const rows = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(args.artId) + "&commessa=eq." + encodeURIComponent(args.commessa));
       if (!rows.length) return { ok: true, liberato: 0 };
       const q = parseFloat(rows[0].quantita) || 0;
@@ -2989,11 +3389,9 @@ async function call(fn, args) {
     }
     if (fn === "annullaAssegnazione") {
       if (args.tipo === "articolo") {
-        const rows = await sbGet("riserve", "select=*&articolo_id=eq." + encodeURIComponent(args.artId) + "&commessa=eq." + encodeURIComponent(args.commessa));
-        const cur = rows.length ? (parseFloat(rows[0].quantita) || 0) : 0;
-        const q = parseFloat(args.quantita) || cur;
-        const rel = Math.min(q, cur);
-        if (rel > 0) { await setRiserva(args.artId, args.commessa, -rel); await aggiornaImpegnato(args.artId, rel, "sub"); }
+        const soloMob = args.mobile !== undefined && args.mobile !== null;
+        const q = parseFloat(args.quantita);
+        const rel = await togliDaRiserve(args.artId, args.commessa, (q > 0) ? q : Infinity, args.mobile || "", soloMob);
         return { ok: true, liberato: rel };
       }
       const tab = args.tipo === "pannello" ? "pannelli" : "massicci";
@@ -3003,12 +3401,30 @@ async function call(fn, args) {
         if (String(p.commesse || "").trim() === String(args.commessa)) {
           if (n && freed >= n) break;
           await sbPatch(tab, "id=eq." + encodeURIComponent(p.id), { commesse: "" });
+          await mobileDelPezzo(tab, p.id, "");
           freed++;
         }
       }
       return { ok: true, liberati: freed };
     }
 
+    // il mobile di un pezzo (prima dello SQL 64 la colonna non c'e': lascio stare)
+    async function mobileDelPezzo(tab, id, mobile) {
+      try { await sbPatch(tab, "id=eq." + encodeURIComponent(id), { mobile: String(mobile || "").trim() }); } catch (e) {}
+    }
+    // ============================================================
+    //  IL RESTO DI UN PEZZO DOPO UNO SCARICO: di chi e'?
+    //  Lo decidi tu: resta prenotato per una commessa (e un mobile)
+    //  oppure torna libero. Tocca solo la prenotazione del pezzo,
+    //  MAI i movimenti gia' fatti (che restano a chi li ha consumati).
+    // ============================================================
+    if (fn === "destinaRestoPezzo") {
+      const tab = args.tipo === "massiccio" ? "massicci" : "pannelli";
+      const c = String(args.commessa || "").trim();
+      await sbPatch(tab, "id=eq." + encodeURIComponent(args.id), { commesse: c });
+      await mobileDelPezzo(tab, args.id, c ? (args.mobile || "") : "");
+      return { ok: true };
+    }
     // Aggiorna assegnaArticoloSingolo/assegnaPezzoSingolo per usare le riserve
     if (fn === "assegnaArticoloSingolo") {
       const rows = await sbGet("articoli", "select=stock,impegnato&id=eq." + encodeURIComponent(args.artId));
@@ -3018,7 +3434,8 @@ async function call(fn, args) {
       const q = Math.min(parseFloat(args.quantita) || 0, libero);
       if (q <= 0) return { ok: false, err: "Niente di disponibile da assegnare (libero " + libero + ")." };
       await sbPatch("articoli", "id=eq." + encodeURIComponent(args.artId), { impegnato: round5(imp + q) });
-      await setRiserva(args.artId, args.commessa, q);
+      await setRiserva(args.artId, args.commessa, q, args.mobile || "");
+      if (args.movId) await segnaPrenotatoSulCarico(args.movId, args.commessa, q, args.mobile || "");
       return { ok: true, assegnato: q, daOrdinare: round5(Math.max(0, (parseFloat(args.quantita) || 0) - q)) };
     }
     // assegnaArticoloCommessa = come assegnaArticoloSingolo (usato da "assegna a magazzino")
@@ -3247,7 +3664,8 @@ async function call(fn, args) {
         if (!es.ok) return es;
         if (perC > 0 && r.commessa) {
           await aggiornaImpegnato(r.articolo_id, perC, "add");
-          await setRiserva(r.articolo_id, r.commessa, perC);
+          await setRiserva(r.articolo_id, r.commessa, perC, String(r.mobile || "").trim());
+          await segnaPrenotatoSulCarico(es.id, r.commessa, perC, String(r.mobile || "").trim());
         }
         const resto = round5(Math.max(0, chiesta - perC));
         if (resto > 0) {
@@ -3277,7 +3695,7 @@ async function call(fn, args) {
         ? Math.min(parseInt(r.num_pezzi) || num, num) : (parseInt(args.PerCommessa) || 0);
       if (vuoiPerC > 0 && r.commessa) {
         const ids = (es2.ids || []).slice(0, vuoiPerC);
-        for (const pid of ids) await call("assegnaPezzoSingolo", { tipo: r.tipo, id: pid, commessa: r.commessa });
+        for (const pid of ids) await call("assegnaPezzoSingolo", { tipo: r.tipo, id: pid, commessa: r.commessa, mobile: String(r.mobile || "").trim() });
       }
       const chiesti = parseInt(r.num_pezzi) || 0;
       const restoP = Math.max(0, chiesti - vuoiPerC);
@@ -3357,15 +3775,27 @@ async function call(fn, args) {
     // Se non e' stato detto niente: tutti. Se e' stato detto "zero alla
     // commessa" (perche' il materiale era gia' stato preso altrove):
     // nessuno, restano liberi a magazzino.
-    async function intestaPezziAllaCommessa(tipoPezzo, ids, commessa, perCommessa, libero) {
+    async function intestaPezziAllaCommessa(tipoPezzo, ids, commessa, perCommessa, libero, mobili) {
       if (!commessa || libero || !ids || !ids.length) return 0;
       let quanti = parseFloat(perCommessa);
       if (isNaN(quanti)) quanti = ids.length;
       quanti = Math.max(0, Math.min(Math.round(quanti), ids.length));
       for (let i = 0; i < quanti; i++) {
-        await call("assegnaPezzoSingolo", { tipo: tipoPezzo, id: ids[i], commessa: commessa }).catch(() => {});
+        await call("assegnaPezzoSingolo", { tipo: tipoPezzo, id: ids[i], commessa: commessa,
+          mobile: (mobili && mobili.length) ? (mobili[Math.min(i, mobili.length - 1)] || "") : "" }).catch(() => {});
       }
       return quanti;
+    }
+    // un mobile per ogni pezzo che arriva, secondo quanti ne chiede ogni riga del gruppo
+    function mobiliPerPezzi(righeGr, n) {
+      const out = [];
+      (righeGr || []).forEach(function (x) {
+        const vuole = parseFloat(x.numPezzi) || 0;
+        const gia = (x.qtaRic === undefined || x.qtaRic === null) ? (x.ricevuto ? vuole : 0) : (parseFloat(x.qtaRic) || 0);
+        for (let k = 0; k < Math.max(0, Math.round(vuole - gia)); k++) out.push(mobileDiRiga(x));
+      });
+      while (out.length < n) out.push(out.length ? out[out.length - 1] : "");
+      return out.slice(0, n);
     }
     if (fn === "riceviRigaOrdine") {
       const rows = await sbGet("ordini", "select=*&id=eq." + encodeURIComponent(args.id));
@@ -3419,7 +3849,22 @@ async function call(fn, args) {
         // Il fornitore manda la confezione intera: se ne ordini 57 e te ne
         // arrivano 100, alla commessa ne destino 57 e le altre 43 restano
         // libere a magazzino. Quanto destinare lo decide chi riceve.
-        if (perC > 0) { await aggiornaImpegnato(artId, perC, "add"); await setRiserva(artId, commessa, perC); }
+        if (perC > 0) {
+          await aggiornaImpegnato(artId, perC, "add");
+          // la prenotazione va ai mobili delle righe, ognuno per quanto gli manca
+          let rest = perC;
+          const parti = gr.righe.map(function (x) {
+            const vuole = parseFloat(x.quantita) || 0;
+            const gia = (x.qtaRic === undefined || x.qtaRic === null) ? (x.ricevuto ? vuole : 0) : (parseFloat(x.qtaRic) || 0);
+            return { mobile: mobileDiRiga(x), serve: Math.max(0, round5(vuole - gia)) };
+          });
+          for (const pt of parti) { if (!(rest > 0)) break; const t = round5(Math.min(rest, pt.serve)); if (t > 0) { pt.q = t; rest = round5(rest - t); } }
+          if (rest > 0 && parti.length) parti[parti.length - 1].q = round5((parti[parti.length - 1].q || 0) + rest);
+          const perMob = {};
+          parti.forEach(function (pt) { if (pt.q > 0) perMob[pt.mobile] = round5((perMob[pt.mobile] || 0) + pt.q); });
+          if (!parti.length) perMob[""] = perC;
+          for (const mbx of Object.keys(perMob)) { await setRiserva(artId, commessa, perMob[mbx], mbx); await segnaPrenotatoSulCarico(es.id, commessa, perMob[mbx], mbx); }
+        }
         creati.push({ tipo: "carico", id: es.id, nome: (r.descrizione || artId) + " - " + qta + " " + (r.unita || "") });
       } else if (r.tipo === "pannello" && r.artId) {
         const es = await call("caricaPannelli", { ArticoloID: r.artId, Larghezza_mm: parseInt(r.dim1) || 0,
@@ -3430,7 +3875,7 @@ async function call(fn, args) {
         // questa strada li creava e basta, e la commessa risultava servita
         // mentre i pannelli restavano liberi, pronti per essere presi da
         // un'altra commessa
-        await intestaPezziAllaCommessa("pannello", es.ids || [], commessa, args.PerCommessa, liberoTutto);
+        await intestaPezziAllaCommessa("pannello", es.ids || [], commessa, args.PerCommessa, liberoTutto, mobiliPerPezzi(gr.righe, (es.ids || []).length));
         (es.ids || []).forEach(x => creati.push({ tipo: "pannello", id: x,
           nome: (r.descrizione || r.artId) + " " + (r.dim1 || "") + "x" + (r.dim2 || "") }));
       } else if (r.tipo === "massiccio" && r.artId) {
@@ -3439,7 +3884,7 @@ async function call(fn, args) {
           Spessore_mm: parseInt(r.dim3) || 0, Quantita: Math.round(qta) || 1, Fornitore: forn,
           Ddt: ddt, DataDdt: dataDdt });
         if (!es.ok) return es;
-        await intestaPezziAllaCommessa("massiccio", es.ids || [], commessa, args.PerCommessa, liberoTutto);
+        await intestaPezziAllaCommessa("massiccio", es.ids || [], commessa, args.PerCommessa, liberoTutto, mobiliPerPezzi(gr.righe, (es.ids || []).length));
         (es.ids || []).forEach(x => creati.push({ tipo: "massiccio", id: x, nome: (r.descrizione || r.artId) }));
       } else {
         return { ok: false, err: "Questa riga non si puo' caricare da sola: usa 'Carica a magazzino' sull'ordine intero." };
@@ -4660,7 +5105,7 @@ async function eseguiRipristino(){
     // MOVIMENTI
     await up("movimenti",(data.movimenti||[]).map(m=>({id:m.ID,data:m.Data,utente:m.Utente,articolo_id:m.ArticoloID,nome_articolo:m.NomeArticolo,tipo:m.Tipo,quantita:m.Quantita,unita_misura:m.UnitaMisura,commessa:m.Commessa||'',pezzo_id:m.PezzoID||'',note:m.Note||'',annullato:(m.Annullato==='SI'||m.Annullato===true),fornitore:m.Fornitore||'',ddt:m.Ddt||'',data_ddt:m.DataDdt||null,etichetta:m.Etichetta||''})),"movimenti");
     // RISERVE
-    await up("riserve",(data.riserve||[]).map(r=>({articolo_id:r.ArticoloID,commessa:r.Commessa,quantita:r.Quantita})),"riserve");
+    await upMobile("riserve",(data.riserve||[]).map(r=>({articolo_id:r.ArticoloID,commessa:r.Commessa,quantita:r.Quantita,mobile:r.Mobile||''})),"riserve");
     // FABBISOGNI
     // Il mobile (D08 BAGNO, A02 BANCONE...) e' una colonna aggiunta dopo:
     // senza queste due righe il backup se lo portava via e al ripristino i
@@ -5840,6 +6285,7 @@ function _openReportCommessa(comm){
     +'<button class="btn btn-green" onclick="csvReportCommessa(\''+esc(comm)+'\')">CSV</button>'
     +'<button class="btn btn-ghost" onclick="closeModal()">Chiudi</button></div>';
   openModal('<div class="modal" style="width:680px">'+barra
+    +buildAvanzamentoMobili(comm)
     +buildDestinatiSection(comm)
     +buildReportCommessa(comm)
     +editor+'</div>');
@@ -5856,7 +6302,7 @@ function destinatiNonScaricati(comm){
   // Articoli: dalle riserve
   (STATE.riserve||[]).filter(r=>r.Commessa===comm&&r.Quantita>0).forEach(r=>{
     const a=STATE.articoli.find(x=>x.ID===r.ArticoloID)||{};
-    out.articoli.push({id:r.ArticoloID,nome:a.Nome||r.ArticoloID,q:r.Quantita,unita:a.UnitaMisura||''});
+    out.articoli.push({id:r.ArticoloID,nome:(a.Nome||r.ArticoloID)+(r.Mobile?' &middot; '+att(r.Mobile):''),q:r.Quantita,unita:a.UnitaMisura||'',mobile:String(r.Mobile||'')});
   });
   // Pannelli assegnati a questa commessa con residuo
   STATE.pannelli.filter(p=>String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(comm)>=0 && (+p.M2_residuo>0)).forEach(p=>{
@@ -5883,7 +6329,7 @@ function buildDestinatiSection(comm){
 
   const riga=function(cls,it,destro,sotto){
     return '<label style="display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-top:1px solid var(--border);cursor:pointer">'
-      +'<input type="checkbox" class="'+cls+'" data-tipo="'+it.tipo+'" value="'+esc(it.id)+'" style="width:17px;height:17px;margin-top:2px;accent-color:var(--accent)">'
+      +'<input type="checkbox" class="'+cls+'" data-tipo="'+it.tipo+'" data-mobile="'+att(it.mobile||'')+'" value="'+esc(it.id)+'" style="width:17px;height:17px;margin-top:2px;accent-color:var(--accent)">'
       +'<span style="flex:1;font-size:13px">'+(/^[PMR]/.test(it.id)?('<strong>'+it.id+'</strong> - '):'')+it.nome
       +(sotto?('<div style="font-size:11.5px;color:var(--gray);margin-top:2px">'+sotto+'</div>'):'')+'</span>'
       +'<span style="font-size:12px;color:var(--gray);white-space:nowrap">'+destro+'</span></label>';
@@ -5925,11 +6371,11 @@ function buildDestinatiSection(comm){
 function _raccogliDestinati(comm,gruppo){
   const cls='.ds-chk-'+(gruppo||'m');
   const chk=Array.prototype.slice.call(document.querySelectorAll(cls+':checked'));
-  let sel=chk.map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value}));
+  let sel=chk.map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value,mobile:c.getAttribute("data-mobile")||""}));
   if(!sel.length){
     // nessuna spunta: prendo tutte le righe di quel gruppo
     sel=Array.prototype.slice.call(document.querySelectorAll(cls))
-      .map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value}));
+      .map(c=>({tipo:c.getAttribute("data-tipo"),id:c.value,mobile:c.getAttribute("data-mobile")||""}));
   }
   return sel;
 }
@@ -5941,18 +6387,18 @@ function scaricaDestinati(comm,soloTogli,gruppo){
   const ops=sel.map(it=>{
     if(soloTogli){
       // Togli assegnazione: articoli via annullaAssegnazione, pezzi via assegnaPezzoSingolo vuoto
-      if(it.tipo==='articolo')return call("annullaAssegnazione",{tipo:"articolo",artId:it.id,commessa:comm});
+      if(it.tipo==='articolo')return call("annullaAssegnazione",{tipo:"articolo",artId:it.id,commessa:comm,mobile:it.mobile||""});
       return call("assegnaPezzoSingolo",{tipo:it.tipo,id:it.id,commessa:""});
     } else {
       // Scarica del tutto verso la commessa
-      if(it.tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===it.id)||{};const r=(STATE.riserve||[]).find(x=>x.ArticoloID===it.id&&x.Commessa===comm);const q=r?r.Quantita:0;
+      if(it.tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===it.id)||{};const q=risQta(it.id,comm,it.mobile||"");
         // scarico q, poi libera la riserva
         // Prima la prenotazione veniva liberata ANCHE se lo scarico falliva:
         // il materiale non risultava piu' ne' prenotato ne' consumato, cioe'
         // spariva dai conti della commessa.
         if(!(q>0))return Promise.resolve({ok:false,err:"niente di prenotato per "+it.id});
-        return call("registraMovimento",{ArticoloID:it.id,Tipo:"scarico",Quantita:q,Commessa:comm,Note:"Scarico da report commessa"})
-          .then(function(rm){ if(!rm||rm.ok===false)return rm; return call("liberaRiserva",{artId:it.id,commessa:comm}); });
+        return call("registraMovimento",{ArticoloID:it.id,Tipo:"scarico",Quantita:q,Commessa:comm,Mobile:it.mobile||"",Note:"Scarico da report commessa"})
+          .then(function(rm){ if(!rm||rm.ok===false)return rm; return call("liberaRiserva",{artId:it.id,commessa:comm,mobile:it.mobile||""}); });
       }
       if(it.tipo==='pannello')return call("scaricaPannelloTotale",{PannelloID:it.id,Commessa:comm,Note:"Scarico da report commessa"});
       return call("scaricaMassiccioTotale",{MassiccioID:it.id,Commessa:comm,Note:"Scarico da report commessa"});
@@ -6150,8 +6596,7 @@ function dispoFab(f){
 // Conta quanti pezzi/quantita sono REALMENTE assegnati a questo fabbisogno (in tempo reale)
 function assegnatoReale(f){
   if(f.Tipo==='articolo'){
-    const r=(STATE.riserve||[]).find(x=>x.ArticoloID===f.ArticoloID&&x.Commessa===f.Commessa);
-    return r?(+r.Quantita||0):0;
+    return risQta(f.ArticoloID,f.Commessa,null);
   }
   const pezzi=(f.Tipo==='pannello'?STATE.pannelli:STATE.massicci)
     .filter(p=>p.ArticoloID===f.ArticoloID && String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(f.Commessa)>=0);
@@ -13526,7 +13971,7 @@ function riserveBlocco(artId){
   const a=(STATE.articoli||[]).filter(x=>x.ID===artId)[0]||{};
   return '<div class="det-hist"><h4>Prenotato per le commesse</h4>'
    +r.map(x=>'<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border)">'
-      +'<span>'+commTxt(x.Commessa)+'</span>'
+      +'<span>'+commTxt(x.Commessa)+(x.Mobile?' &middot; <em>'+att(x.Mobile)+'</em>':'')+'</span>'
       +'<span style="font-weight:600;color:var(--accent)">'+nOre(x.Quantita)+' '+att(a.UnitaMisura||'')+'</span></div>').join('')
    +'</div>';
 }
@@ -15798,7 +16243,7 @@ function openMovimento(artId,tipo){
   artId=artId||"";tipo=tipo||"carico";
   const art=STATE.articoli.find(a=>a.ID===artId);
   comboInit('mov',STATE.articoli.map(a=>({id:a.ID,label:a.Nome+' ('+a.ID+')'})),
-    function(){ if(typeof updStock==='function')updStock(); movAvvisoEtichette(); });
+    function(){ if(typeof updStock==='function')updStock(); movAvvisoEtichette(); movAggMobile(); });
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Movimento articolo</h2>'
     +'<div class="toggle"><button id="t-c" class="'+(tipo==='carico'?'on-green':'')+'" onclick="setTipo(\'carico\')">Carico</button><button id="t-s" class="'+(tipo==='scarico'?'on-red':'')+'" onclick="setTipo(\'scarico\')">Scarico</button></div>'
     +'<input type="hidden" id="mov-tipo" value="'+tipo+'">'
@@ -15814,7 +16259,9 @@ function openMovimento(artId,tipo){
     +fornGruppo('mov-forn','Fornitore',art?(art.Fornitore||''):'')
     +campiDdt('mov','',oggiISO())+'</div>'
     +'<div class="form-group"><label>Commessa</label><select id="mov-comm" onchange="onCommessaChange(\'mov-comm\');aggiornaDestinazione()">'+optCommesse()+'</select></div>'
-    +'<div class="form-group" id="dest-wrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="mov-dest"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
+    +'<div class="form-group" id="mob-wrap" style="display:none"><label>Mobile / stanza</label><select id="mov-mob" onchange="movInfoMobile()"></select>'
+    +'<div id="mob-info" style="font-size:12px;color:var(--gray);margin-top:4px;line-height:1.5"></div></div>'
+    +'<div class="form-group" id="dest-wrap" style="display:none"><label>Cosa fare con questa commessa?</label><select id="mov-dest" onchange="movAggMobile()"><option value="destina">Destina alla commessa (resta a magazzino, riservato)</option><option value="scarica">Scarica subito nella commessa (consumato ora)</option></select></div>'
     +'<div class="form-group"><label>Note</label><input id="mov-note" placeholder="Opzionale..."></div>'
     +'<div id="mov-err"></div><button class="btn-primary" onclick="submitMov()">Conferma</button></div>');
 }
@@ -15878,6 +16325,7 @@ function aggiornaDestinazione(){
   const c=document.getElementById("mov-comm").value;
   const w=document.getElementById("dest-wrap");
   if(w)w.style.display=(t==='carico'&&c)?'block':'none';
+  movAggMobile();
 }
 function setTipo(t){document.getElementById("mov-tipo").value=t;document.getElementById("t-c").className=t==='carico'?'on-green':'';document.getElementById("t-s").className=t==='scarico'?'on-red':'';document.getElementById("forn-wrap").style.display=t==='carico'?'block':'none';aggiornaDestinazione();}
 function updStock(){const a=STATE.articoli.find(x=>x.ID===comboVal('mov'));const b=document.getElementById("stk");if(a){b.style.display="block";document.getElementById("stk-v").textContent=a.Stock+" "+a.UnitaMisura;const f=document.getElementById("mov-forn");if(f&&!f.value)f.value=a.Fornitore||"";}else b.style.display="none";}
@@ -15887,7 +16335,10 @@ function submitMov(){
   const forn=t==='carico'?gvForn("mov-forn"):"";
   const bolla=t==='carico'?leggiDdt('mov'):{Ddt:'',DataDdt:null};
   const dest=(document.getElementById("mov-dest")||{}).value||"destina";
+  const mobSel=document.getElementById("mov-mob"), mobW=document.getElementById("mob-wrap");
+  const mob=(mobSel&&mobW&&mobW.style.display!=='none')?mobSel.value:null;
   if(!id||!q||q<=0){showErr("mov-err","Compila articolo e quantita.");return;}
+  if(mob==='__scegli'){showErr("mov-err","Scegli il mobile / la stanza: per questa commessa ci sono pezzi prenotati per piu' mobili.");return;}
   const a=STATE.articoli.find(x=>x.ID===id);
   if(t==="scarico"&&q>+a.Stock){showErr("mov-err","Stock insufficiente. Disponibile: "+a.Stock+" "+a.UnitaMisura);return;}
   if(!unSolo('mov'))return;
@@ -15895,7 +16346,7 @@ function submitMov(){
   if(t==='carico'&&c&&dest==='scarica'){
     call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r1=>{
       if(!r1.ok){salvaSblocca('mov');showErr("mov-err",r1.err);return;}
-      call("registraMovimento",{ArticoloID:id,Tipo:"scarico",Quantita:q,Commessa:c,Note:n||("Consumo diretto commessa "+c),Etichetta:_cod}).then(r2=>{
+      call("registraMovimento",{ArticoloID:id,Tipo:"scarico",Quantita:q,Commessa:c,Note:n||("Consumo diretto commessa "+c),Etichetta:_cod,SenzaPrenotazioni:true}).then(r2=>{
         // il carico e' gia' andato: non lo rifaccio una seconda volta.
         // Lascio il blocco e dico cosa e' successo davvero.
         if(!r2.ok){showErr("mov-err","Il carico e' andato a buon fine, lo SCARICO no: "+(r2.err||"errore")+". Chiudi e scarica a mano, se no caricheresti due volte.");return;}
@@ -15908,7 +16359,7 @@ function submitMov(){
   if(t==='carico'&&c&&dest==='destina'){
     call("registraMovimento",{ArticoloID:id,Tipo:"carico",Quantita:q,Commessa:"",Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt}).then(r1=>{
       if(!r1.ok){salvaSblocca('mov');showErr("mov-err",r1.err);return;}
-      call("assegnaArticoloSingolo",{artId:id,commessa:c,quantita:q}).then(r2=>{
+      call("assegnaArticoloSingolo",{artId:id,commessa:c,quantita:q,mobile:mob||"",movId:r1.id}).then(r2=>{
         // prima qui non si guardava l'esito: la roba entrava libera a
         // magazzino e il messaggio diceva lo stesso "destinato alla commessa"
         if(r2&&r2.ok===false){showErr("mov-err","Caricato a magazzino, ma NON destinato a "+c+": "+(r2.err||"errore")+". Il materiale e' entrato, destinalo a mano.");return;}
@@ -15917,7 +16368,16 @@ function submitMov(){
     });
     return;
   }
-  // Caso normale (solo carico senza commessa, o scarico)
+  // Lo scarico passa dai controlli delle prenotazioni (commessa + mobile)
+  if(t==='scarico'){
+    scaricoGuidato({ArticoloID:id,Quantita:q,Commessa:c,Mobile:(c?(mob||""):undefined),Note:n,Etichetta:_cod},a,function(r){
+      salvaSblocca('mov');   // finito: il prossimo scarico si puo' fare subito
+      if(!r||!r.ok){showErr("mov-err",(r&&r.err)||"Errore");return;}
+      refreshDopoMov(r.chiediResto);toast("Scarico registrato"+(r.prese&&r.prese.length?" (presi anche pezzi prenotati per altri)":""));
+    });
+    return;
+  }
+  // Caso normale (carico senza commessa)
   call("registraMovimento",{ArticoloID:id,Tipo:t,Quantita:q,Commessa:c,Note:n,Fornitore:forn,Ddt:bolla.Ddt,DataDdt:bolla.DataDdt,Etichetta:_cod}).then(r=>{
     if(!r.ok){salvaSblocca('mov');showErr("mov-err",r.err);return;}
     STATE.articoli=STATE.articoli.map(x=>x.ID===id?Object.assign({},x,{Stock:r.nuovoStock}):x);
@@ -15927,11 +16387,143 @@ function submitMov(){
     // legata a QUESTO arrivo e non a tutta la giacenza
     if(t==='carico'&&r.id)setTimeout(function(){etDopoCarico([{tipo:'carico',id:r.id,
       nome:a.Nome+' - '+q+' '+(a.UnitaMisura||'')}]);},450);
-    if(t==='scarico'&&c)setTimeout(function(){call("getRiserve").then(rs=>{const r2=(rs||[]).find(x=>x.ArticoloID===id&&x.Commessa===c);if(r2&&r2.Quantita>0)promptRiserva(id,c,r2.Quantita,a.UnitaMisura);});},300);
   });
 }
-function refreshDopoMov(){
-  Promise.all([call("getArticoli"),call("getMovimenti"),call("getRiserve")]).then(([a,m,ri])=>{STATE.articoli=a||[];STATE.movimenti=m||[];STATE.riserve=ri||[];closeModal();renderPage(STATE.pagina);});
+// ============================================================
+//  SCARICO CON IL MOBILE (la stanza)
+//  - scegli commessa e mobile: vedi quanti pezzi erano prenotati li'
+//  - scarichi MENO del prenotato: alla fine ti chiedo se il resto di
+//    QUEL mobile lo liberi (hai finito) o resta prenotato (monti a rate)
+//  - scarichi PIU' del prenotato: ti chiedo conferma, il di piu' lo
+//    prendo dalla roba libera; se la libera non basta ti dico di chi
+//    sono gli altri pezzi e li prendo solo se confermi
+// ============================================================
+function risRighe(artId,comm){ return (STATE.riserve||[]).filter(function(r){return r.ArticoloID===artId&&(comm==null||r.Commessa===comm)&&(+r.Quantita||0)>0;}); }
+function risQta(artId,comm,mob){ return risRighe(artId,comm).filter(function(r){return mob==null||String(r.Mobile||'')===mob;}).reduce(function(a,r){return a+(+r.Quantita||0);},0); }
+function movAggMobile(){
+  const w=document.getElementById('mob-wrap'), sel=document.getElementById('mov-mob'); if(!w||!sel)return;
+  const t=(document.getElementById('mov-tipo')||{}).value, c=(document.getElementById('mov-comm')||{}).value;
+  const id=(typeof comboVal==='function')?comboVal('mov'):'';
+  const dest=(document.getElementById('mov-dest')||{}).value||'destina';
+  const mostra=!!c&&(t==='scarico'||(t==='carico'&&dest==='destina'));
+  w.style.display=mostra?'block':'none';
+  if(!mostra){sel.innerHTML='';movInfoMobile();return;}
+  const a=STATE.articoli.find(function(x){return x.ID===id;})||{}, u=a.UnitaMisura||'';
+  const righe=(id&&t==='scarico')?risRighe(id,c):[];
+  const conPren={}; righe.forEach(function(r){const m=String(r.Mobile||'');conPren[m]=(conPren[m]||0)+(+r.Quantita||0);});
+  const prec=sel.value;
+  let h='';
+  const nomiPren=Object.keys(conPren).sort(function(x,y){return x.localeCompare(y);});
+  if(nomiPren.length>1)h+='<option value="__scegli">— scegli il mobile —</option>';
+  nomiPren.forEach(function(m){ h+='<option value="'+att(m)+'">'+att(m||'(senza mobile)')+' — '+qtaBreve(conPren[m])+' '+att(u)+' prenotati</option>'; });
+  (mobNoti(c)||[]).forEach(function(m){ if(!(m in conPren))h+='<option value="'+att(m)+'">'+att(m)+(t==='scarico'?' — niente prenotato':'')+'</option>'; });
+  if(!('' in conPren))h+='<option value="">(nessun mobile)</option>';
+  sel.innerHTML=h;
+  if(prec&&[].some.call(sel.options,function(o){return o.value===prec;}))sel.value=prec;
+  else sel.value=nomiPren.length===1?nomiPren[0]:(nomiPren.length>1?'__scegli':'');
+  movInfoMobile();
+}
+function movInfoMobile(){
+  const box=document.getElementById('mob-info'); if(!box)return;
+  const t=(document.getElementById('mov-tipo')||{}).value, c=(document.getElementById('mov-comm')||{}).value;
+  const id=(typeof comboVal==='function')?comboVal('mov'):'';
+  if(!c||!id){box.innerHTML='';return;}
+  const a=STATE.articoli.find(function(x){return x.ID===id;})||{}, u=a.UnitaMisura||'';
+  if(t!=='scarico'){box.innerHTML='Il materiale resta a magazzino, prenotato per questo mobile.';return;}
+  const tot=risQta(id,c,null), tutte=risQta(id,null,null), libero=Math.max(0,(+a.Stock||0)-tutte);
+  box.innerHTML=(tot>0?('Per questa commessa sono prenotati <strong>'+qtaBreve(tot)+' '+att(u)+'</strong> in tutto. '):'Per questa commessa non c&#39;e&#39; niente di prenotato. ')
+    +'Liberi a magazzino: <strong>'+qtaBreve(libero)+' '+att(u)+'</strong>.';
+}
+function scaricoGuidato(d,a,fatto){
+  const u=(a&&a.UnitaMisura)||'', q=+d.Quantita;
+  const conMob=d.Mobile!==undefined&&d.Mobile!==null;
+  const pren=d.Commessa?risQta(d.ArticoloID,d.Commessa,conMob?d.Mobile:null):0;
+  const dove=d.Commessa?(d.Commessa+(conMob&&d.Mobile?' · '+d.Mobile:'')):'';
+  if(d.Commessa&&pren>0&&q>pren+0.000001){
+    if(!confirm('Per '+dove+' erano prenotati '+qtaBreve(pren)+' '+u+', ne stai scaricando '+qtaBreve(q)+'.\n\n'
+      +'I '+qtaBreve(q-pren)+' '+u+' in piu\' li prendo dalla roba libera in magazzino. Confermi?')){fatto({ok:false,err:"Scarico annullato: niente e' cambiato."});return;}
+  }
+  const vai=function(extra){
+    return call("registraMovimento",Object.assign({Tipo:"scarico"},d,extra||{})).then(function(r){
+      if(r&&r.serveConferma&&!(extra&&extra.PrendiDa)){
+        let manca=+r.manca||0; const prendi=[], righe=[];
+        (r.altre||[]).forEach(function(x){ if(!(manca>0.000001))return; const tq=Math.min(+x.q||0,manca);
+          prendi.push({commessa:x.commessa,mobile:x.mobile,q:tq});
+          righe.push('• '+x.commessa+(x.mobile?' · '+x.mobile:'')+': '+qtaBreve(tq)+' '+u+' (ne aveva '+qtaBreve(x.q)+' prenotati)'); manca-=tq; });
+        if(manca>0.000001){fatto({ok:false,err:"Non ce n'e' abbastanza nemmeno contando quelli prenotati per altri."});return;}
+        if(!confirm('La roba libera non basta: ne mancano '+qtaBreve(r.manca)+' '+u+'.\n\nLi prenderei da:\n'+righe.join('\n')
+          +'\n\ne li tolgo dalla loro prenotazione. Confermi?')){fatto({ok:false,err:"Scarico annullato: niente e' cambiato."});return;}
+        return vai({PrendiDa:prendi});
+      }
+      // la domanda sul resto la fa chi ha chiamato, DOPO aver ridisegnato (se no la finestra si chiudeva subito)
+      if(r&&r.ok&&d.Commessa&&pren>0&&q<pren-0.000001&&(+r.restaPrenotato||0)>0)
+        r.chiediResto=function(){chiediRestoPrenotato(d.ArticoloID,d.Commessa,conMob?d.Mobile:null,+r.restaPrenotato,u,r.id);};
+      fatto(r);
+    });
+  };
+  vai();
+}
+function chiediRestoPrenotato(artId,comm,mob,resto,u,movId){
+  const dove=att(comm)+(mob?' &middot; '+att(mob):'');
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Ne restano prenotati</h2>'
+   +'<div class="info-box">Per <strong>'+dove+'</strong> restano <strong>'+qtaBreve(resto)+' '+att(u||'')+'</strong> prenotati.<br><br>'
+   +'Se stai ancora montando e li prenderai dopo, <strong>lasciali prenotati</strong>.<br>'
+   +'Se per '+(mob!=null?'questo mobile':'questa commessa')+' hai finito, <strong>liberali</strong>: tornano disponibili a magazzino.'
+   +(mob!=null?'<br><span style="color:var(--gray);font-size:12px">Le prenotazioni degli altri mobili della commessa non si toccano.</span>':'')+'</div>'
+   +'<button class="btn-primary" style="margin-top:0;background:#efebe3;color:var(--ink)" onclick="closeModal()">No, lasciali prenotati</button>'
+   +'<button class="btn-primary" onclick="liberaMobileUI(\''+esc(artId)+'\',\''+esc(comm)+'\','+(mob==null?'null':('\''+esc(mob)+'\''))+',\''+esc(movId||'')+'\')">Si, libera questi '+qtaBreve(resto)+' '+att(u||'')+'</button></div>');
+}
+function liberaMobileUI(artId,comm,mob,movId){
+  const a={artId:artId,commessa:comm}; if(mob!=null)a.mobile=mob; if(movId)a.movId=movId;
+  call("liberaRiserva",a).then(function(r){
+    Promise.all([call("getArticoli"),call("getRiserve")]).then(function(x){STATE.articoli=x[0]||STATE.articoli;STATE.riserve=x[1]||STATE.riserve;
+      closeModal();toast("Liberati "+qtaBreve((r&&r.liberato)||0)+": tornano disponibili a magazzino");renderPage(STATE.pagina);});
+  });
+}
+
+// ---- pannelli e massicci: commessa, mobile, e il resto del pezzo ----
+function pzLista(p){ return String((p&&p.Commesse)||'').split(',').map(function(x){return x.trim();}).filter(Boolean); }
+function mobCampoPezzo(pre,p){
+  return '<div class="form-group" id="'+pre+'-mobwrap"><label>Mobile / stanza</label><input id="'+pre+'-mob" list="'+pre+'-mobl" value="'+att((p&&p.Mobile)||'')+'" placeholder="facoltativo">'
+    +'<datalist id="'+pre+'-mobl"></datalist></div>';
+}
+function mobAggPezzo(pre){
+  const c=(document.getElementById(pre+'-comm')||{}).value, dl=document.getElementById(pre+'-mobl'); if(!dl)return;
+  dl.innerHTML=(c?(mobNoti(c)||[]):[]).map(function(m){return '<option value="'+att(m)+'">';}).join('');
+}
+// prima di scaricare un pezzo: e' prenotato per qualcun altro? (true = vai avanti)
+function pezzoPuoAndare(tipo,p,c,mob){
+  const lista=pzLista(p), res=tipo==='pannello'?(+p.M2_residuo||0):(+p.M3_residuo||0);
+  if(!(res>0)||!lista.length)return true;
+  const di=lista.join(', ')+(p.Mobile?' · '+p.Mobile:'');
+  if(!c)return confirm('Il '+tipo+' '+p.ID+' e\' prenotato per '+di+' e lo stai scaricando SENZA commessa.\n\nVai avanti lo stesso?');
+  if(lista.indexOf(c)<0)return confirm('Il '+tipo+' '+p.ID+' e\' prenotato per '+di+'.\n\nLo stai usando per '+c+(mob?' · '+mob:'')+': cosi\' lo togli a '+lista.join(', ')+'. Confermi?');
+  if(p.Mobile&&mob&&mob!==p.Mobile)return confirm('Il '+tipo+' '+p.ID+' e\' prenotato per '+c+' · '+p.Mobile+'.\n\nLo stai usando per il mobile '+mob+'. Confermi?');
+  return true;
+}
+// dopo un taglio: del pezzo resta qualcosa. Di chi e'?
+function chiediRestoPezzo(tipo,id,prima,primaMob,c,mob,restoTxt){
+  const bott=[];
+  if(c)bott.push(['Resta prenotato per '+c+(mob?' · '+mob:''),c,mob||'']);
+  const pr=prima.join(', ');
+  if(prima.length&&pr!==c)bott.push(['Resta prenotato per '+pr+(primaMob?' · '+primaMob:''),pr,primaMob||'']);
+  if(!bott.length)return;
+  bott.push(['Torna libero a magazzino','','']);
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Il resto del '+tipo+' '+att(id)+'</h2>'
+   +'<div class="info-box">Del pezzo restano <strong>'+restoTxt+'</strong>. Se stai ancora lavorando e lo userai di nuovo, <strong>lascialo prenotato</strong>. '
+   +'Se hai finito, <strong>liberalo</strong>: diventa avanzo disponibile per tutti. Quello che hai gia\' scaricato resta comunque sulla commessa.</div>'
+   +bott.map(function(b,i){return '<button class="btn-primary" style="'+(i===bott.length-1?'':'margin-top:0;background:#efebe3;color:var(--ink);')+'margin-bottom:6px" onclick="destinaRestoUI(\''+esc(tipo)+'\',\''+esc(id)+'\',\''+esc(b[1])+'\',\''+esc(b[2])+'\')">'+att(b[0])+'</button>';}).join('')
+   +'</div>');
+}
+function destinaRestoUI(tipo,id,comm,mob){
+  call("destinaRestoPezzo",{tipo:tipo,id:id,commessa:comm,mobile:mob}).then(function(r){
+    Promise.all([call("getPannelli"),call("getMassicci")]).then(function(x){STATE.pannelli=x[0]||STATE.pannelli;STATE.massicci=x[1]||STATE.massicci;
+      closeModal();toast(comm?("Il resto resta prenotato per "+comm+(mob?" · "+mob:"")):"Il resto torna libero a magazzino");renderPage(STATE.pagina);});
+  });
+}
+function refreshDopoMov(poi){
+  Promise.all([call("getArticoli"),call("getMovimenti"),call("getRiserve")]).then(([a,m,ri])=>{STATE.articoli=a||[];STATE.movimenti=m||[];STATE.riserve=ri||[];closeModal();renderPage(STATE.pagina);
+    if(typeof poi==='function')setTimeout(poi,150);});
 }
 // SONO VIVE E SERVONO. Dalla v133 lo scarico consuma da solo la parte di
 // prenotazione che gli spetta: questa finestra si apre dopo, e solo se
@@ -16174,21 +16766,30 @@ function openScaricoPannello(pid){
     +'<div class="info-box">'+(p.Larghezza_mm||'')+' x '+(p.Altezza_mm||'')+' mm - Residuo <strong>'+(+p.Residuale_pct||0).toFixed(0)+'%</strong> ('+(+p.M2_residuo||0).toFixed(4)+' m2)</div>'
     +'<div class="form-row"><div class="form-group"><label>Largh. pezzo mm *</label><input type="number" id="sp-w" oninput="spCalc(\''+pid+'\')"></div><div class="form-group"><label>Alt. pezzo mm *</label><input type="number" id="sp-h" oninput="spCalc(\''+pid+'\')"></div></div>'
     +'<div id="sp-calc" class="info-box" style="display:none"></div>'
-    +'<div class="form-group"><label>Commessa</label><select id="sp-comm" onchange="onCommessaChange(\'sp-comm\')">'+optCommesse()+'</select></div>'
+    +'<div class="form-group"><label>Commessa</label><select id="sp-comm" onchange="onCommessaChange(\'sp-comm\');mobAggPezzo(\'sp\')">'+optCommesse()+'</select></div>'
+    +mobCampoPezzo('sp',p)
     +'<div class="form-group"><label>Note</label><input id="sp-note"></div><div id="sp-err"></div><button class="btn-primary" onclick="submitSP(\''+pid+'\')">Scarica il pezzo</button>'
     +'<button class="det-btn" style="background:var(--amber-light);color:#7c5a16" onclick="submitSPtot(\''+pid+'\')">Scarica tutto il residuo</button></div>');
+  // propongo la commessa per cui e' prenotato
+  const _l=pzLista(p); const _s=document.getElementById('sp-comm');
+  if(_s&&_l.length===1&&[].some.call(_s.options,function(o){return o.value===_l[0];})){_s.value=_l[0];}
+  mobAggPezzo('sp');
 }
 function spCalc(pid){const p=STATE.pannelli.find(x=>x.ID===pid),w=+document.getElementById("sp-w").value,h=+document.getElementById("sp-h").value,c=document.getElementById("sp-calc");
   if(w&&h){const mp=(w/1000)*(h/1000),nr=(+p.M2_residuo||0)-mp,np=+p.M2_originale>0?(nr/+p.M2_originale)*100:0;c.style.display="block";c.innerHTML='Pezzo <strong>'+mp.toFixed(4)+' m2</strong> - Nuovo residuo <strong style="'+(nr<0?'color:var(--red)':'')+'">'+Math.max(0,nr).toFixed(4)+' m2</strong> ('+Math.max(0,np).toFixed(1)+'%) '+(nr<0?'(supera il residuo!)':'');}else c.style.display="none";}
 function submitSP(pid){const w=document.getElementById("sp-w").value,h=document.getElementById("sp-h").value,c=document.getElementById("sp-comm").value,n=document.getElementById("sp-note").value;
+  const mob=((document.getElementById("sp-mob")||{}).value||'').trim();
   if(!w||!h){showErr("sp-err","Inserisci le dimensioni.");return;}
   // il "supera il residuo!" scritto in rosso avvisava e basta: si poteva
   // confermare lo stesso e il pezzo andava in negativo
   const _pz=STATE.pannelli.find(x=>x.ID===pid);
   if(_pz&&((+w/1000)*(+h/1000))>(+_pz.M2_residuo||0)+0.00001){
     showErr("sp-err","Il pezzo e' piu' grande di quello che resta sul pannello ("+(+_pz.M2_residuo||0).toFixed(3)+" m2). Correggi le misure.");return;}
+  if(_pz&&!pezzoPuoAndare('pannello',_pz,c,mob))return;
+  const _prima=pzLista(_pz), _primaMob=(_pz&&_pz.Mobile)||'';
   if(!unSolo('sp-'+pid))return;
-  call("scaricaPannello",{PannelloID:pid,PezzoW:+w,PezzoH:+h,Commessa:c,Note:n}).then(r=>{if(!r.ok){salvaSblocca('sp-'+pid);showErr("sp-err",r.err||"Errore.");return;}
+  call("scaricaPannello",{PannelloID:pid,PezzoW:+w,PezzoH:+h,Commessa:c,Note:n,Confermato:true}).then(r=>{if(!r.ok){salvaSblocca('sp-'+pid);showErr("sp-err",r.err||"Errore.");return;}
+    if(+r.nuovo_m2_residuo>0)setTimeout(function(){chiediRestoPezzo('pannello',pid,_prima,_primaMob,c,mob,(+r.nuovo_m2_residuo).toFixed(3)+' m2');},400);
     STATE.pannelli=STATE.pannelli.map(p=>p.ID===pid?Object.assign({},p,{Residuale_pct:r.nuova_pct,M2_residuo:r.nuovo_m2_residuo}):p);
     const p=STATE.pannelli.find(x=>x.ID===pid);if(p&&r.newStock!=null)STATE.articoli=STATE.articoli.map(a=>a.ID===p.ArticoloID?Object.assign({},a,{Stock:r.newStock}):a);
     closeModal();toast("Scarico "+pid+" - residuo "+r.nuova_pct.toFixed(1)+"%");renderPage(STATE.pagina);});
@@ -16196,9 +16797,10 @@ function submitSP(pid){const w=document.getElementById("sp-w").value,h=document.
 function submitSPtot(pid){const c=document.getElementById("sp-comm").value,n=document.getElementById("sp-note").value;
   const _pz=STATE.pannelli.find(x=>x.ID===pid);
   if(!(+((_pz||{}).M2_residuo)>0)){showErr("sp-err","Di questo pannello non resta niente da scaricare.");return;}
+  if(!pezzoPuoAndare('pannello',_pz,c,((document.getElementById("sp-mob")||{}).value||'').trim()))return;
   if(!confirm("Scarico TUTTO quello che resta del pannello "+pid+" ("+(+_pz.M2_residuo).toFixed(3)+" m2)"+(c?(" sulla commessa "+c):" senza commessa")+".\n\nNon si torna indietro. Vado?"))return;
   if(!unSolo('sptot-'+pid))return;
-  call("scaricaPannelloTotale",{PannelloID:pid,Commessa:c,Note:n}).then(r=>{if(!r.ok){salvaSblocca('sptot-'+pid);showErr("sp-err",r.err||"Errore.");return;}
+  call("scaricaPannelloTotale",{PannelloID:pid,Commessa:c,Note:n,Confermato:true}).then(r=>{if(!r.ok){salvaSblocca('sptot-'+pid);showErr("sp-err",r.err||"Errore.");return;}
     STATE.pannelli=STATE.pannelli.map(p=>p.ID===pid?Object.assign({},p,{Residuale_pct:0,M2_residuo:0}):p);
     const p=STATE.pannelli.find(x=>x.ID===pid);if(p&&r.newStock!=null)STATE.articoli=STATE.articoli.map(a=>a.ID===p.ArticoloID?Object.assign({},a,{Stock:r.newStock}):a);
     closeModal();toast("Pannello "+pid+" scaricato interamente");renderPage(STATE.pagina);});
@@ -16279,9 +16881,13 @@ function openScaricoMassiccio(mid){
     +'<div id="sm-misure"><div class="form-row-3"><div class="form-group"><label>Lungh. mm *</label><input type="number" id="sm-l" oninput="smCalc(\''+mid+'\')"></div><div class="form-group"><label>Largh. mm *</label><input type="number" id="sm-w" oninput="smCalc(\''+mid+'\')"></div><div class="form-group"><label>Spess. mm *</label><input type="number" id="sm-s" oninput="smCalc(\''+mid+'\')"></div></div></div>'
     +'<div id="sm-m3wrap" style="display:none"><div class="form-group"><label>m3 usati *</label><input type="number" step="any" id="sm-m3" oninput="smCalc(\''+mid+'\')"></div></div>'
     +'<div id="sm-calc" class="info-box" style="display:none"></div>'
-    +'<div class="form-group"><label>Commessa</label><select id="sm-comm" onchange="onCommessaChange(\'sm-comm\')">'+optCommesse()+'</select></div>'
+    +'<div class="form-group"><label>Commessa</label><select id="sm-comm" onchange="onCommessaChange(\'sm-comm\');mobAggPezzo(\'sm\')">'+optCommesse()+'</select></div>'
+    +mobCampoPezzo('sm',p)
     +'<div class="form-group"><label>Note</label><input id="sm-note"></div><div id="sm-err"></div><button class="btn-primary" onclick="submitSM(\''+mid+'\')">Scarica la quantita</button>'
     +'<button class="det-btn" style="background:var(--amber-light);color:#7c5a16" onclick="submitSMtot(\''+mid+'\')">Scarica tutto il residuo</button></div>');
+  const _l=pzLista(p); const _s=document.getElementById('sm-comm');
+  if(_s&&_l.length===1&&[].some.call(_s.options,function(o){return o.value===_l[0];})){_s.value=_l[0];}
+  mobAggPezzo('sm');
 }
 function smModo(m){document.getElementById("sm-modo").value=m;document.getElementById("sm-tm").className=m==='misure'?'on-accent':'';document.getElementById("sm-tt").className=m==='m3'?'on-accent':'';document.getElementById("sm-misure").style.display=m==='misure'?'block':'none';document.getElementById("sm-m3wrap").style.display=m==='m3'?'block':'none';}
 function smCalc(mid){const p=STATE.massicci.find(x=>x.ID===mid),c=document.getElementById("sm-calc");let uso=0;
@@ -16298,8 +16904,13 @@ function submitSM(mid){const modo=document.getElementById("sm-modo").value,c=doc
   if(!(_uso>0)){showErr("sm-err","La quantita' da scaricare dev'essere un numero maggiore di zero.");return;}
   if(_pz&&_uso>(+_pz.M3_residuo||0)+0.00001){
     showErr("sm-err","Vuoi scaricare piu' di quello che resta ("+(+_pz.M3_residuo||0).toFixed(4)+" m3). Correggi.");return;}
+  const _mob=((document.getElementById("sm-mob")||{}).value||'').trim();
+  if(_pz&&!pezzoPuoAndare('massiccio',_pz,c,_mob))return;
+  const _prima=pzLista(_pz), _primaMob=(_pz&&_pz.Mobile)||'';
+  d.Confermato=true;
   if(!unSolo('sm-'+mid))return;
   call("scaricaMassiccio",d).then(r=>{if(!r.ok){salvaSblocca('sm-'+mid);showErr("sm-err",r.err||"Errore.");return;}
+    if(+r.nuovo_m3_residuo>0)setTimeout(function(){chiediRestoPezzo('massiccio',mid,_prima,_primaMob,c,_mob,(+r.nuovo_m3_residuo).toFixed(4)+' m3');},400);
     STATE.massicci=STATE.massicci.map(p=>p.ID===mid?Object.assign({},p,{M3_residuo:r.nuovo_m3_residuo}):p);
     const p=STATE.massicci.find(x=>x.ID===mid);if(p&&r.newStock!=null)STATE.articoli=STATE.articoli.map(a=>a.ID===p.ArticoloID?Object.assign({},a,{Stock:r.newStock}):a);
     closeModal();toast("Scarico "+mid+" - residuo "+r.nuovo_m3_residuo.toFixed(4)+" m3");renderPage(STATE.pagina);});
@@ -16307,9 +16918,10 @@ function submitSM(mid){const modo=document.getElementById("sm-modo").value,c=doc
 function submitSMtot(mid){const c=document.getElementById("sm-comm").value,n=document.getElementById("sm-note").value;
   const _pz=STATE.massicci.find(x=>x.ID===mid);
   if(!(+((_pz||{}).M3_residuo)>0)){showErr("sm-err","Di questo pezzo non resta niente da scaricare.");return;}
+  if(!pezzoPuoAndare('massiccio',_pz,c,((document.getElementById("sm-mob")||{}).value||'').trim()))return;
   if(!confirm("Scarico TUTTO quello che resta del massiccio "+mid+" ("+(+_pz.M3_residuo).toFixed(4)+" m3)"+(c?(" sulla commessa "+c):" senza commessa")+".\n\nNon si torna indietro. Vado?"))return;
   if(!unSolo('smtot-'+mid))return;
-  call("scaricaMassiccioTotale",{MassiccioID:mid,Commessa:c,Note:n}).then(r=>{if(!r.ok){salvaSblocca('smtot-'+mid);showErr("sm-err",r.err||"Errore.");return;}
+  call("scaricaMassiccioTotale",{MassiccioID:mid,Commessa:c,Note:n,Confermato:true}).then(r=>{if(!r.ok){salvaSblocca('smtot-'+mid);showErr("sm-err",r.err||"Errore.");return;}
     STATE.massicci=STATE.massicci.map(p=>p.ID===mid?Object.assign({},p,{M3_residuo:0}):p);
     const p=STATE.massicci.find(x=>x.ID===mid);if(p&&r.newStock!=null)STATE.articoli=STATE.articoli.map(a=>a.ID===p.ArticoloID?Object.assign({},a,{Stock:r.newStock}):a);
     closeModal();toast("Massiccio "+mid+" scaricato interamente");renderPage(STATE.pagina);});
@@ -16366,7 +16978,7 @@ function openDestinati(artId,tipo){
     const a=STATE.articoli.find(x=>x.ID===artId)||{};
     const ris=(STATE.riserve||[]).filter(r=>r.ArticoloID===artId&&r.Quantita>0);
     h+='<div style="font-weight:600;margin-bottom:6px">Commesse a cui e destinato</div>';
-    h+=ris.length?ris.map(r=>'<div class="det-row"><span>'+commTxt(r.Commessa)+'</span><span>'+r.Quantita+' '+(a.UnitaMisura||'')+' <button class="btn btn-red" style="margin-left:8px" onclick="togliDestinazione(\'articolo\',\''+esc(artId)+'\',\''+esc(r.Commessa)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessuna commessa destinata.</div>';
+    h+=ris.length?ris.map(r=>'<div class="det-row"><span>'+commTxt(r.Commessa)+(r.Mobile?' &middot; <em>'+att(r.Mobile)+'</em>':'')+'</span><span>'+r.Quantita+' '+(a.UnitaMisura||'')+' <button class="btn btn-red" style="margin-left:8px" onclick="togliDestinazione(\'articolo\',\''+esc(artId)+'\',\''+esc(r.Commessa)+'\',\''+esc(r.Mobile||'')+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessuna commessa destinata.</div>';
   } else {
     const pezzi=(tipo==='pannello'?STATE.pannelli:STATE.massicci).filter(p=>p.ArticoloID===artId&&String(p.Commesse||"").trim());
     h+='<div style="font-weight:600;margin-bottom:6px">Pezzi destinati</div>'+(pezzi.length?pezzi.map(p=>'<div class="det-row"><span>'+p.ID+' &rarr; '+commLista(p.Commesse)+'</span><span><button class="btn btn-red" onclick="togliDestinazione(\''+tipo+'\',\''+esc(p.ID)+'\')">Togli</button></span></div>').join(""):'<div style="color:var(--gray);font-size:13px">Nessun pezzo destinato.</div>');
@@ -16400,9 +17012,10 @@ function openDestinati(artId,tipo){
      +'l&#39;hai preso da un altro arrivo, qui dici quale arrivo serve quale commessa.</div>';
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Destinato a commesse</h2>'+h+'</div>');
 }
-function togliDestinazione(tipo,id,commessa){
+function togliDestinazione(tipo,id,commessa,mobile){
   if(tipo==='articolo'){
-    call("annullaAssegnazione",{tipo:"articolo",artId:id,commessa:commessa}).then(r=>{
+    const _a={tipo:"articolo",artId:id,commessa:commessa}; if(mobile!==undefined)_a.mobile=mobile;
+    call("annullaAssegnazione",_a).then(r=>{
       if(!r.ok){toast(r.err||"Errore","err");return;}
       Promise.all([call("getArticoli"),call("getRiserve"),call("getFabbisogno")]).then(([a,ri,fb])=>{STATE.articoli=a||[];STATE.riserve=ri||[];STATE.fabbisogni=fb||[];toast("Assegnazione rimossa");closeModal();renderPage(STATE.pagina);});
     });
@@ -16900,10 +17513,17 @@ function qtaBreve(v){
   return String(n).replace('.',',');
 }
 function annRiservaDi(m){
-  if(!m||!m.Commessa||!m.ArticoloID)return null;
-  const r=(STATE.riserve||[]).filter(function(x){return x.ArticoloID===m.ArticoloID&&x.Commessa===m.Commessa;})[0];
-  if(!r||!(+r.Quantita>0))return null;
-  return r;
+  if(!m||!m.ArticoloID)return null;
+  const tag=[...String(m.Note||'').matchAll(/\[prenotato: ([0-9.]+) § (.*?) § (.*?)\]/g)];
+  if(m.Tipo==='carico'&&tag.length){
+    let q=0; tag.forEach(function(g){ q+=Math.min(parseFloat(g[1])||0,risQta(m.ArticoloID,g[2].trim(),g[3].trim())); });
+    if(!(q>0))return null;
+    return {ArticoloID:m.ArticoloID,Commessa:tag.map(g=>g[2].trim()+(g[3].trim()?' · '+g[3].trim():'')).join(', '),Quantita:q,daTag:true};
+  }
+  if(!m.Commessa)return null;
+  const q=risQta(m.ArticoloID,m.Commessa,null);
+  if(!(q>0))return null;
+  return {ArticoloID:m.ArticoloID,Commessa:m.Commessa,Quantita:q};
 }
 function annRichiesteDi(m){
   if(!m||!m.Commessa||!m.ArticoloID)return [];
@@ -16916,7 +17536,7 @@ function annCaselle(m){
   const ris=annRiservaDi(m);
   if(ris){ qualcosa=true;
     const tolgo=Math.min(+ris.Quantita||0,+m.Quantita||0);
-    h+=annRiga('an-ris','Togli la prenotazione per la commessa '+commTxt(m.Commessa),
+    h+=annRiga('an-ris','Togli la prenotazione per '+(ris.daTag?att(ris.Commessa):('la commessa '+commTxt(m.Commessa))),
       '-'+qtaBreve(tolgo)+' '+att(m.UnitaMisura||'')+' da "prenotato per le commesse" (adesso ce ne sono '+qtaBreve(ris.Quantita)+')',true);
   }
   const ets=annEtCarico(m);
