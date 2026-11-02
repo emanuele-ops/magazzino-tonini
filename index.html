@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v151 - Atelier</div>
+  <div id="ver-badge">v152 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -1220,7 +1220,7 @@ function renderBulkBar(){
 function confEliminaBulk(){
   const ids=Object.keys(SEL); if(!ids.length)return;
   const lbl=SELTIPO==='pannello'?'pannelli':SELTIPO==='massiccio'?'massicci':'articoli';
-  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina '+ids.length+' '+lbl+'</h2><div class="alert alert-red">Eliminazione definitiva e non reversibile di '+ids.length+' '+lbl+'.</div><div id="be-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaBulk()">Elimina definitivamente</button></div>');
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina '+ids.length+' '+lbl+'</h2><div class="alert alert-red">Elimino '+ids.length+' '+lbl+'. Finiscono nel <strong>Cestino</strong> (Articoli &rarr; Cestino): da l&igrave; si rimettono com&#39;erano.</div><div id="be-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitEliminaBulk()">Elimina definitivamente</button></div>');
 }
 function submitEliminaBulk(){
   const ids=Object.keys(SEL),tipo=SELTIPO;
@@ -2106,8 +2106,79 @@ async function call(fn, args) {
         return { ok: true, id };
       }
     }
+    // ============================================================
+    //  v152 - IL CESTINO
+    //  Prima "Elimina" cancellava e basta: l'articolo, le sue prenotazioni
+    //  e i suoi pannelli/massicci sparivano per sempre. Adesso, PRIMA di
+    //  cancellare, copio tutto nel cestino (la tabella config, chiave
+    //  "cestino"): da li' si rimette com'era con un tasto.
+    // ============================================================
+    async function cestinoLeggi() {
+      const r = await sbGet("config", "select=valore&chiave=eq.cestino");
+      let L = []; try { L = JSON.parse((r[0] && r[0].valore) || "[]"); } catch (e) { L = []; }
+      return { L: Array.isArray(L) ? L : [], "c'e": r.length > 0 };
+    }
+    async function cestinoScrivi(L, esiste) {
+      const val = JSON.stringify(L.slice(-300));
+      if (esiste) await sbPatch("config", "chiave=eq.cestino", { valore: val });
+      else await sbPost("config", { chiave: "cestino", valore: val });
+    }
+    async function cestinoMetti(tipo, id, nome, righe) {
+      const c = await cestinoLeggi();
+      c.L.push({ k: "K" + Date.now() + Math.random().toString(36).slice(2, 6), tipo: tipo, id: id, nome: nome || id,
+        quando: new Date().toISOString(), chi: (STATE.utente && STATE.utente.Nome) || "", righe: righe });
+      await cestinoScrivi(c.L, c["c'e"]);
+    }
+    if (fn === "getCestino") {
+      const c = await cestinoLeggi();
+      return c.L.slice().reverse();
+    }
+    if (fn === "ripristinaCestino") {
+      const c = await cestinoLeggi();
+      const i = c.L.findIndex(x => x.k === args.k);
+      if (i < 0) return { ok: false, err: "Nel cestino non c'e' piu'." };
+      const v = c.L[i], R = v.righe || {};
+      // se nel frattempo e' nato un articolo con lo stesso codice non lo sovrascrivo
+      for (const t of ["articoli", "pannelli", "massicci"]) {
+        for (const row of (R[t] || [])) {
+          const gia = await sbGet(t, "select=id&id=eq." + encodeURIComponent(row.id));
+          if (gia.length) return { ok: false, err: "Il codice " + row.id + " esiste gia' di nuovo: non lo sovrascrivo. Dimmi cosa vuoi fare." };
+        }
+      }
+      for (const row of (R.articoli || [])) await sbPost("articoli", row);
+      for (const row of (R.pannelli || [])) await sbPost("pannelli", row);
+      for (const row of (R.massicci || [])) await sbPost("massicci", row);
+      let risOk = 0;
+      for (const row of (R.riserve || [])) { try { await sbUpsert("riserve", row); risOk++; } catch (e) {} }
+      c.L.splice(i, 1);
+      await cestinoScrivi(c.L, true);
+      return { ok: true, nome: v.nome, prenotazioni: risOk };
+    }
+    // un articolo cancellato PRIMA che ci fosse il cestino: lo rifaccio dai
+    // suoi movimenti (che non si cancellano mai) e, se c'e', da un backup
+    if (fn === "ricostruisciArticolo") {
+      const d = args || {};
+      if (!d.ID) return { ok: false, err: "Manca il codice." };
+      const gia = await sbGet("articoli", "select=id,nome&id=eq." + encodeURIComponent(d.ID));
+      if (gia.length) return { ok: false, err: "Il codice " + d.ID + " c'e' gia' (" + (gia[0].nome || "") + ")." };
+      await sbPost("articoli", {
+        id: d.ID, nome: d.Nome || d.ID, categoria: d.Categoria || "", unita_misura: d.UnitaMisura || "pz",
+        stock: Math.max(0, parseFloat(d.Stock) || 0), soglia_riordino: parseFloat(d.SogliaRiordino) || 0,
+        tipo_riordino: d.TipoRiordino || "manuale", urgenza: d.Urgenza || "media",
+        fornitore: d.Fornitore || "", codice_fornitore: d.CodiceFornitore || "",
+        is_pannello: !!(d.IsPannello === true || d.IsPannello === "SI"), note: d.Note || "", impegnato: 0 });
+      return { ok: true };
+    }
     if (fn === "eliminaArticolo") {
       const id = typeof args === "string" ? args : args.id;
+      {
+        const q = "select=*&articolo_id=eq." + encodeURIComponent(id);
+        const righe = { articoli: await sbGet("articoli", "select=*&id=eq." + encodeURIComponent(id)),
+          riserve: await sbGet("riserve", q).catch(() => []), pannelli: await sbGet("pannelli", q), massicci: await sbGet("massicci", q) };
+        if (!righe.articoli.length) return { ok: false, err: "Articolo non trovato." };
+        try { await cestinoMetti("articolo", id, righe.articoli[0].nome, righe); }
+        catch (e) { return { ok: false, err: "Non riesco a metterlo nel cestino, quindi NON lo cancello: " + String((e && e.message) || e) }; }
+      }
       // Prima restavano in giro righe di prenotazione intestate a un
       // articolo che non esisteva piu': continuavano a contare nei conti
       // delle commesse e non si potevano piu' togliere da nessuna parte,
@@ -2811,6 +2882,9 @@ async function call(fn, args) {
     }
     if (fn === "eliminaPannello") {
       const id = typeof args === "string" ? args : args.id;
+      { const rr = await sbGet("pannelli", "select=*&id=eq." + encodeURIComponent(id));
+        if (rr.length) { try { await cestinoMetti("pannello", id, id, { pannelli: rr }); }
+          catch (e) { return { ok: false, err: "Non riesco a metterlo nel cestino, quindi NON lo cancello: " + String((e && e.message) || e) }; } } }
       await sbDelete("pannelli", "id=eq." + encodeURIComponent(id));
       return { ok: true };
     }
@@ -2930,13 +3004,19 @@ async function call(fn, args) {
     }
     if (fn === "eliminaMassiccio") {
       const id = typeof args === "string" ? args : args.id;
+      { const rr = await sbGet("massicci", "select=*&id=eq." + encodeURIComponent(id));
+        if (rr.length) { try { await cestinoMetti("massiccio", id, id, { massicci: rr }); }
+          catch (e) { return { ok: false, err: "Non riesco a metterlo nel cestino, quindi NON lo cancello: " + String((e && e.message) || e) }; } } }
       await sbDelete("massicci", "id=eq." + encodeURIComponent(id));
       return { ok: true };
     }
 
     // ---- BULK ----
     if (fn === "eliminaBulk") {
-      for (const id of args.ids) await call(args.tipo === "pannello" ? "eliminaPannello" : args.tipo === "massiccio" ? "eliminaMassiccio" : "eliminaArticolo", { id });
+      for (const id of args.ids) {
+        const r = await call(args.tipo === "pannello" ? "eliminaPannello" : args.tipo === "massiccio" ? "eliminaMassiccio" : "eliminaArticolo", { id });
+        if (r && r.ok === false) return { ok: false, err: id + ": " + (r.err || "errore") };
+      }
       return { ok: true };
     }
     if (fn === "scaricaBulk") {
@@ -5555,7 +5635,7 @@ function submitModificaArticolo(id){
 // -- ARTICOLI (vista a schede come pannelli/massicci, raggruppata per categoria) --
 function renderArticoli(){
   const cats=Array.from(new Set(CATS.concat(STATE.articoli.map(a=>a.Categoria)).filter(c=>c&&c!=='Pannelli'&&c!=='Massello')));
-  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Articoli</h1><div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:6px"><button class="btn '+(ART_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'fam\')">Famiglie</button><button class="btn '+(ART_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'<button class="btn btn-accent" onclick="openNuovoArticolo()">+ Nuovo articolo</button></div></div>'
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:10px;flex-wrap:wrap"><h1 class="page-title" style="margin:0">Articoli</h1><div style="display:flex;gap:8px;align-items:center"><div style="display:flex;gap:6px"><button class="btn '+(ART_VIEW==='fam'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'fam\')">Famiglie</button><button class="btn '+(ART_VIEW==='griglia'?'btn-accent':'btn-ghost')+'" onclick="setArtView(\'griglia\')">Griglia</button></div>'+ctrlDensita()+'<button class="btn btn-ghost" onclick="openCestino()" title="Articoli, pannelli e massicci eliminati: si rimettono com&#39;erano">&#128465; Cestino</button><button class="btn btn-accent" onclick="openNuovoArticolo()">+ Nuovo articolo</button></div></div>'
   +'<div class="filters"><input id="flt-art" placeholder="Cerca nome, codice, fornitore..." oninput="filterArticoli()"><select id="flt-cat" onchange="filterArticoli()"><option value="">Tutte le categorie</option>'+cats.map(c=>'<option>'+c+'</option>').join("")+'</select>'+ctrlDispon()+'</div>'
   +avvisoSenzaEtichetta()
   +'<div id="art-cont">'+articoliCont("","")+'</div>';
@@ -17239,13 +17319,126 @@ function submitModificaPezzo(tipo,id){
 // -- ELIMINA ELEMENTO --
 function confElimina(tipo,id){
   const extra=tipo==='articolo'?'<br>Verranno eliminati anche eventuali pannelli/massicci collegati a questo tipo.':'';
-  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina '+tipo+'</h2><div class="alert alert-red">Stai per eliminare definitivamente <strong>'+id+'</strong>. L\'operazione non e reversibile.'+extra+'</div><div id="el-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitElimina(\''+tipo+'\',\''+esc(id)+'\')">Elimina definitivamente</button></div>');
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Elimina '+tipo+'</h2><div class="alert alert-red">Stai per eliminare <strong>'+id+'</strong>.'+extra+'<br>Finisce nel <strong>Cestino</strong>: se sbagli, lo rimetti com\'era da Articoli &rarr; Cestino.</div><div id="el-err"></div><button class="btn-primary" style="background:var(--red)" onclick="submitElimina(\''+tipo+'\',\''+esc(id)+'\')">Elimina definitivamente</button></div>');
 }
 function submitElimina(tipo,id){
   const fn=tipo==='articolo'?'eliminaArticolo':tipo==='pannello'?'eliminaPannello':'eliminaMassiccio';
   call(fn,{id:id}).then(r=>{if(!r.ok){showErr("el-err",r.err||"Errore");return;}
-    closeModal();toast("Eliminato: "+id);
+    closeModal();toast("Eliminato: "+id+" - se hai sbagliato lo trovi in Articoli > Cestino");
     Promise.all([call("getArticoli"),call("getPannelli"),call("getMassicci"),call("getMovimenti")]).then(([a,p,m,mv])=>{STATE.articoli=a||[];STATE.pannelli=p||[];STATE.massicci=m||[];STATE.movimenti=mv||[];renderPage(STATE.pagina);});
+  });
+}
+
+
+// ============================================================
+//  v152 - IL CESTINO (articoli, pannelli e massicci eliminati)
+//  e la ricostruzione di un articolo cancellato prima del cestino,
+//  dai suoi movimenti (che restano sempre) e, se vuoi, da un backup.
+// ============================================================
+var CEST=[], CEST_BK=null;
+function cestDataIt(x){ try{ return new Date(x).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return String(x||''); } }
+// gli articoli che hanno movimenti ma non esistono piu'
+function articoliSpariti(){
+  const ci={}; (STATE.articoli||[]).forEach(a=>ci[a.ID]=1);
+  const per={};
+  (STATE.movimenti||[]).forEach(function(m){
+    const id=m.ArticoloID; if(!id||ci[id])return;
+    const x=per[id]||(per[id]={ID:id,Nome:'',UnitaMisura:'',Fornitore:'',car:0,sca:0,n:0,pezzi:0,ultima:'',movs:[]});
+    x.n++; x.movs.push(m);
+    if(m.NomeArticolo)x.Nome=m.NomeArticolo;
+    if(m.UnitaMisura)x.UnitaMisura=m.UnitaMisura;
+    if(m.PezzoID)x.pezzi++;
+    if(String(m.Data||'')>x.ultima)x.ultima=String(m.Data||'');
+    if(m.Annullato==='SI')return;
+    const q=+m.Quantita||0;
+    if(m.Tipo==='carico'){ x.car+=q; if(m.Fornitore)x.Fornitore=m.Fornitore; }
+    else if(m.Tipo==='scarico')x.sca+=q;
+  });
+  return Object.keys(per).map(k=>per[k]).sort((a,b)=>b.ultima.localeCompare(a.ultima));
+}
+function openCestino(){
+  openModal('<div class="modal" style="width:820px;max-width:96vw"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Cestino</h2><div id="cest-c" style="color:var(--gray)">Leggo il cestino...</div></div>');
+  Promise.all([call('getCestino'),call('getMovimenti')]).then(function(r){
+    CEST=Array.isArray(r[0])?r[0]:[]; if(Array.isArray(r[1]))STATE.movimenti=r[1];
+    disegnaCestino();
+  }).catch(function(e){ const c=document.getElementById('cest-c'); if(c)c.innerHTML='<div class="alert alert-red">'+att(String((e&&e.message)||e))+'</div>'; });
+}
+function disegnaCestino(){
+  const c=document.getElementById('cest-c'); if(!c)return;
+  const tipi={articolo:'Articolo',pannello:'Pannello',massiccio:'Massiccio'};
+  let h='<div class="info-box">Qui finisce tutto quello che elimini. <strong>Ripristina</strong> lo rimette com&#39;era: anagrafica, giacenza, prenotazioni per le commesse e (per un articolo) i suoi pannelli/massicci.</div>';
+  h+=CEST.length?CEST.map(function(v){
+      const R=v.righe||{}, a=(R.articoli||[])[0]||{};
+      const det=[];
+      if(a.stock!=null)det.push('giacenza '+nfmt(+a.stock||0,(+a.stock||0)%1?3:0)+' '+att(a.unita_misura||''));
+      if((R.riserve||[]).length)det.push((R.riserve||[]).length+' prenotazioni');
+      if((R.pannelli||[]).length)det.push((R.pannelli||[]).length+' pannelli');
+      if((R.massicci||[]).length)det.push((R.massicci||[]).length+' massicci');
+      return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);flex-wrap:wrap">'
+       +'<div style="flex:1;min-width:240px"><div style="font-weight:600">'+att(v.nome||v.id)+' <span style="font-weight:400;color:var(--gray);font-size:12px">'+att(tipi[v.tipo]||v.tipo)+' &middot; '+att(v.id)+'</span></div>'
+       +'<div style="font-size:12px;color:var(--gray)">eliminato il '+cestDataIt(v.quando)+(v.chi?(' da '+att(v.chi)):'')+(det.length?(' &middot; '+det.join(' &middot; ')):'')+'</div></div>'
+       +'<button class="btn btn-green" onclick="ripristinaDaCestino(\''+esc(v.k)+'\',this)">Ripristina</button></div>';
+    }).join(''):'<div style="font-size:13px;color:var(--gray);padding:6px 0 10px">Il cestino &egrave; vuoto.</div>';
+  const nelCest={}; CEST.forEach(function(v){ if(v.tipo==='articolo')nelCest[v.id]=1; });
+  const sp=articoliSpariti().filter(function(x){return !nelCest[x.ID];});
+  h+='<div class="op-sec">Articoli eliminati prima del cestino</div>'
+    +'<div class="info-box">Questi articoli non esistono pi&ugrave;, ma i loro movimenti s&igrave;. Li posso <strong>ricostruire</strong>: stesso codice, cos&igrave; i movimenti di prima tornano attaccati. '
+    +'Per avere anche codice fornitore, soglia e note giusti, carica un backup (il file <em>backup-magazzino_...json</em> che scarichi col tasto Backup).'
+    +'<div style="margin-top:8px"><label class="btn btn-ghost" style="cursor:pointer">Carica un backup (facoltativo)<input type="file" accept=".json" style="display:none" onchange="cestCaricaBackup(this)"></label> '
+    +'<span style="font-size:12px">'+(CEST_BK?('backup del <strong>'+cestDataIt(CEST_BK._data)+'</strong> caricato'):'nessun backup caricato')+'</span></div></div>';
+  h+=sp.length?sp.map(function(x){
+      const r=cestRicalcola(x);
+      return '<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--border);flex-wrap:wrap">'
+       +'<div style="flex:1;min-width:240px"><div style="font-weight:600">'+att(r.Nome)+' <span style="font-weight:400;color:var(--gray);font-size:12px">'+att(x.ID)+'</span></div>'
+       +'<div style="font-size:12px;color:var(--gray)">'+x.n+' movimenti, l&#39;ultimo il '+att(String(x.ultima).slice(0,10))+' &middot; giacenza ricalcolata <strong>'+nfmt(r.Stock,r.Stock%1?3:0)+' '+att(r.UnitaMisura)+'</strong> '+att(r.come)
+       +(x.pezzi?' &middot; <span style="color:var(--red)">era un tipo di pannello/massiccio: i singoli pezzi non si possono ricostruire dai movimenti</span>':'')+'</div></div>'
+       +'<button class="btn btn-accent" onclick="cestRicostruisci(\''+esc(x.ID)+'\',this)">Ricostruisci</button></div>';
+    }).join(''):'<div style="font-size:13px;color:var(--gray);padding:6px 0">Nessuno: non ci sono movimenti di articoli che non esistono pi&ugrave;.</div>';
+  c.innerHTML=h;
+}
+// i dati dell'articolo da ricostruire: dal backup se c'e', se no dai movimenti
+function cestRicalcola(x){
+  const bk=CEST_BK&&(CEST_BK.articoli||[]).find(a=>a.ID===x.ID);
+  if(bk){
+    // giacenza del backup + i movimenti fatti DOPO il backup
+    const dopo=String(CEST_BK._data||'').replace('T',' ').slice(0,19);
+    let st=+bk.Stock||0;
+    x.movs.forEach(function(m){ if(m.Annullato==='SI'||String(m.Data||'')<=dopo)return; const q=+m.Quantita||0;
+      if(m.Tipo==='carico')st+=q; else if(m.Tipo==='scarico')st-=q; });
+    return Object.assign({},bk,{Stock:Math.max(0,Math.round(st*1000)/1000),come:'(dal backup + i movimenti dopo)'});
+  }
+  return {ID:x.ID,Nome:x.Nome||x.ID,UnitaMisura:x.UnitaMisura||'pz',Fornitore:x.Fornitore||'',
+    Stock:Math.max(0,Math.round((x.car-x.sca)*1000)/1000),IsPannello:x.pezzi?'SI':'NO',come:'(carichi meno scarichi)'};
+}
+function cestCaricaBackup(input){
+  const f=input.files[0]; if(!f)return;
+  const rd=new FileReader();
+  rd.onload=function(e){ try{ const d=JSON.parse(e.target.result); if(!Array.isArray(d.articoli))throw new Error('non ha la lista degli articoli');
+      CEST_BK=d; toast('Backup letto: '+d.articoli.length+' articoli'); disegnaCestino(); }
+    catch(err){ toast('Questo file non e\' un backup del magazzino: '+err.message,'err'); } };
+  rd.readAsText(f);
+}
+function cestDopo(msg){
+  Promise.all([call('getArticoli'),call('getPannelli'),call('getMassicci'),call('getMovimenti'),call('getRiserve'),call('getCestino')]).then(function(r){
+    STATE.articoli=r[0]||[];STATE.pannelli=r[1]||[];STATE.massicci=r[2]||[];STATE.movimenti=r[3]||[];STATE.riserve=r[4]||[];CEST=Array.isArray(r[5])?r[5]:[];
+    toast(msg); renderPage(STATE.pagina); disegnaCestino();
+  });
+}
+function ripristinaDaCestino(k,btn){
+  if(btn){btn.disabled=true;btn.textContent='Ripristino...';}
+  call('ripristinaCestino',{k:k}).then(function(r){
+    if(!r||!r.ok){toast((r&&r.err)||'Errore','err');if(btn){btn.disabled=false;btn.textContent='Ripristina';}return;}
+    cestDopo('Ripristinato: '+r.nome+(r.prenotazioni?(' con '+r.prenotazioni+' prenotazioni'):''));
+  });
+}
+function cestRicostruisci(id,btn){
+  const x=articoliSpariti().find(a=>a.ID===id); if(!x)return;
+  const r=cestRicalcola(x);
+  if(!confirm('Ricostruisco «'+r.Nome+'» ('+id+') con giacenza '+r.Stock+' '+(r.UnitaMisura||'')+'.\n\nLe prenotazioni per le commesse che aveva non si possono ricostruire: se ne aveva, rifalle con «Assegna a commessa».\n\nProcedo?'))return;
+  if(btn){btn.disabled=true;btn.textContent='Ricostruisco...';}
+  call('ricostruisciArticolo',r).then(function(e){
+    if(!e||!e.ok){toast((e&&e.err)||'Errore','err');if(btn){btn.disabled=false;btn.textContent='Ricostruisci';}return;}
+    cestDopo('Ricostruito: '+r.Nome+' - controlla la giacenza e, se serve, correggila');
   });
 }
 
