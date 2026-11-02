@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v149 - Atelier</div>
+  <div id="ver-badge">v151 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -5910,6 +5910,23 @@ function submitAnnullaMovBulk(){
   }).catch(e=>showErr("ba-err",e.message||"Errore"));
 }
 // -- REPORT --
+// v151: la ricerca nelle commesse del Report. Filtra subito mentre scrivi,
+// senza ridisegnare la pagina (cosi' la casella non perde il cursore).
+// Piu' parole: devono esserci tutte ("gradenigo nicoli").
+function filtraReportComm(){
+  const q=String((document.getElementById('rp-q')||{}).value||'').toLowerCase().trim();
+  const soloScar=!!(document.getElementById('rp-scar')||{}).checked;
+  const parole=q.split(/\s+/).filter(Boolean);
+  const bl=document.querySelectorAll('#rp-grid .qa'); let vis=0;
+  bl.forEach(function(el){
+    const t=el.getAttribute('data-cerca')||'';
+    let ok=parole.every(function(w){return t.indexOf(w)>=0;});
+    if(ok&&soloScar){ const m=(el.textContent||'').match(/(\d+) scarichi/); ok=!!(m&&+m[1]>0); }
+    el.style.display=ok?'':'none'; if(ok)vis++;
+  });
+  const n=document.getElementById('rp-n'); if(n)n.textContent=(q||soloScar)?(vis+' di '+bl.length+' commesse'):'';
+  const v=document.getElementById('rp-vuoto'); if(v)v.style.display=(bl.length&&!vis)?'block':'none';
+}
 function movCommessa(comm){ return STATE.movimenti.filter(m=>m.Commessa===comm&&m.Annullato!=="SI"); }
 function renderReport(){
   const sotto=STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino);
@@ -5917,12 +5934,17 @@ function renderReport(){
   STATE.movimenti.forEach(m=>{if(m.Commessa&&!(m.Commessa in set))set[m.Commessa]="";});
   const blocchi=Object.keys(set).map(id=>{
     const n=movCommessa(id).filter(m=>m.Tipo==='scarico').length;
-    return '<div class="qa" onclick="openReportCommessa(\''+esc(id)+'\')"><div class="qa-txt"><b>'+id+(set[id]&&set[id]!==id?(' - '+set[id]):'')+'</b><span>'+n+' scarichi - apri report</span></div></div>';
+    const cli=((STATE.commesse.find(c=>c.ID===id)||{}).Cliente)||'';
+    return '<div class="qa" data-cerca="'+att((id+' '+(set[id]||'')+' '+cli).toLowerCase())+'" onclick="openReportCommessa(\''+esc(id)+'\')"><div class="qa-txt"><b>'+id+(set[id]&&set[id]!==id?(' - '+set[id]):'')+'</b><span>'+n+' scarichi - apri report</span></div></div>';
   }).join("")||'<div style="color:var(--gray);font-size:13px">Nessuna commessa registrata.</div>';
   let s1=sotto.length?sotto.map(a=>'<div class="alert-row" style="border-top:1px solid var(--border)" onclick="openDettaglio(\'articolo\',\''+esc(a.ID)+'\')"><div><div style="font-weight:600;color:var(--red)">'+a.Nome+'</div><div style="font-size:11px;color:var(--gray)">'+(a.Fornitore||'-')+'</div></div><div style="text-align:right"><div style="color:var(--red);font-weight:600">'+a.Stock+' '+a.UnitaMisura+'</div><div style="font-size:11px;color:var(--gray)">soglia '+a.SogliaRiordino+'</div></div></div>').join(""):'<div style="color:var(--gray);font-size:13px">Tutto in regola.</div>';
   return '<h1 class="page-title">Report &amp; Analisi</h1>'
     +'<div class="op-sec" style="margin-top:0">Report per commessa</div>'
-    +'<div class="qa-grid">'+blocchi+'</div>'
+    +'<div class="filters"><input id="rp-q" type="search" autocomplete="off" placeholder="Cerca una commessa: codice, nome o cliente..." oninput="filtraReportComm()">'
+    +'<label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap"><input type="checkbox" id="rp-scar" onchange="filtraReportComm()"> solo con scarichi</label>'
+    +'<span id="rp-n" style="font-size:12.5px;color:var(--gray);white-space:nowrap"></span></div>'
+    +'<div class="qa-grid" id="rp-grid">'+blocchi+'</div>'
+    +'<div id="rp-vuoto" style="display:none;color:var(--gray);font-size:13px">Nessuna commessa con questa ricerca.</div>'
     +'<div class="op-sec">Bolle e DDT dei fornitori</div>'
     +renderReportBolle()
     +'<div class="op-sec">Dove e stato usato</div>'
@@ -7252,7 +7274,7 @@ function ordiniCont(){
   const gruppi={}; daOrd.forEach(f=>{const fo=fornChiave(f.Fornitore);(gruppi[fo]=gruppi[fo]||[]).push(f);});
   let ordini=Object.keys(gruppi).map(fo=>{
     const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(fo))||{}).Email||'';
-    return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">Emetti ordine e PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
+    return '<div class="reorder-forn"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><div><h4>'+fo+'</h4><div style="font-size:11.5px;color:var(--gray)">'+(em?('Email: '+em):'<span style="color:var(--red)">email mancante</span>')+' <a onclick="openFornitore(\''+esc(fo)+'\')" style="color:var(--accent);cursor:pointer;text-decoration:underline">modifica</a></div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost" onclick="anteprimaOrdComm(\''+esc(fo)+'\')" title="Guarda il foglio che riceve il fornitore, senza emettere niente">&#128065; Anteprima</button><button class="btn btn-ghost" onclick="stampaOrdineCommessa(\''+esc(fo)+'\')">Emetti ordine e PDF</button><button class="btn btn-accent" onclick="inviaOrdComm(\''+esc(fo)+'\')">Invia ordine</button></div></div>'
      +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:4px">'
      +raggruppaFab(gruppi[fo]).length+' righe nel PDF e nell&#39;invio</div>'
      +raggruppaFab(gruppi[fo]).map(function(g){
@@ -8193,6 +8215,28 @@ function stampaOrdineCommessa(forn){
     pdfOrdineCommessa(forn,righeFoto,numero);
     toast('Ordine '+numero+' emesso: lo trovi in Ordini');
   });
+}
+// v150 - ANTEPRIMA DELL'ORDINE
+// Fa vedere il foglio esattamente come arriva al fornitore, ma NON lo
+// emette: niente numero, niente righe segnate "ordinate", niente in Ordini.
+function anteprimaOrdComm(forn){
+  const tutte=ordDaOrdinare(FAB_COMM,forn);
+  if(!tutte.length){toast('Niente da ordinare per '+forn,'err');return;}
+  let html='';
+  const vera=stampaHTML;
+  stampaHTML=function(h){html=h;};
+  try{ pdfOrdineCommessa(forn,tutte,null); } finally { stampaHTML=vera; }
+  html=html.replace('Ordine n. (da emettere)','ANTEPRIMA &ndash; ordine non ancora emesso');
+  const em=(STATE.fornitori.find(x=>fornNorm(x.Nome)===fornNorm(forn))||{}).Email||'';
+  openModal('<div class="modal" style="width:900px;max-width:96vw"><button class="modal-close" onclick="closeModal()">&times;</button>'
+   +'<h2 style="margin-bottom:4px">Anteprima ordine &ndash; '+att(forn)+'</h2>'
+   +'<div class="alert alert-amber" style="font-size:12.5px">Questo &egrave; solo da guardare: l&#39;ordine <strong>non &egrave; ancora emesso</strong> e le righe non cambiano stato.'
+   +(em?'':' <strong>Manca l&#39;email del fornitore</strong>: per inviarlo va aggiunta.')+'</div>'
+   +'<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:22px 26px;max-height:62vh;overflow:auto;margin:10px 0 14px">'+html+'</div>'
+   +'<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'
+   +'<button class="btn btn-ghost" onclick="closeModal()">Chiudi</button>'
+   +'<button class="btn btn-ghost" onclick="closeModal();stampaOrdineCommessa(\''+esc(forn)+'\')">Emetti ordine e PDF</button>'
+   +'<button class="btn btn-accent" onclick="closeModal();inviaOrdComm(\''+esc(forn)+'\')">Invia ordine</button></div></div>');
 }
 // La ristampa di un ordine gia' emesso sta nella pagina Ordini
 // (Esporta PDF). Questa qui costruisce il foglio.
