@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v148 - Atelier</div>
+  <div id="ver-badge">v149 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -843,7 +843,7 @@ function materialeInAttesa(){
       let st='da_ordinare'; try{ st=statoEffettivo(f); }catch(e){}
       if(st!=='da_ordinare'&&st!=='parziale')return;
       const art2=f.Tipo==='articolo', vuole=art2?(+f.Quantita||0):(+f.NumPezzi||1);
-      let gia=0; try{ gia=assegnatoReale(f)||0; }catch(e){}
+      let gia=0; try{ gia=fabAssegnatoMio(f)||0; }catch(e){}
       const rest=Math.max(0,vuole-gia); if(!(rest>0))return;
       const m2=(f.Tipo==='pannello'&&+f.Dim1&&+f.Dim2)?rest*(+f.Dim1)*(+f.Dim2)/1e6:null;
       out.push({commessa:f.Commessa||'',mobile:fabMobile(f),stato:'da_ordinare',tipo:f.Tipo||'articolo',materiale:f.Descrizione||(art(f.ArticoloID).Nome)||f.ArticoloID||'',
@@ -6569,7 +6569,7 @@ function dispoFab(f){
   // Un'altra voce (verniciatura, trasporto, conto lavorazione...) non si
   // tiene a magazzino: non c'e' niente da assegnare, si ordina e basta.
   if(f.__voce)return {ok:false,libero:0,testo:'altra voce: non sta a magazzino'};
-  if(f.Tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===f.ArticoloID);const st=a?+a.Stock:0;const imp=a?impegnatoArt(a):0;const lib=Math.max(0,st-imp);const u=a?a.UnitaMisura:(f.UnitaMisura||'');return {ok:lib>=(+f.Quantita||0),libero:lib,testo:'a mag. '+st+' '+u+' - destinati '+imp+' - liberi '+lib};}
+  if(f.Tipo==='articolo'){const a=STATE.articoli.find(x=>x.ID===f.ArticoloID);const st=a?+a.Stock:0;const imp=a?impegnatoArt(a):0;const lib=Math.max(0,st-imp);const u=a?a.UnitaMisura:(f.UnitaMisura||'');return {ok:lib>=fabMancante(f),libero:lib,testo:'a mag. '+st+' '+u+' - destinati '+imp+' - liberi '+lib};}
   // PANNELLI E MASSICCI SI CONTANO A PEZZI.
   // Prima qui si confrontavano i metri quadri: se ti servivano 4 pannelli da
   // 2 m2 e a magazzino c'erano 10 m2 liberi ma su SOLI DUE codici, la riga
@@ -6602,19 +6602,50 @@ function assegnatoReale(f){
     .filter(p=>p.ArticoloID===f.ArticoloID && String(p.Commesse||'').split(',').map(s=>s.trim()).indexOf(f.Commessa)>=0);
   return pezzi.length;
 }
+// v149 - QUANTO MANCA DAVVERO
+// Prima, se 29 basette su 58 erano gia' prenotate per la commessa, il
+// riordino ne chiedeva lo stesso 58: la riga "parz. assegnato" entrava
+// nell'ordine con la quantita' intera. Adesso nell'ordine va solo quello
+// che manca. E se lo stesso articolo e' chiesto in due righe della stessa
+// commessa, le prenotazioni si dividono fra le righe (in ordine) invece di
+// essere contate due volte.
+function fabServe(f){ return f.Tipo==='articolo'?(+f.Quantita||0):(parseInt(f.NumPezzi)||1); }
+function fabAssegnatoMio(f){
+  if(!f||f.__voce)return 0;
+  const tot=assegnatoReale(f);
+  const fr=(STATE.fabbisogni||[]).filter(function(x){return x.Commessa===f.Commessa&&x.Tipo===f.Tipo
+    &&x.ArticoloID===f.ArticoloID&&String(x.Stato||'')!=='ricevuto';});
+  if(fr.length<2)return tot;
+  fr.sort(function(a,b){return String(a.ID).localeCompare(String(b.ID),undefined,{numeric:true});});
+  let pool=tot;
+  for(let i=0;i<fr.length;i++){ const t=Math.min(fabServe(fr[i]),Math.max(0,pool)); pool-=t; if(fr[i].ID===f.ID)return t; }
+  return Math.min(tot,fabServe(f));
+}
+function fabMancante(f){ if(f.__voce)return fabQta(f); return Math.max(0,Math.round((fabServe(f)-fabAssegnatoMio(f))*1000)/1000); }
+// la riga cosi' come va nell'ordine: con la quantita' che manca
+function ordSoloMancante(f){
+  if(f.__voce)return f;
+  const ass=fabAssegnatoMio(f); if(!(ass>0))return f;
+  const m=fabMancante(f); if(!(m>0))return null;
+  const c=Object.assign({},f);
+  if(f.Tipo==='articolo')c.Quantita=m; else c.NumPezzi=m;
+  c.__giaAss=ass;
+  return c;
+}
 // Stato effettivo calcolato dalla realta (non dal flag salvato)
 function statoEffettivo(f){
   if(f.Stato==='ricevuto')return 'ricevuto';
   if(f.__voce)return (f.Stato==='ordinato')?'ordinato':'da_ordinare';
-  const ass=assegnatoReale(f);
+  const ass=fabAssegnatoMio(f);
+  // parte prenotata e il resto gia' ordinato: e' "ordinato", non va ordinato di nuovo
   if(f.Tipo==='articolo'){
     const need=parseFloat(f.Quantita)||0;
     if(ass>0&&ass>=need)return 'assegnato';
-    if(ass>0)return 'parziale';
+    if(ass>0)return (f.Stato==='ordinato')?'ordinato':'parziale';
   } else {
     const need=parseInt(f.NumPezzi)||1;
     if(ass>=need)return 'assegnato';
-    if(ass>0)return 'parziale';
+    if(ass>0)return (f.Stato==='ordinato')?'ordinato':'parziale';
   }
   return (f.Stato==='ordinato')?'ordinato':'da_ordinare';
 }
@@ -6683,6 +6714,11 @@ function cardFab(gr,griglia){
    +(mis?(' &middot; '+mis):'')+'</div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:4px">'
    +(f.Fornitore?('forn: '+att(fornChiave(f.Fornitore))+' &middot; '):'')+d.testo+'</div>'
+   +(function(){ if(f.__voce)return ''; let gia=0,manca=0,ord=false;
+      gr.righe.forEach(function(x){ const a=fabAssegnatoMio(x); if(a>0&&x.Stato!=='ricevuto'){ gia+=a; manca+=fabMancante(x); if(statoEffettivo(x)==='ordinato')ord=true; } });
+      if(!(gia>0)||!(manca>0))return '';
+      return '<div style="font-size:12px;margin-bottom:4px">Gi&agrave; prenotati per la commessa <strong>'+nfmt(gia,gia%1?3:0)+' '+att(fabUnita(f))+'</strong> &middot; '
+        +(ord?'il resto &egrave; ordinato: ':'da ordinare solo ')+'<strong style="color:var(--amber)">'+nfmt(manca,manca%1?3:0)+' '+att(fabUnita(f))+'</strong></div>'; })()
    +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">'+badges+' '+db+'</div>';
   // nei blocchi le singole richieste stanno chiuse, se no la scheda e' un muro
   const corpo=(gr.righe.length>1)
@@ -6853,7 +6889,7 @@ function ordTutteDaOrdinare(){
   (STATE.commesse||[]).forEach(function(c){
     ordRigheCommessa(c.ID).forEach(function(f){
       const st=statoEffettivo(f);
-      if(st==='da_ordinare'||st==='parziale')out.push(f);
+      if(st==='da_ordinare'||st==='parziale'){ const c=ordSoloMancante(f); if(c)out.push(c); }
     });
   });
   return out;
@@ -7087,7 +7123,7 @@ function ordDaOrdinare(comm,forn){
     if(!ordMobOk(f))return false;                          // il mobile scelto in alto
     if(forn&&fornChiave(f.Fornitore)!==forn)return false;  // la ditta di questo blocco
     return true;
-  });
+  }).map(ordSoloMancante).filter(Boolean);                 // solo quello che manca
 }
 function ordRecapDati(){
   const per={};
@@ -7964,7 +8000,8 @@ function riceviFab(id){
   const f=(STATE.fabbisogni||[]).filter(x=>x.ID===id)[0]; if(!f)return;
   const art=(STATE.articoli||[]).filter(a=>a.ID===f.ArticoloID)[0]||{};
   const pezzi=(f.Tipo!=='articolo');
-  const chiesta=pezzi?(+f.NumPezzi||1):(+f.Quantita||0);
+  // se una parte era gia' prenotata, ne aspetti solo il resto
+  const chiesta=(fabAssegnatoMio(f)>0)?fabMancante(f):(pezzi?(+f.NumPezzi||1):(+f.Quantita||0));
   const u=pezzi?'pz':(f.UnitaMisura||art.UnitaMisura||'');
   const mis=fabMisura(f);
   openModal('<div class="modal" style="width:540px"><button class="modal-close" onclick="closeModal()">&times;</button>'
