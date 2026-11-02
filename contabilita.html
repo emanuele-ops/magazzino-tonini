@@ -413,7 +413,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <header><div class="bar">
       <button class="apriLato" onclick="document.body.classList.toggle('lato-aperto')" title="menu">&#9776;</button>
       <div id="striscia" class="striscia"></div>
-      <input type="search" id="gsearch" placeholder="Cerca dappertutto…" style="font:inherit;font-size:13px;
+      <input type="search" id="gsearch" autocomplete="off" name="cerca_contabilita" placeholder="Cerca dappertutto…" style="font:inherit;font-size:13px;
         padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;min-width:220px"
         oninput="cercaGlobale(this.value)" onkeydown="if(event.key==='Enter'){qR=this.value;vai('ricerca')}">
     </div></header>
@@ -18954,5 +18954,210 @@ function crSalvaVeloce(nome,i){
     const N=crNumeri(c);
     if(N.budget==null&&!N.finita) h=h.replace(`>Preventivo ›</button>`,`>Preventivo ›</button> <button class="btn btn-main btn-sm" onclick="apriPrevVeloce('${att(c)}')">Preventivo veloce</button>`);
     return h; }; }
+
+/* =====================================================================================
+   v148 — le finestre riempiono lo schermo e ognuna ha il suo piccolo grafico.
+   Clicchi la finestra e sotto si apre il dettaglio, come prima.
+   ===================================================================================== */
+(function(){
+  const st=document.createElement("style");
+  st.textContent=`
+  main{max-width:none!important}
+  #finestre{max-width:none!important;padding:20px 28px 0!important}
+  body.conFinestre.unaAperta #titoloAperta{max-width:none!important;padding:0 28px!important}
+  body.conFinestre.unaAperta #main{margin-left:28px;margin-right:28px}
+  #crAff{margin-left:28px!important;margin-right:28px!important}
+  .fGrid{grid-template-columns:repeat(auto-fill,minmax(330px,1fr))!important;gap:14px!important;margin:16px 0 6px!important}
+  .fin{padding:14px 16px 12px!important;display:flex;flex-direction:column;min-height:200px;border-radius:14px!important}
+  .fin .ft{font-size:15px!important}
+  .fin .fv{gap:20px!important;margin-top:9px!important}
+  .fin .fv div b{font-size:19px!important;white-space:nowrap}
+  .fin .fv div span{font-size:11.5px!important}
+  .fin .fd{font-size:12px}
+  .fin .fg{margin-top:auto;padding-top:10px}
+  .fin .fg svg{display:block;width:100%;height:78px;overflow:visible}
+  .fin .fg .lg{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--gray);margin-top:4px}
+  .fin .fg .lg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .fin .fg .hb{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.6fr) auto;gap:3px 8px;align-items:center;font-size:11.5px}
+  .fin .fg .hb .l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4b4037}
+  .fin .fg .hb .t{height:9px;background:#f1ebe2;border-radius:5px;position:relative;overflow:hidden}
+  .fin .fg .hb .t u{position:absolute;top:0;bottom:0;border-radius:5px}
+  .fin .fg .hb .v{font-family:ui-monospace,monospace;font-size:11px;text-align:right;white-space:nowrap}
+  .fin .apri{font-size:11px;color:var(--accent);margin-top:6px;text-align:right;opacity:0;transition:opacity .12s}
+  .fin:hover .apri{opacity:1}
+  .fin.aperta .apri{display:none}
+  body.conFinestre.unaAperta .fGrid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))!important;gap:8px!important}
+  body.conFinestre.unaAperta .fin{min-height:0}
+  body.conFinestre.unaAperta .fin .fg,body.conFinestre.unaAperta .fin .apri{display:none}
+  body.conFinestre.unaAperta .fin .fv div b{font-size:14px!important}
+  @media(max-width:700px){.fGrid{grid-template-columns:1fr!important}#finestre{padding:14px 14px 0!important}}
+  `;
+  document.head.appendChild(st);
+})();
+
+/* ---------------- i dati per i grafici (calcolati una volta per disegno) ---------------- */
+let _G={};
+const C_VERDE="#4f7a4a", C_ROSSO="#b0473c", C_ORO="#b8862f", C_MARRONE="#8a6a4a", C_GRIGIO="#b9ad9f";
+function gMesi(){ if(_G.mesi) return _G.mesi; const an=String((D.config&&D.config.anno)||new Date().getFullYear()), ora=oggi().slice(0,7), M=[];
+  for(let i=1;i<=12;i++){ const m=an+"-"+String(i).padStart(2,"0"); if(m>ora) break; M.push(m); } return _G.mesi=M; }
+function gRicaviMese(anno){ const k="ric"+(anno||""); if(_G[k]) return _G[k]; const per={};
+  (D.ricavi||[]).forEach(r=>{ const m=String(r.data||"").slice(0,7); if(!m) return; per[m]=(per[m]||0)+(r.nota?-Math.abs(n(r.imponibile)):n(r.imponibile)); });
+  return _G[k]=per; }
+function gCostiMese(){ if(_G.cos) return _G.cos; const per={};
+  try{ tuttiCosti().forEach(r=>{ if(r.fuori) return; const m=String(r.mese||r.data||"").slice(0,7); if(m) per[m]=(per[m]||0)+n(r.importo); }); }catch(e){}
+  return _G.cos=per; }
+function gOreMese(){ if(_G.ore) return _G.ore; const per={}; (D.ore||[]).forEach(o=>{ if(o.mese) per[o.mese]=(per[o.mese]||0)+n(o.ore); }); return _G.ore=per; }
+function gCE(){ if(_G.ce) return _G.ce; try{ return _G.ce=contoEconomico(String((D.config&&D.config.anno)||new Date().getFullYear())); }catch(e){ return _G.ce={righe:[]}; } }
+function gMeseCorto(m){ return ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"][(+String(m).slice(5,7))-1]||m; }
+function gK(v){ v=n(v); const a=Math.abs(v); return (v<0?"−":"")+(a>=1000?Math.round(a/1000).toLocaleString("it-IT")+"k":Math.round(a).toLocaleString("it-IT")); }
+function gNomeComm(c){ let d=""; try{ const x=(D.destinazioni||[]).find(z=>z.nome===c); d=x&&x.descrizione||""; }catch(e){} return d?c.replace(/^C(\d{4})\./,"$1.")+" "+d:c; }
+
+/* ---------------- i tipi di grafico ---------------- */
+function gLegenda(v){ return `<div class="lg">${v.map(([c,t])=>`<span><i style="background:${c}"></i>${esc(t)}</span>`).join("")}</div>`; }
+/* barre verticali per mese, una o due serie affiancate */
+function gColonne(etich,serie,leg){
+  const W=300,H=70,nn=etich.length; if(!nn) return "";
+  let mx=0,mn=0; serie.forEach(s=>s.v.forEach(x=>{ mx=Math.max(mx,n(x)); mn=Math.min(mn,n(x)); }));
+  if(mx-mn<=0) return "";
+  const z=H*mx/(mx-mn), sc=v=>H*n(v)/(mx-mn), slot=W/nn, bw=Math.max(2,(slot*0.72)/serie.length);
+  let s=`<svg viewBox="0 -2 ${W} ${H+14}" preserveAspectRatio="none">`;
+  s+=`<line x1="0" x2="${W}" y1="${z}" y2="${z}" stroke="#e2d9cc" stroke-width="1"/>`;
+  etich.forEach((m,i)=>{ serie.forEach((se,j)=>{ const v=n(se.v[i]), h=Math.abs(sc(v)), x=i*slot+slot*0.14+j*bw, y=v>=0?z-h:z;
+      s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-1).toFixed(1)}" height="${Math.max(h,0.5).toFixed(1)}" rx="1.5" fill="${typeof se.c==="function"?se.c(v):se.c}"><title>${esc(gMeseCorto(m))} · ${esc(se.n)}: ${eur(v)}</title></rect>`; }); });
+  if(nn<=12) etich.forEach((m,i)=>{ s+=`<text x="${(i*slot+slot/2).toFixed(1)}" y="${H+11}" font-size="8.5" text-anchor="middle" fill="#9a8d7f">${esc(gMeseCorto(m).slice(0,1).toUpperCase())}</text>`; });
+  return s+`</svg>`+(leg?gLegenda(leg):"");
+}
+/* linee (con l'area sotto la prima) */
+function gLinee(etich,serie,leg,opz){
+  opz=opz||{}; const W=300,H=70,nn=etich.length; if(nn<2) return "";
+  let mx=-Infinity,mn=Infinity; serie.forEach(s=>s.v.forEach(x=>{ if(x==null) return; mx=Math.max(mx,n(x)); mn=Math.min(mn,n(x)); }));
+  if(opz.zero){ mn=Math.min(mn,0); mx=Math.max(mx,0); }
+  if(!isFinite(mx)||mx===mn){ mx=(isFinite(mx)?mx:0)+1; mn=mn-1; }
+  const X=i=>(i*W/(nn-1)), Y=v=>H-(n(v)-mn)*H/(mx-mn);
+  let s=`<svg viewBox="0 -3 ${W} ${H+16}" preserveAspectRatio="none">`;
+  if(mn<0&&mx>0) s+=`<line x1="0" x2="${W}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#d9cdbd" stroke-dasharray="3 3"/>`;
+  serie.forEach((se,j)=>{ const pts=se.v.map((v,i)=>v==null?null:[X(i),Y(v)]).filter(Boolean); if(pts.length<2) return;
+    const d=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+    if(j===0&&!se.tratt) s+=`<path d="${d} L${pts[pts.length-1][0].toFixed(1)} ${H} L${pts[0][0].toFixed(1)} ${H} Z" fill="${se.c}" opacity=".10"/>`;
+    s+=`<path d="${d}" fill="none" stroke="${se.c}" stroke-width="2" vector-effect="non-scaling-stroke" ${se.tratt?'stroke-dasharray="5 4"':""}/>`;
+    se.v.forEach((v,i)=>{ if(v==null) return; s+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="6" fill="transparent"><title>${esc(opz.et?opz.et(etich[i]):gMeseCorto(etich[i]))} · ${esc(se.n)}: ${eur(v)}</title></circle>`; }); });
+  if(nn<=13&&!opz.noEt) etich.forEach((m,i)=>{ s+=`<text x="${X(i).toFixed(1)}" y="${H+12}" font-size="8.5" text-anchor="${i===0?"start":i===nn-1?"end":"middle"}" fill="#9a8d7f">${esc(opz.et?opz.et(m):gMeseCorto(m).slice(0,1).toUpperCase())}</text>`; });
+  return s+`</svg>`+(leg?gLegenda(leg):"");
+}
+/* barre orizzontali: [{l,v,c,t}] — al massimo 5 righe */
+function gBarreH(R,fmt){
+  R=R.filter(r=>r&&n(r.v)!==0).slice(0,5); if(!R.length) return "";
+  const mx=Math.max(...R.map(r=>Math.abs(n(r.v))))||1; fmt=fmt||gK;
+  return `<div class="hb">${R.map(r=>`<span class="l" title="${att(r.t||r.l)}">${esc(r.l)}</span><span class="t"><u style="left:0;width:${(Math.abs(n(r.v))/mx*100).toFixed(1)}%;background:${r.c||(n(r.v)<0?C_ROSSO:C_MARRONE)}"></u></span><span class="v"${n(r.v)<0?` style="color:${C_ROSSO}"`:""}>${esc(fmt(r.v))}</span>`).join("")}</div>`;
+}
+/* due avanzamenti per riga (es. lavoro fatto / fatturato) */
+function gAvanz(R,leg){
+  R=R.slice(0,5); if(!R.length) return "";
+  return `<div class="hb">${R.map(r=>`<span class="l" title="${att(r.t||r.l)}">${esc(r.l)}</span><span class="t" title="${att(r.tt||"")}"><u style="left:0;width:${Math.min(100,Math.max(0,r.a*100)).toFixed(0)}%;background:${C_ORO};opacity:.55"></u><u style="left:0;width:${Math.min(100,Math.max(0,r.b*100)).toFixed(0)}%;background:${C_VERDE};height:5px;top:2px"></u></span><span class="v">${Math.round(r.a*100)}%</span>`).join("")}</div>`+(leg?gLegenda(leg):"");
+}
+/* una barra sola divisa in pezzi: [[valore,colore,nome]] */
+function gPezzi(P,leg){
+  const tot=P.reduce((s,p)=>s+Math.max(0,n(p[0])),0); if(tot<=0) return "";
+  return `<div style="display:flex;height:16px;border-radius:6px;overflow:hidden;background:#f1ebe2">${P.filter(p=>n(p[0])>0).map(p=>`<span title="${att(p[2]+": "+eur(p[0])+" ("+Math.round(n(p[0])/tot*100)+"%)")}" style="width:${(n(p[0])/tot*100).toFixed(2)}%;background:${p[1]}"></span>`).join("")}</div>`
+    +gLegenda(P.filter(p=>n(p[0])>0).map(p=>[p[1],p[2]+" "+Math.round(n(p[0])/tot*100)+"%"]));
+}
+/* barra "quanto manca": fatto / obiettivo */
+function gObiettivo(fatto,obiet,etF,etO){
+  if(!(n(obiet)>0)) return ""; const p=n(fatto)/n(obiet);
+  return `<div style="position:relative;height:18px;border-radius:7px;background:#f1ebe2;overflow:hidden" title="${att(etF+": "+eur(fatto)+" · "+etO+": "+eur(obiet))}">
+    <span style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100,p*100).toFixed(1)}%;background:${p>=1?C_VERDE:C_ORO}"></span></div>`
+    +gLegenda([[p>=1?C_VERDE:C_ORO,etF+" "+Math.round(p*100)+"%"],["#f1ebe2",etO+" "+gK(obiet)]]);
+}
+
+/* ---------------- un grafico per ogni finestra ---------------- */
+const _anG=()=>String((D.config&&D.config.anno)||new Date().getFullYear());
+function gCumula(v){ let s=0; return v.map(x=>s+=n(x)); }
+function gCassa13(){
+  if(_G.cassa) return _G.cassa;
+  const o=oggi(), base=new Date(o), S=[], E=[];
+  let saldo=n(D.config&&D.config.saldoBanca), arr=0; try{ const cs=cassaScenari(); if(cs&&cs.haSaldo!==false&&cs.saldo0!=null) saldo=n(cs.saldo0); }catch(e){}
+  let sc=[]; try{ sc=scadenzario().filter(x=>!x.pagato); }catch(e){}
+  sc.forEach(x=>{ if(x.scad&&x.scad<o) arr+=(x.verso==="entrata"?1:-1)*n(x.importo); });
+  for(let w=0;w<13;w++){ const a=new Date(base); a.setDate(a.getDate()+7*w); const b=new Date(base); b.setDate(b.getDate()+7*(w+1));
+    const A=a.toISOString().slice(0,10), B=b.toISOString().slice(0,10);
+    sc.forEach(x=>{ if(x.scad&&x.scad>=A&&x.scad<B) saldo+=(x.verso==="entrata"?1:-1)*n(x.importo); });
+    S.push(saldo); E.push(A); }
+  return _G.cassa={S,E,arr};
+}
+const GRAF={
+  home:()=>{ const M=gMesi(), R=gRicaviMese(), C=gCostiMese();
+    return gColonne(M,[{n:"ricavi",v:M.map(m=>R[m]||0),c:C_VERDE},{n:"costi",v:M.map(m=>C[m]||0),c:C_ROSSO}],[[C_VERDE,"ricavi"],[C_ROSSO,"costi"],["transparent","per mese"]]); },
+  lunedi:()=>{ const M=gMesi(), R=gRicaviMese(), C=gCostiMese();
+    return gColonne(M,[{n:"ricavi − costi",v:M.map(m=>(R[m]||0)-(C[m]||0)),c:v=>v<0?C_ROSSO:C_VERDE}],[[C_VERDE,"mese in guadagno"],[C_ROSSO,"mese in perdita"]]); },
+  riepilogo:()=>{ const M=gMesi(), R=gRicaviMese(), C=gCostiMese();
+    return gLinee(M,[{n:"utile accumulato",v:gCumula(M.map(m=>(R[m]||0)-(C[m]||0))),c:C_VERDE}],[[C_VERDE,"ricavi − costi, accumulato da gennaio"]],{zero:true}); },
+  contoeco:()=>{ const A=datiAnno(_anG());
+    return gPezzi([[A.materiali,C_MARRONE,"materiali"],[A.mdoCosto,C_ORO,"manodopera"],[n(A.indiretti)+n(A.struttura),C_GRIGIO,"spese comuni"],[A.utile,C_VERDE,"utile"]]); },
+  cruscotto:()=>{ const M=gMesi(), O=gOreMese(); return gColonne(M,[{n:"ore",v:M.map(m=>O[m]||0),c:C_MARRONE}],[[C_MARRONE,"ore lavorate per mese"]]).replace(/: € ([\d.,−-]+)/g,": $1"); },
+  confronto:()=>{ const an=+_anG(), M=gMesi(), R=gRicaviMese(), Mp=M.map(m=>(an-1)+m.slice(4));
+    return gLinee(M,[{n:"ricavi "+an,v:gCumula(M.map(m=>R[m]||0)),c:C_VERDE},{n:"ricavi "+(an-1),v:gCumula(Mp.map(m=>R[m]||0)),c:C_GRIGIO,tratt:true}],[[C_VERDE,String(an)],[C_GRIGIO,String(an-1)+" stesso periodo"]]); },
+  commesse:()=>{ const R=(gCE().righe||[]).filter(r=>r.gruppo!=="spese").map(r=>({l:gNomeComm(r.commessa),t:r.commessa,v:r.contribuzione!=null?r.contribuzione:n(r.ricavi)-n(r.diretti)}));
+    R.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)); return gBarreH(R); },
+  wip:()=>{ const R=[]; (gCE().righe||[]).forEach(r=>{ if(r.stato==="chiusa"||r.stato==="consegnata") return; try{ const N=crNumeri(r.commessa); if(N.finita||!(N.avanz>0)) return;
+      R.push({l:gNomeComm(r.commessa),t:r.commessa,a:N.avanz,b:N.fattPct||0,tt:"lavoro fatto "+Math.round(N.avanz*100)+"% · fatturato "+Math.round((N.fattPct||0)*100)+"%",k:n(N.lavoroNonFatt)}); }catch(e){} });
+    R.sort((a,b)=>b.k-a.k); return gAvanz(R,[[C_ORO,"lavoro fatto"],[C_VERDE,"fatturato"]]); },
+  attesa:()=>{ const per={}; ((typeof ATTESA!=="undefined"&&ATTESA.righe)||[]).forEach(r=>{ if(!r.commessa) return; let c=r.commessa; try{ c=risolvi(c)||c; }catch(e){} per[c]=(per[c]||0)+n(r.valore); });
+    const R=Object.keys(per).map(c=>({l:gNomeComm(c),t:c,v:per[c],c:C_ORO})).sort((a,b)=>b.v-a.v);
+    return R.length?gBarreH(R):""; },
+  etc:()=>{ let R=[]; try{ R=etcRighe().filter(r=>!r.finita&&r.margFin!=null).map(r=>({l:gNomeComm(r.commessa),t:r.commessa,v:r.margFin})); }catch(e){}
+    R.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)); return gBarreH(R); },
+  previsioni:()=>{ let si=0,no=0; (gCE().righe||[]).forEach(r=>{ if(r.stato==="chiusa") return; try{ const N=crNumeri(r.commessa); if(N.finita) return; if(N.budget!=null) si++; else no++; }catch(e){} });
+    return (si+no)?gPezzi([[si,C_VERDE,"con preventivo"],[no,C_ORO,"senza preventivo"]]).replace(/: € ([\d.,]+)/g,": $1"):""; },
+  forecast:()=>{ const M=gMesi(), R=gRicaviMese(), an=_anG(), tutti=[]; for(let i=1;i<=12;i++) tutti.push(an+"-"+String(i).padStart(2,"0"));
+    const fatti=M.map(m=>R[m]||0), media=fatti.length?fatti.reduce((a,b)=>a+b,0)/fatti.length:0, cum=gCumula(fatti);
+    const cons=tutti.map((m,i)=>i<cum.length?cum[i]:null), prev=tutti.map((m,i)=>i<cum.length-1?null:i===cum.length-1?cum[i]:cum[cum.length-1]+media*(i-cum.length+1));
+    return gLinee(tutti,[{n:"fatturato",v:cons,c:C_VERDE},{n:"al ritmo di oggi",v:prev,c:C_ORO,tratt:true}],[[C_VERDE,"fatturato accumulato"],[C_ORO,"se continua così"]]); },
+  manodopera:()=>{ const M=gMesi(), O=gOreMese(); return gColonne(M,[{n:"ore",v:M.map(m=>O[m]||0),c:C_ORO}],[[C_ORO,"ore per mese"]]).replace(/: € ([\d.,−-]+)/g,": $1"); },
+  struttura:()=>{ const A=datiAnno(_anG()); return gObiettivo(A.ricavi,A.pareggio,"fatturato","pareggio"); },
+  energia:()=>{ const per={}; try{ valide().forEach(f=>{ if(!eCostoAOre(f)) return; const m=String(f.data||"").slice(0,7); if(m.slice(0,4)===_anG()) per[m]=(per[m]||0)+n(f.importo); }); }catch(e){ return ""; }
+    const M=gMesi(); return gColonne(M,[{n:"energia",v:M.map(m=>per[m]||0),c:C_ORO}],[[C_ORO,"fatture energia per mese"]]); },
+  scadenze:()=>{ let sc=[]; try{ sc=scadenzario().filter(x=>!x.pagato&&x.verso==="uscita"); }catch(e){}
+    const o=oggi(), E=["scad."], V=[sc.filter(x=>x.scad&&x.scad<o).reduce((s,x)=>s+n(x.importo),0)];
+    for(let w=0;w<8;w++){ const a=new Date(o); a.setDate(a.getDate()+7*w); const b=new Date(o); b.setDate(b.getDate()+7*(w+1)); const A=a.toISOString().slice(0,10), B=b.toISOString().slice(0,10);
+      E.push("sett. "+(w+1)); V.push(sc.filter(x=>x.scad&&x.scad>=A&&x.scad<B).reduce((s,x)=>s+n(x.importo),0)); }
+    return gColonne(E,[{n:"da pagare",v:V,c:v=>C_MARRONE}],[[C_ROSSO,"prima barra: già scaduti"],[C_MARRONE,"prossime 8 settimane"]]).replace(/<rect([^>]*)fill="[^"]*"/,`<rect$1fill="${C_ROSSO}"`).replace(/<text[^>]*>[^<]*<\/text>/g,""); },
+  cassa:()=>{ const c=gCassa13(); if(Math.max(...c.S)-Math.min(...c.S)<1) return `<div class="lg">nelle prossime 13 settimane non ci sono scadenze sicure: il saldo resta ${esc(eur(c.S[0]))}</div>`; return gLinee(c.E,[{n:"saldo previsto",v:c.S,c:C_VERDE}],[[C_VERDE,"saldo previsto, 13 settimane (solo scadenze sicure)"]],{zero:true,et:d=>d.slice(8,10)+"/"+d.slice(5,7),noEt:true}); },
+  cassaScen:()=>GRAF.cassa(),
+  mutuicespiti:()=>gBarreH((D.finanziamenti||[]).map(f=>({l:f.descrizione||f.nome||f.banca||"mutuo",v:n(f.residuo),c:C_MARRONE})).sort((a,b)=>b.v-a.v)),
+  fatture:()=>{ const M=gMesi(), C=gCostiMese(); return gColonne(M,[{n:"costi",v:M.map(m=>C[m]||0),c:C_MARRONE}],[[C_MARRONE,"costi per mese"]]); },
+  ricavi:()=>{ const M=gMesi(), R=gRicaviMese(); return gColonne(M,[{n:"fatturato",v:M.map(m=>R[m]||0),c:C_VERDE}],[[C_VERDE,"fatturato per mese"]]); },
+  costi:()=>{ const per={}; try{ tuttiCosti().forEach(r=>{ if(r.fuori||String(r.mese||r.data||"").slice(0,4)!==_anG()) return; const k=r.categoria||"senza categoria"; per[k]=(per[k]||0)+n(r.importo); }); }catch(e){}
+    return gBarreH(Object.keys(per).map(k=>({l:k,v:per[k]})).sort((a,b)=>b.v-a.v)); },
+  carte:()=>{ const per={}; (D.fatture||[]).forEach(f=>{ if(!f.carta) return; const m=String(f.data||"").slice(0,7); per[m]=(per[m]||0)+n(f.importo); });
+    const M=gMesi(); return gColonne(M,[{n:"carte",v:M.map(m=>per[m]||0),c:C_MARRONE}],[[C_MARRONE,"spese con carta per mese"]]); },
+  fornitori:()=>{ const per={}; (D.fatture||[]).forEach(f=>{ if(String(f.data||"").slice(0,4)!==_anG()) return; const k=f.fornitore||"?"; per[k]=(per[k]||0)+n(f.importo); });
+    return gBarreH(Object.keys(per).map(k=>({l:k,v:per[k]})).sort((a,b)=>b.v-a.v)); },
+  clienti:()=>{ const per={}; (D.ricavi||[]).forEach(r=>{ if(String(r.data||"").slice(0,4)!==_anG()) return; const k=r.cliente||"?"; per[k]=(per[k]||0)+n(r.imponibile); });
+    return gBarreH(Object.keys(per).map(k=>({l:k,v:per[k],c:C_VERDE})).sort((a,b)=>b.v-a.v)); },
+  giacenze:()=>{ let R=[]; try{ R=documenti().filter(g=>n(g.resMag)>0.5).map(g=>({l:g.fornitore||g.chi||g.nr||"?",v:n(g.resMag)})); }catch(e){} R.sort((a,b)=>b.v-a.v); return gBarreH(R); }
+};
+
+/* la finestra, con il grafico sotto */
+{ const _fin=finestra; finestra=function(k,t,aperta){
+    let h=_fin.apply(this,arguments), g="";
+    if(!aperta||true){ try{ g=GRAF[k]?GRAF[k]():""; }catch(e){ g=""; } }
+    const coda=(g?`<div class="fg">${g}</div>`:"")+`<div class="apri">apri il dettaglio ›</div>`;
+    return h.replace(/<\/div>\s*$/,coda+"</div>"); }; }
+{ const _df=disegnaFinestre; disegnaFinestre=function(){ _G={}; return _df.apply(this,arguments); }; }
+/* quando il magazzino ha risposto, ridisegno le finestre (materiale in attesa) */
+{ if(typeof crAttesaCarica==="function"){ const _ca=crAttesaCarica; crAttesaCarica=function(){ const r=_ca.apply(this,arguments);
+    try{ Promise.resolve(r).then(()=>{ try{ if(D&&document.body.classList.contains("conFinestre")) disegnaFinestre(); }catch(e){} }); }catch(e){} return r; }; } }
+
+/* ---------------- la casella "Cerca" in alto: il browser non ci deve scrivere la mail ---------------- */
+(function(){
+  const g=$("gsearch"); if(!g) return;
+  g.setAttribute("autocomplete","off"); g.setAttribute("name","cerca_contabilita_"+Math.random().toString(36).slice(2,7));
+  g.setAttribute("autocorrect","off"); g.setAttribute("spellcheck","false"); g.setAttribute("data-lpignore","true"); g.setAttribute("data-1p-ignore","true");
+  let scritto=false; g.addEventListener("keydown",()=>{ scritto=true; }); g.addEventListener("paste",()=>{ scritto=true; });
+  const pulisci=()=>{ if(!scritto&&g.value){ g.value=""; } };
+  [0,300,1000,2500,5000].forEach(t=>setTimeout(pulisci,t));
+  { const _r=render; render=function(){ const r=_r.apply(this,arguments); if(!scritto&&g.value&&/@/.test(g.value)) g.value=""; return r; }; }
+})();
+
 </script>
 </body></html>
