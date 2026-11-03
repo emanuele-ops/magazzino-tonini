@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v152 - Atelier</div>
+  <div id="ver-badge">v153 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -4055,7 +4055,12 @@ async function call(fn, args) {
                     const campo = (f.tipo === "articolo" || f.tipo === "generico") ? "quantita" : "num_pezzi";
                     const resta = round5(Math.max(0, (parseFloat(f[campo]) || 0) - gia));
                     if (resta <= 0) { agg.stato = "ricevuto"; tocc.giaPieno = (tocc.giaPieno || 0) + 1; }
-                    else { agg[campo] = resta; tocc.ridotte = (tocc.ridotte || 0) + 1; }
+                    // v153: per articoli, pannelli e massicci la quantita' NON si
+                    // abbassa: quello che e' arrivato per la commessa e' prenotato
+                    // li', e il riordino conta gia' solo quello che manca
+                    // (servono - prenotati). Abbassarla lo toglieva due volte.
+                    else if (f.tipo === "generico") { agg[campo] = resta; tocc.ridotte = (tocc.ridotte || 0) + 1; }
+                    else { tocc.ridotte = (tocc.ridotte || 0) + 1; }
                     agg.note = (f.note || "") + ((f.note ? " " : "") + "[ordine " + args.id + " cancellato: " + gia + " gia' arrivati, resta da ordinare " + resta + "]");
                   }
                 } catch (eF) { /* se non riesco a leggere, almeno la riapro */ }
@@ -5847,8 +5852,76 @@ function filtraMassicci(){document.getElementById("mass-cont").innerHTML=massicc
 
 // -- MOVIMENTI --
 let MOV_VIS=[];
+
+// ============================================================
+//  v153 - MODIFICARE UN ORDINE GIA' EMESSO
+//  "Torna indietro": l'ordine viene tolto e le sue righe tornano
+//  "da ordinare" nella commessa, in Crea ordine. Li' le cambi
+//  (quantita', righe in piu' o in meno) e lo riemetti.
+//  Quello che e' gia' arrivato resta in magazzino e non torna da
+//  ordinare (lo fa gia' eliminaOrdine).
+// ============================================================
+function openModificaOrdine(id){
+  const o=(STATE.ordini||[]).filter(x=>x.ID===id)[0]; if(!o)return;
+  let av={ric:0,parziali:0}; try{ av=ordineAvanzamento(o)||av; }catch(e){}
+  const righe=(o.Righe||[]).filter(r=>r.fabId||r.voceId).length;
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Modifica l&#39;ordine '+att(o.ID)+'</h2>'
+   +'<div class="info-box">Torno indietro dalla conferma: l&#39;ordine <strong>'+att(o.ID)+'</strong> a <strong>'+att(o.Fornitore||'')+'</strong> viene tolto dagli Ordini e le sue <strong>'+righe+' righe</strong> tornano <strong>da ordinare</strong> nella commessa '+commTxt(o.Commessa||'')+', in <strong>Crea ordine</strong>.'
+   +'<br>L&igrave; le correggi e premi di nuovo «Emetti ordine e PDF» o «Invia ordine»: prende un numero nuovo.</div>'
+   +((av.ric||av.parziali)?'<div class="alert alert-amber" style="font-size:12.5px">Una parte di questo ordine &egrave; gi&agrave; arrivata: quella resta in magazzino e torna da ordinare <strong>solo quello che manca</strong>.</div>':'')
+   +'<div class="alert alert-amber" style="font-size:12.5px">Se l&#39;avevi gi&agrave; mandato al fornitore, avvisalo che quello vecchio non vale pi&ugrave;.</div>'
+   +'<div id="mo-err"></div><button class="btn-primary" onclick="submitModificaOrdine(\''+esc(id)+'\',this)">Torna in Crea ordine</button></div>');
+}
+function submitModificaOrdine(id,btn){
+  const o=(STATE.ordini||[]).filter(x=>x.ID===id)[0]||{};
+  if(btn){btn.disabled=true;btn.textContent='Torno indietro...';}
+  call("eliminaOrdine",{id:id,richieste:'da_ordinare'}).then(function(r){
+    if(!r||!r.ok){showErr("mo-err",(r&&r.err)||"Errore");if(btn){btn.disabled=false;btn.textContent='Torna in Crea ordine';}return;}
+    Promise.all([call("getOrdini"),call("getFabbisogno"),call("getVoci")]).then(function(res){
+      STATE.ordini=res[0]||[];STATE.fabbisogni=res[1]||[];STATE.voci=res[2]||[];
+      closeModal();
+      FAB_COMM=o.Commessa||FAB_COMM; ORD_MOB='';
+      navTo('ordini');
+      toast('Ordine '+id+' annullato: le righe sono di nuovo in Crea ordine, commessa '+(o.Commessa||''));
+    });
+  }).catch(function(e){showErr("mo-err",String((e&&e.message)||e));if(btn){btn.disabled=false;btn.textContent='Torna in Crea ordine';}});
+}
+// In Movimenti, sopra i carichi e scarichi: le ALTRE operazioni (ordini
+// emessi e cose eliminate), ognuna con il suo tasto per tornare indietro.
+var MOV_OPS_APERTO=false, MOV_OPS_CEST=null;
+function movOperazioni(){
+  const ord=(STATE.ordini||[]).slice().sort((a,b)=>String(b.Data||'').localeCompare(String(a.Data||'')));
+  const ops=[];
+  ord.forEach(function(o){
+    let av={ric:0,parziali:0}; try{ av=ordineAvanzamento(o)||av; }catch(e){}
+    const ricevuto=String(o.Stato||'').toLowerCase()==='ricevuto';
+    ops.push({d:String(o.Data||''),h:'<div style="flex:1;min-width:240px"><strong>Ordine emesso '+att(o.ID)+'</strong> &middot; '+att(o.Fornitore||'')+(o.Commessa?(' &middot; '+commTxt(o.Commessa)):'')
+      +'<div style="font-size:11.5px;color:var(--gray)">'+att(String(o.Data||'').slice(0,16).replace('T',' '))+' &middot; '+(o.Righe||[]).length+' righe &middot; '
+      +(ricevuto?'ricevuto':(av.ric||av.parziali)?'arrivato in parte':'non ancora arrivato')+'</div></div>'
+      +(!ricevuto&&o.Commessa?'<button class="btn btn-ghost" onclick="openModificaOrdine(\''+esc(o.ID)+'\')">&#9998; Torna in Crea ordine</button>':'')});
+  });
+  (MOV_OPS_CEST||[]).forEach(function(v){
+    ops.push({d:String(v.quando||'').replace('T',' '),h:'<div style="flex:1;min-width:240px"><strong>Eliminato</strong> '+att(v.nome||v.id)+' <span style="color:var(--gray);font-size:12px">'+att(v.tipo)+' &middot; '+att(v.id)+'</span>'
+      +'<div style="font-size:11.5px;color:var(--gray)">'+att(String(v.quando||'').slice(0,16).replace('T',' '))+(v.chi?(' &middot; '+att(v.chi)):'')+'</div></div>'
+      +'<button class="btn btn-green" onclick="ripristinaDaCestino(\''+esc(v.k)+'\',this)">Ripristina</button>'});
+  });
+  ops.sort((a,b)=>b.d.localeCompare(a.d));
+  const vis=MOV_OPS_APERTO?ops:ops.slice(0,5);
+  return '<div id="mov-ops" class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+   +'<div class="card-title" style="margin:0">Ordini emessi e cose eliminate</div>'
+   +(ops.length>5?'<button class="btn btn-ghost" onclick="MOV_OPS_APERTO=!MOV_OPS_APERTO;document.getElementById(\'mov-ops\').outerHTML=movOperazioni()">'+(MOV_OPS_APERTO?'Mostra solo le ultime':'Mostrale tutte ('+ops.length+')')+'</button>':'')+'</div>'
+   +'<div style="font-size:12px;color:var(--gray);margin:4px 0 4px">Ogni operazione ha il suo tasto per tornare indietro. Carichi e scarichi sono nella tabella qui sotto (si annullano spuntandoli).</div>'
+   +(vis.length?vis.map(x=>'<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border);flex-wrap:wrap">'+x.h+'</div>').join(''):'<div style="font-size:13px;color:var(--gray);padding:6px 0">Nessuna operazione.</div>')
+   +'</div>';
+}
+function movCaricaCestino(){
+  call('getCestino').then(function(c){ if(!Array.isArray(c))return; MOV_OPS_CEST=c;
+    const e=document.getElementById('mov-ops'); if(e)e.outerHTML=movOperazioni(); }).catch(function(){});
+}
 function renderMovimenti(){
+  setTimeout(movCaricaCestino,0);
   return '<h1 class="page-title">Movimenti</h1>'
+  +movOperazioni()
   +'<div class="filters"><select id="flt-tipo" onchange="filterMov()"><option value="">Tutti i tipi</option><option value="carico">Solo carichi</option><option value="scarico">Solo scarichi</option></select>'
   +'<input id="flt-comm" placeholder="Filtra commessa..." oninput="filterMovPresto()">'
   +'<input id="flt-txt" placeholder="Cerca materiale, pezzo, note..." oninput="filterMovPresto()"></div>'
@@ -9587,6 +9660,7 @@ function ordineCard(o){
   if(!ricevuto)azioni+='<button class="btn btn-green" onclick="caricaOrdineMagazzino(\''+esc(o.ID)+'\')">Carica a magazzino</button>';
   if(!ricevuto&&(av.ric>0||av.parziali>0))azioni+='<button class="btn btn-ghost" onclick="openChiudiOrdine(\''+esc(o.ID)+'\')">Chiudi l&#39;ordine</button>';
   azioni+='<button class="btn btn-accent" onclick="openSegnalaOrdine(\''+esc(o.ID)+'\')">Segnala</button>';
+  if(!ricevuto&&o.Commessa)azioni+='<button class="btn btn-ghost" onclick="openModificaOrdine(\''+esc(o.ID)+'\')" title="Annulla l&#39;emissione: le righe tornano in Crea ordine, le cambi e lo riemetti">&#9998; Modifica (torna in Crea ordine)</button>';
   azioni+='<button class="btn btn-red" onclick="openEliminaOrdine(\''+esc(o.ID)+'\')">Elimina</button></div>';
   const mobili=ordineMobili(o);
   const spunta='<input type="checkbox" id="osel-'+att(o.ID)+'" '+(ORD_SEL[o.ID]?'checked':'')
@@ -17421,7 +17495,7 @@ function cestCaricaBackup(input){
 function cestDopo(msg){
   Promise.all([call('getArticoli'),call('getPannelli'),call('getMassicci'),call('getMovimenti'),call('getRiserve'),call('getCestino')]).then(function(r){
     STATE.articoli=r[0]||[];STATE.pannelli=r[1]||[];STATE.massicci=r[2]||[];STATE.movimenti=r[3]||[];STATE.riserve=r[4]||[];CEST=Array.isArray(r[5])?r[5]:[];
-    toast(msg); renderPage(STATE.pagina); disegnaCestino();
+    toast(msg); renderPage(STATE.pagina); disegnaCestino(); if(document.getElementById('mov-ops'))movCaricaCestino();
   });
 }
 function ripristinaDaCestino(k,btn){
