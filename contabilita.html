@@ -1725,13 +1725,41 @@ function calcolaScad(data,giorni,fineMese){
   const p=x=>String(x).padStart(2,"0");
   return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
 }
+/* v149 - COME SI PAGA
+   bonifico e Ri.Ba.: alla scadenza, da segnare pagata a mano
+   SEPA (addebito diretto) e carta di credito: si pagano da soli; passata la data
+   la scadenza conta come pagata (si puo' sempre cambiare a mano)
+   carta: l'addebito arriva il giorno X del mese dopo la fattura (di solito il 15)
+   calendario: si paga in un giorno fisso del mese (es. il 10): la scadenza
+   calcolata si sposta al primo giorno fisso uguale o successivo */
+const METODI_PAG={bonifico:"Bonifico",riba:"Ri.Ba.",sepa:"SEPA (addebito diretto)",carta:"Carta di credito VISA",calendario:"Calendario (giorno fisso)"};
+function calcolaScadT(data,t){
+  if(!data) return "";
+  t=t||{};
+  const p=x=>String(x).padStart(2,"0"), fmt=d=>d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+  if(t.metodo==="carta"){
+    const d=new Date(String(data)+"T00:00:00"); if(isNaN(d.getTime())) return "";
+    const g=Math.min(28,Math.max(1,n(t.giornoCarta)||15));
+    return fmt(new Date(d.getFullYear(),d.getMonth()+1,g));
+  }
+  let s=calcolaScad(data,t.giorni,t.fineMese);
+  if(t.metodo==="calendario"&&n(t.giornoFisso)>0&&s){
+    const d=new Date(s+"T00:00:00"), g=Math.min(31,Math.max(1,n(t.giornoFisso)));
+    const ultimo=(y,m)=>new Date(y,m+1,0).getDate();
+    let y=d.getFullYear(), m=d.getMonth();
+    if(d.getDate()>Math.min(g,ultimo(y,m))){ m++; if(m>11){ m=0; y++; } }
+    s=fmt(new Date(y,m,Math.min(g,ultimo(y,m))));
+  }
+  return s;
+}
+function pagatoDaSolo(t,scad){ return !!t&&(t.metodo==="sepa"||t.metodo==="carta")&&!!scad&&scad<=oggi(); }
 function terminiPer(tipo,nome){
   const T=(D.termini&&D.termini[tipo])||{};
   const t=T[String(nome||"").trim().toUpperCase()];
-  if(t) return {giorni:n(t.giorni),fineMese:!!t.fineMese,suo:true};
+  if(t) return {giorni:n(t.giorni),fineMese:!!t.fineMese,metodo:t.metodo||"bonifico",giornoFisso:n(t.giornoFisso)||0,giornoCarta:n(t.giornoCarta)||15,suo:true};
   return tipo==="fornitori"
-    ? {giorni:n(D.config.giorniFornitori??30), fineMese:D.config.fineMeseFornitori!==false, suo:false}
-    : {giorni:n(D.config.giorniClienti??30),   fineMese:D.config.fineMeseClienti!==false,   suo:false};
+    ? {giorni:n(D.config.giorniFornitori??30), fineMese:D.config.fineMeseFornitori!==false, metodo:"bonifico",giornoFisso:0,giornoCarta:15, suo:false}
+    : {giorni:n(D.config.giorniClienti??30),   fineMese:D.config.fineMeseClienti!==false,   metodo:"bonifico",giornoFisso:0,giornoCarta:15, suo:false};
 }
 function setTermini(tipo,nome,campo,v){
   D.termini=D.termini||{fornitori:{},clienti:{}};
@@ -1802,9 +1830,10 @@ function scadenzario(){
     const giaPag=g.righe.some(f=>f.pagata);
     const voceF={k,verso:"uscita",fonte:"fattura",chi:g.fornitore||"(senza fornitore)",
       doc:"n. "+(g.nr||"—"),nrDoc:String(g.nr||""),data:g.data,
-      scad:s.scad||daFIC||calcolaScad(g.data,t.giorni,t.fineMese),
-      auto:!s.scad, daFIC:!s.scad&&!!daFIC,
-      importo:lordo, pagato:("pagato" in s)?!!s.pagato:giaPag, dataPag:s.dataPag||"", note:s.note||""};
+      scad:s.scad||daFIC||calcolaScadT(g.data,t),
+      auto:!s.scad, daFIC:!s.scad&&!!daFIC, metodo:t.metodo,
+      importo:lordo, pagato:("pagato" in s)?!!s.pagato:(giaPag||pagatoDaSolo(t,s.scad||daFIC||calcolaScadT(g.data,t))), dataPag:s.dataPag||"",
+      note:s.note||(pagatoDaSolo(t,s.scad||daFIC||calcolaScadT(g.data,t))&&!giaPag&&!("pagato" in s)?(METODI_PAG[t.metodo]||"")+": addebito automatico":"")};
     if(!rateScad(L,voceF,s)) L.push(voceF);
   });
   /* uscite: le voci a mano ricorrenti (mutui, assicurazioni, leasing, F24...) — ognuna
@@ -1836,7 +1865,7 @@ function scadenzario(){
     const nota=/nota|credito/i.test(String(g.documento))? -1 : 1;
     const voceR={k,verso:nota<0?"uscita":"entrata",fonte:"ricavo",chi:g.cliente||"(senza cliente)",
       doc:(g.documento||"Fattura")+" n. "+(g.numero||"—")+(g.serie?"/"+g.serie:""),nrDoc:String(g.numero||""),data:g.data,
-      scad:s.scad||g.scad||calcolaScad(g.data,t.giorni,t.fineMese),
+      scad:s.scad||g.scad||calcolaScadT(g.data,t),
       auto:!s.scad, daFIC:!s.scad&&!!g.scad,
       importo:Math.abs(lordo), pagato:("pagato" in s)?!!s.pagato:g.pag, dataPag:s.dataPag||"", note:s.note||""};
     if(!rateScad(L,voceR,s)) L.push(voceR);
@@ -3099,6 +3128,8 @@ function preparaStaging(righe,totali,nomeFile,messaggio){
     STAGING_FILE=nomeFile;
     render(); toast(messaggio||("Lette "+STAGING.length+" righe da "+nomeFile));
 }
+let _NOTE_FORN=false;
+async function leggiNoteFornitori(file){ if(!file) return; _NOTE_FORN=true; return leggiFIC(file); }
 async function leggiFIC(file){
   if(!file)return;
   try{
@@ -3108,7 +3139,9 @@ async function leggiFIC(file){
     let hr=-1;
     for(let i=0;i<Math.min(m.length,30);i++)
       if(m[i].some(c=>String(c).toLowerCase().includes("nr. acquisto"))){hr=i;break;}
-    if(hr<0){toast("Non trovo la riga dei titoli con 'Nr. acquisto'");return;}
+    if(hr<0){toast("Non trovo la riga dei titoli con 'Nr. acquisto'");_NOTE_FORN=false;return;}
+    /* se il file stesso dice che sono note di credito, le tratto come tali anche dal tasto delle fatture */
+    if(m.slice(0,hr).some(rr=>rr.some(c=>/note? di credito|note? d.accredito/i.test(String(c))))) _NOTE_FORN=true;
     const H=m[hr].map(x=>String(x||"").trim().toLowerCase());
     const col=nome=>H.findIndex(h=>h===nome);
     const iD=col("data"),iN=col("nr. acquisto"),iCC=col("centro costo"),iF=col("fornitore"),
@@ -3126,24 +3159,27 @@ async function leggiFIC(file){
     const righe=[];
     for(let r=hr+1;r<m.length;r++){
       const R=m[r]; if(!R||(!R[iN]&&!R[iF]))continue;
-      const imp=n(R[iI]);
-      const forn=String(R[iF]||"").trim(), art=String(R[iA]||"").trim(), nr=String(R[iN]||"").trim();
+      /* v149: le note di credito dei fornitori sono costi IN MENO; il numero prende "NC "
+         davanti, cosi' non si somma a una fattura dello stesso fornitore con lo stesso numero */
+      const imp=_NOTE_FORN?-Math.abs(n(R[iI])):n(R[iI]);
+      const forn=String(R[iF]||"").trim(), art=String(R[iA]||"").trim(), nr=(_NOTE_FORN?"NC ":"")+String(R[iN]||"").trim();
       const k=forn.toUpperCase()+"|"+nr;
       totali[k]=(totali[k]||0)+imp;
       const sc = iScad>=0 ? excelData(R[iScad]) : "";
       const st = iPag>=0 ? String(R[iPag]||"").trim().toLowerCase() : "";
       righe.push({data:excelData(R[iD]),nr,fornitore:forn,articolo:art,codForn:String(R[iCA]||"").trim(),
         centroCosto:String(R[iCC]||"").trim(),qta:n(R[iQ]),um:String(R[iU]||"").trim(),
-        importo:imp,iva:n(R[iIva]),
+        importo:imp,iva:_NOTE_FORN?-Math.abs(n(R[iIva])):n(R[iIva]),
         scadenza:/^\d{4}-\d{2}-\d{2}$/.test(String(sc))?sc:"",
         ddt: iDdt>=0 ? String(R[iDdt]||"").trim() : "",
         dataDdt: iDdtD>=0 ? (()=>{const x=excelData(R[iDdtD]);return /^\d{4}-\d{2}-\d{2}$/.test(String(x))?x:"";})() : "",
         totDoc: iTot>=0 ? n(R[iTot]) : 0,
-        pagata: /pagat|salda|incassat/.test(st)});
+        pagata: /pagat|salda|incassat/.test(st) || (iScad>=0 && /saldat|pagat/i.test(String(R[iScad]||"")))});
     }
-    preparaStaging(righe,totali,file.name);
+    const eranoNote=_NOTE_FORN; _NOTE_FORN=false;
+    preparaStaging(righe,totali,file.name,eranoNote?("Trovate "+righe.length+" righe di NOTE DI CREDITO dei fornitori in "+file.name+": entrano come costi in meno (importi negativi)"):undefined);
 
-  }catch(e){ toast("Errore nella lettura: "+e.message); }
+  }catch(e){ _NOTE_FORN=false; toast("Errore nella lettura: "+e.message); }
 }
 /* ---- quando cambi una fattura in Fatture in Cloud ----
    Il controllo per impronta impedisce i doppioni identici, ma se TU correggi
@@ -3181,8 +3217,14 @@ function spariteDalFile(){
   const mesi=new Set(STAGING.map(r=>String(r.data||"").slice(0,7)).filter(m=>/^\d{4}-\d{2}$/.test(m)));
   if(mesi.size<1) return [];
   const nelFile=new Set(STAGING.map(r=>String(r.fornitore||"").trim().toUpperCase()+"|"+String(r.nr||"").trim()));
+  /* v149: confronto solo documenti dello STESSO tipo del file: un file di note di credito
+     non deve far sembrare "sparite" le fatture, e l'export delle fatture non contiene
+     ne' le note di credito ne' le autofatture */
+  const tipoDoc=f=>f.autofattura?"af":/^NC /.test(String(f.nr||""))?"nc":"ft";
+  const tipiFile=new Set(STAGING.map(tipoDoc));
   const G={};
   valide().forEach(f=>{
+    if(!tipiFile.has(tipoDoc(f))) return;
     if(!mesi.has(String(f.data||"").slice(0,7))) return;
     if(!String(f.origine||"").startsWith("import ")) return;   /* solo roba arrivata da Fatture in Cloud */
     const k=String(f.fornitore||"").trim().toUpperCase()+"|"+String(f.nr||"").trim();
@@ -17182,6 +17224,12 @@ SCHEDE.fornitore=function(nome){
        <select onchange="schTermini('${att(nome)}',this.value,null)">${giorniOpz.map(g=>`<option value="${g}" ${g===t.giorni?"selected":""}>${g===0?"subito (vista fattura)":g+" giorni"}</option>`).join("")}</select>
        <label class="muted"><input type="checkbox" ${t.fineMese?"checked":""} onchange="schTermini('${att(nome)}',null,this.checked)"> fine mese</label>
        ${t.suo?`<button class="btn btn-ghost btn-sm" onclick="schTerminiVia('${att(nome)}')">torna a quello generale</button>`:""}</div>
+     <div class="filters" style="margin:8px 0 0;gap:8px;align-items:center">
+       <span class="muted">con</span>
+       <select onchange="schMetodo('${att(nome)}',this.value)">${Object.entries(METODI_PAG).map(([k,v])=>`<option value="${k}" ${k===t.metodo?"selected":""}>${esc(v)}</option>`).join("")}</select>
+       ${t.metodo==="calendario"?`<label class="muted">paga il giorno <input type="number" min="1" max="31" value="${t.giornoFisso||""}" placeholder="10" style="width:60px" onchange="schMetodo('${att(nome)}',null,{giornoFisso:n(this.value)})"> del mese</label>`:""}
+       ${t.metodo==="carta"?`<label class="muted">addebito della carta il giorno <input type="number" min="1" max="28" value="${t.giornoCarta||15}" style="width:60px" onchange="schMetodo('${att(nome)}',null,{giornoCarta:n(this.value)})"> del mese dopo</label>`:""}</div>
+     ${(t.metodo==="sepa"||t.metodo==="carta")?`<div class="muted" style="font-size:12px;margin-top:4px">Si paga da solo: passata la data, la scadenza risulta pagata senza che tu la segni.</div>`:""}
      <div class="muted" style="font-size:12px;margin-top:6px">Vale per tutte le sue fatture che non hanno una data scritta a mano o arrivata da Fatture in Cloud: le scadenze si spostano da sole.
        ${aperte.length?`<br>Aperte adesso: ${aperte.slice(0,4).map(x=>esc(x.doc)+" "+(x.scad?"il "+esc(dataIt(x.scad)):"")+" € "+eur(x.importo)).join(" · ")}${aperte.length>4?" …":""}`:""}</div>`)
   +sez("🏷️ Categoria",F.regola?"regola: le sue righe nuove la prendono da sole":"nessuna regola",
@@ -17205,8 +17253,15 @@ SCHEDE.fornitore=function(nome){
 };
 function schTermini(nome,giorni,fm){ const t=terminiPer("fornitori",nome);
   D.termini=D.termini||{fornitori:{},clienti:{}}; D.termini.fornitori=D.termini.fornitori||{};
-  D.termini.fornitori[U(nome)]={giorni:giorni==null?t.giorni:n(giorni),fineMese:fm==null?t.fineMese:!!fm};
+  D.termini.fornitori[U(nome)]={giorni:giorni==null?t.giorni:n(giorni),fineMese:fm==null?t.fineMese:!!fm,metodo:t.metodo,giornoFisso:t.giornoFisso,giornoCarta:t.giornoCarta};
   sporca(); _rifai(); toast("Pagamento di "+nome+": "+D.termini.fornitori[U(nome)].giorni+" giorni"+(D.termini.fornitori[U(nome)].fineMese?" fine mese":"")); }
+function schMetodo(nome,metodo,extra){ const t=terminiPer("fornitori",nome);
+  D.termini=D.termini||{fornitori:{},clienti:{}}; D.termini.fornitori=D.termini.fornitori||{};
+  const x={giorni:t.giorni,fineMese:t.fineMese,metodo:metodo||t.metodo,giornoFisso:t.giornoFisso,giornoCarta:t.giornoCarta};
+  Object.assign(x,extra||{});
+  if(x.metodo==="calendario"&&!x.giornoFisso) x.giornoFisso=10;
+  D.termini.fornitori[U(nome)]=x;
+  sporca(); _rifai(); toast("Pagamento di "+nome+": "+METODI_PAG[x.metodo]+(x.metodo==="calendario"?" il "+x.giornoFisso+" del mese":x.metodo==="carta"?", addebito il "+x.giornoCarta+" del mese dopo":"")); }
 function schTerminiVia(nome){ if(D.termini&&D.termini.fornitori) delete D.termini.fornitori[U(nome)]; sporca(); _rifai(); }
 function schRegola(nome,v){ setRegolaFornitore(nome,scegliCategoria(v)); _rifai(); }
 function schEccezione(nome,v){ setEccezione(nome,v); _rifai(); }
@@ -17497,6 +17552,7 @@ disegnaNav=function(){
 TIPO_SCH.importa="Importa un file";
 const IMPORTI=[
   {k:"fic",ic:"🧾",t:"Fatture ricevute",d:"Export acquisti di Fatture in Cloud (.xls/.xlsx). Prima di entrare le controlli una per una.",acc:".xls,.xlsx",fn:"leggiFIC",pg:"importa"},
+  {k:"ncf",ic:"↩️",t:"Note di credito dei fornitori",d:"Da Fatture in Cloud: Acquisti → Spese → «Note di credito» → esporta XLS. Entrano come costi in meno, una per una da controllare.",acc:".xls,.xlsx",fn:"leggiNoteFornitori",pg:"importa"},
   {k:"ric",ic:"💰",t:"Fatture emesse e autofatture",d:"Export vendite (documenti emessi). Le autofatture vanno da sole fra le ricevute.",acc:".xls,.xlsx",fn:"leggiRicavi",pg:"importa"},
   {k:"nc",ic:"↩️",t:"Note di credito emesse",d:"Export documenti con le note di credito: riducono i ricavi.",acc:".xls,.xlsx",fn:"leggiRicavi",pg:"importa"},
   {k:"mov",ic:"📦",t:"Magazzino: movimenti, voci e ore",d:"Il report «Movimenti e voci per commessa» (CSV o Excel): materiali, altre voci e ore in un file solo. Ti mostro prima cosa cambia.",acc:".csv,.xlsx,.xls",fn:"leggiMovimenti",pg:"importa"},
@@ -18406,10 +18462,15 @@ salva=function(silenzioso,come){ return salvaOnline(come||(silenzioso?"automatic
 faiBackup=async function(){};
 popCartelle=function(){ toast("La contabilità ora è sul database del gestionale: niente cartelle da collegare."); };
 cartelleAttive=function(){ return false; };
+/* v149: prima ogni modifica faceva ripartire da capo i 2 minuti, quindi finche' lavoravi
+   non salvava mai e l'ora dell'ultimo salvataggio restava ferma. Adesso il conto parte
+   dalla PRIMA modifica non salvata: al massimo 2 minuti dopo, salva. */
+let TIMER_QUANDO=0;
 programmaAutosalvataggio=function(){
   if(!D||!CHIAVE||D.config.autosalva===false||SOLO_A_MANO||SYNC_ORA) return;
-  clearTimeout(TIMER_ONLINE);
-  TIMER_ONLINE=setTimeout(()=>{ TIMER_ONLINE=null;
+  if(TIMER_ONLINE) return;
+  TIMER_QUANDO=Date.now()+120000;
+  TIMER_ONLINE=setTimeout(()=>{ TIMER_ONLINE=null; TIMER_QUANDO=0;
     if(SPORCO&&!SALVO_ORA&&!CAMBIO_PWD&&!SOLO_A_MANO) salvaOnline("automatico"); else if(SPORCO) programmaAutosalvataggio(); }, 120000);
 };
 /* alcune pagine del motore segnano "da salvare" senza passare da sporca(): un controllo leggero
@@ -18424,7 +18485,8 @@ aggiornaBarra=function(){
   const s=$("savebar"); if(!s) return;
   s.style.display=D?"flex":"none"; if(!D) return;
   const auto=D.config.autosalva!==false;
-  $("savetext").innerHTML=(SALVO_ORA?'<b>Salvo…</b>':SPORCO?'<b style="color:var(--red)">Modifiche non salvate</b>':'<span style="color:var(--green)">Tutto salvato</span>')
+  const fra=(SPORCO&&TIMER_ONLINE&&TIMER_QUANDO)?new Date(TIMER_QUANDO):null;
+  $("savetext").innerHTML=(SALVO_ORA?'<b>Salvo…</b>':SPORCO?'<b style="color:var(--red)">Modifiche non salvate</b>'+(fra&&auto?' <span class="muted">· le salvo da sola alle '+String(fra.getHours()).padStart(2,"0")+':'+String(fra.getMinutes()).padStart(2,"0")+'</span>':''):'<span style="color:var(--green)">Tutto salvato</span>')
     +(ULTIMO_SALVA?' <span class="muted">&middot; ultimo salvataggio '+ULTIMO_SALVA.slice(8,10)+"/"+ULTIMO_SALVA.slice(5,7)+' alle '+ULTIMO_SALVA.slice(11,16)+'</span>':'')
     +' <span class="muted soloLargo">&middot; sul database, cifrato</span>'
     +' <label class="muted soloLargo" style="margin-left:12px"><input type="checkbox" '+(auto?"checked":"")
@@ -19158,6 +19220,156 @@ const GRAF={
   [0,300,1000,2500,5000].forEach(t=>setTimeout(pulisci,t));
   { const _r=render; render=function(){ const r=_r.apply(this,arguments); if(!scritto&&g.value&&/@/.test(g.value)) g.value=""; return r; }; }
 })();
+
+
+/* =====================================================================================
+   v155 — I CONTATORI COME IN FATTURE IN CLOUD, e il confronto con il loro file.
+   In «Tutti i costi», in cima: Spese · Da pagare · Pagate · Note di credito · Autofatture,
+   il totale e i mesi, contati come li conta Fatture in Cloud (un documento = una fattura,
+   non una riga; importo netto, senza IVA). Poi «Confronta con un export»: legge lo stesso
+   file di Fatture in Cloud, NON importa niente, e dice documento per documento cosa c'e'
+   da una parte e non dall'altra.
+   ===================================================================================== */
+const FIC_MESI=["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+let FIC_CONF=null, FIC_APERTO=false;
+function ficNr(x){ return String(x||"").toUpperCase().replace(/^NC\s+/,"").replace(/[^A-Z0-9]/g,""); }
+function ficForn(x){ return String(x||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
+/* i documenti dell'archivio, uno per fattura, con il tipo come in Fatture in Cloud */
+function ficDocArchivio(){
+  let scad=[]; try{ scad=scadenzario(); }catch(e){}
+  const perK={}; scad.forEach(x=>{ if(x.fonte!=="fattura") return; const k=x.rataDi||x.k; (perK[k]=perK[k]||[]).push(x); });
+  return documenti().filter(g=>!g.sospetta).map(g=>{
+    const af=g.righe.find(f=>f.autofattura);
+    const tipo=af?"af":(/^NC\s/.test(String(g.nr||""))||n(g.somma)<-0.005)?"nc":"ft";
+    const S=perK[scadKeyF(g)]||[];
+    const pagata=S.length?S.every(x=>x.pagato):g.righe.some(f=>f.pagata);
+    return {tipo,data:String(g.data||""),mese:String(g.data||"").slice(0,7),forn:g.fornitore,nr:g.nr,
+      nrFic:af?af.autofattura:g.nr,imp:Math.round(n(g.somma)*100)/100,pagata,chiave:g.chiave,kScad:scadKeyF(g)};
+  });
+}
+function ficContatori(docs,anno){
+  const D2=docs.filter(d=>d.data.slice(0,4)===anno);
+  const sp=D2.filter(d=>d.tipo!=="af"), nc=D2.filter(d=>d.tipo==="nc"), af=D2.filter(d=>d.tipo==="af");
+  const som=a=>Math.round(a.reduce((s,d)=>s+d.imp,0)*100)/100;
+  const mesi=FIC_MESI.map((x,i)=>{ const m=anno+"-"+String(i+1).padStart(2,"0"); const q=D2.filter(d=>d.mese===m);
+    return {m,sp:q.filter(d=>d.tipo!=="af").length,af:q.filter(d=>d.tipo==="af").length,eur:som(q)}; });
+  return {spese:sp.length,daPagare:sp.filter(d=>!d.pagata).length,pagate:sp.filter(d=>d.pagata).length,
+    nNc:nc.length,eNc:som(nc),nAf:af.length,eAf:som(af),totSpese:som(sp),mesi};
+}
+function ficPannello(){
+  const anno=fTC.anno||String((D.config&&D.config.anno)||new Date().getFullYear());
+  const C=ficContatori(ficDocArchivio(),anno);
+  const box=(t,v,sotto)=>`<div style="border:1px solid var(--border);border-radius:9px;padding:6px 12px;background:#fff;min-width:110px">
+    <div class="muted" style="font-size:11.5px">${t}</div><b style="font-size:17px;font-family:ui-monospace,monospace">${v}</b>${sotto?`<div class="muted" style="font-size:11px">${sotto}</div>`:""}</div>`;
+  return `<div id="ficBox" class="card" style="margin:0 0 16px;border-left:4px solid #1a8ad8">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <b style="font-size:15px">Come in Fatture in Cloud · ${esc(anno)}</b>
+      <span class="muted" style="font-size:12px">contati per documento, importo netto senza IVA, come la pagina Spese di Fatture in Cloud</span>
+      <span style="flex:1"></span>
+      <label class="btn btn-main btn-sm" style="cursor:pointer">⚖ Confronta con un export di Fatture in Cloud<input type="file" accept=".xls,.xlsx" style="display:none" onchange="ficConfronta(this.files[0]);this.value=''"></label></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${box("Spese",num0(C.spese),"fatture + note di credito")}
+      ${box("Da pagare",num0(C.daPagare),"secondo le Scadenze di qui")}
+      ${box("Pagate",num0(C.pagate),"")}
+      ${box("Note di credito",num0(C.nNc),"€ "+eur(C.eNc))}
+      ${box("Autofatture",num0(C.nAf),"€ "+eur(C.eAf))}
+      ${box("Totale spese","€ "+eur(C.totSpese),"senza le autofatture")}</div>
+    <div style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;margin-top:10px">
+      ${C.mesi.map((x,i)=>`<div style="background:${x.sp||x.af?"#e3f1fb":"#f6f3ee"};border-radius:6px;padding:5px 6px;font-size:11px;line-height:1.35">
+        <div style="font-weight:600">${FIC_MESI[i]}</div>${x.sp?x.sp+" spese":""}${x.af?"<br>"+x.af+" autofatt.":""}<div style="font-family:ui-monospace,monospace;font-size:11.5px">€ ${eur(x.eur)}</div></div>`).join("")}</div>
+    <div class="muted" style="font-size:11.5px;margin-top:6px">Nei mesi, come in Fatture in Cloud, l'importo comprende anche le autofatture; il «Totale spese» no. «Da pagare» e «Pagate» qui dipendono da cosa hai segnato nelle Scadenze (SEPA e carta si pagano da sole): possono essere diversi da Fatture in Cloud se lì segni i pagamenti e qui no.</div>
+    ${FIC_CONF?ficRisultato():""}
+  </div>`;
+}
+/* ---------- il confronto: legge il file, non importa niente ---------- */
+async function ficConfronta(file){
+  if(!file) return;
+  try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+    const m=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:"",raw:true});
+    let hr=-1; for(let i=0;i<Math.min(m.length,30);i++) if(m[i].some(c=>String(c).toLowerCase().includes("nr. acquisto"))){hr=i;break;}
+    if(hr<0){ toast("Non è un export acquisti di Fatture in Cloud: manca la colonna «Nr. acquisto»"); return; }
+    const sonoNote=m.slice(0,hr).some(rr=>rr.some(c=>/note? di credito|note? d.accredito/i.test(String(c))));
+    const H=m[hr].map(x=>String(x||"").trim().toLowerCase()), col=x=>H.findIndex(h=>h===x);
+    const iD=col("data"),iN=col("nr. acquisto"),iF=col("fornitore"),iA=col("nome articolo"),iI=col("imponibile");
+    const cerca=(...x)=>{ for(const y of x){ const k=H.findIndex(h=>h.includes(y)); if(k>=0) return k; } return -1; };
+    const iSc=cerca("prox. scadenza","scadenza"), iSt=cerca("saldat","pagat","stato");
+    let haPag=false;
+    const G={};
+    for(let r=hr+1;r<m.length;r++){ const R=m[r]; if(!R||(!R[iN]&&!R[iF])) continue;
+      const k=ficForn(R[iF])+"|"+ficNr(R[iN]);
+      const g=G[k]||(G[k]={forn:String(R[iF]||"").trim(),nr:String(R[iN]||"").trim(),data:excelData(R[iD]),imp:0,desc:""});
+      g.imp+=n(R[iI]); if(!g.desc) g.desc=String(R[iA]||"");
+      /* pagata o no, se il file lo dice (colonna «Prox. scadenza» = «Saldato», o una colonna dello stato) */
+      const tSc=iSc>=0?String(R[iSc]||"").trim():"", tSt=iSt>=0?String(R[iSt]||"").trim():"";
+      if(/saldat|pagat/i.test(tSc+" "+tSt)){ g.pag=true; haPag=true; }
+      else if(tSc||/da pagare|aperta|non pagat/i.test(tSt)){ if(g.pag===undefined) g.pag=false; haPag=true; } }
+    const F=Object.values(G).map(g=>{
+      const af=/(^|[^A-Z])(EU|AF)$/i.test(g.nr.replace(/\s/g,""))||/autofattur|documento integrativo/i.test(g.desc);
+      const tipo=af?"af":(sonoNote||g.imp<-0.005)?"nc":"ft";
+      return {tipo,forn:g.forn,nr:g.nr,data:String(g.data||""),mese:String(g.data||"").slice(0,7),pag:g.pag,
+        imp:Math.round((tipo==="nc"?-Math.abs(g.imp):g.imp)*100)/100}; });
+    const mesi=new Set(F.map(x=>x.mese).filter(x=>/^\d{4}-\d{2}$/.test(x))), tipi=new Set(F.map(x=>x.tipo));
+    const A=ficDocArchivio().filter(d=>mesi.has(d.mese)&&tipi.has(d.tipo));
+    const kA=d=>d.tipo+"|"+ficForn(d.forn)+"|"+ficNr(d.nrFic), kF=d=>d.tipo+"|"+ficForn(d.forn)+"|"+ficNr(d.nr);
+    /* per le autofatture il fornitore puo' essere scritto diverso: se non trovo, provo solo col numero */
+    const mA={}; A.forEach(d=>(mA[kA(d)]=mA[kA(d)]||[]).push(d));
+    const mAnr={}; A.filter(d=>d.tipo==="af").forEach(d=>(mAnr[ficNr(d.nrFic)]=mAnr[ficNr(d.nrFic)]||[]).push(d));
+    const usati=new Set(), soloFile=[], diversi=[], pagDiversi=[];
+    F.forEach(f=>{ let c=(mA[kF(f)]||[]).find(d=>!usati.has(d));
+      if(!c&&f.tipo==="af") c=(mAnr[ficNr(f.nr)]||[]).find(d=>!usati.has(d)&&Math.abs(d.imp-f.imp)<0.02);
+      if(!c){ soloFile.push(f); return; } usati.add(c);
+      if(Math.abs(c.imp-f.imp)>0.009) diversi.push({f,a:c});
+      if(haPag&&f.pag!==undefined&&f.tipo!=="af"&&!!f.pag!==!!c.pagata) pagDiversi.push({f,a:c}); });
+    const soloArch=A.filter(d=>!usati.has(d));
+    const perMese=[...mesi].sort().map(mm=>{ const a=A.filter(d=>d.mese===mm), f=F.filter(d=>d.mese===mm);
+      return {m:mm,nF:f.length,eF:f.reduce((s,d)=>s+d.imp,0),nA:a.length,eA:a.reduce((s,d)=>s+d.imp,0)}; });
+    FIC_CONF={file:file.name,tipi:[...tipi],perMese,soloFile,soloArch,diversi,pagDiversi,haPag,nF:F.length,nA:A.length,
+      eF:F.reduce((s,d)=>s+d.imp,0),eA:A.reduce((s,d)=>s+d.imp,0)};
+    vTuttiCosti();
+    setTimeout(()=>{ const b=$("ficRis"); if(b) b.scrollIntoView({behavior:"smooth",block:"start"}); },50);
+  }catch(e){ toast("Non riesco a leggere il file: "+e.message); }
+}
+function ficRisultato(){
+  const R=FIC_CONF, nomeT={ft:"fatture",nc:"note di credito",af:"autofatture"};
+  const ok=!R.soloFile.length&&!R.soloArch.length&&!R.diversi.length;
+  const riga=(d,extra)=>`<tr><td class="muted" style="white-space:nowrap">${esc(dataIt(d.data))}</td><td>${esc(d.forn)}</td><td class="mono">${esc(d.nr)}</td><td class="muted">${esc(nomeT[d.tipo])}</td><td class="num">${eur(d.imp)}</td>${extra||""}</tr>`;
+  const tab=(tit,col,L,fn)=>L.length?`<div style="margin-top:10px"><b style="color:${col}">${tit} (${L.length})</b>
+    <div class="tw" style="max-height:260px;margin-top:4px"><table><tbody>${L.map(fn).join("")}</tbody></table></div></div>`:"";
+  return `<div id="ficRis" style="margin-top:14px;border-top:2px solid #1a8ad8;padding-top:10px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>Confronto con «${esc(R.file)}»</b>
+      <span class="muted" style="font-size:12px">${R.tipi.map(t=>nomeT[t]).join(", ")} · solo i mesi che ci sono nel file · non ho importato niente</span>
+      <span style="flex:1"></span><button class="btn btn-ghost btn-sm" onclick="FIC_CONF=null;vTuttiCosti()">Chiudi il confronto</button></div>
+    <div style="margin:8px 0;padding:8px 12px;border-radius:8px;background:${ok?"#e9f4e6":"#fbefe6"}">
+      ${ok?`<b style="color:var(--green)">✓ Tornano: ${R.nF} documenti, € ${eur(R.eF)}, uguali uno per uno.</b>`
+        :`Fatture in Cloud: <b>${R.nF}</b> documenti, <b>€ ${eur(R.eF)}</b> · qui: <b>${R.nA}</b> documenti, <b>€ ${eur(R.eA)}</b> · differenza <b>€ ${eur(R.eA-R.eF)}</b>`}</div>
+    <div class="tw"><table><thead><tr><th>Mese</th><th class="num">Fatture in Cloud</th><th class="num">€</th><th class="num">Qui</th><th class="num">€</th><th class="num">Differenza</th></tr></thead><tbody>
+      ${R.perMese.map(x=>{ const d=Math.round((x.eA-x.eF)*100)/100, bad=Math.abs(d)>0.009||x.nA!==x.nF;
+        return `<tr${bad?' class="warn"':""}><td>${esc(meseIt(x.m))}</td><td class="num">${x.nF}</td><td class="num">${eur(x.eF)}</td><td class="num">${x.nA}</td><td class="num">${eur(x.eA)}</td>
+          <td class="num" style="color:${bad?"var(--red)":"var(--green)"}">${bad?((x.nA-x.nF)?(x.nA-x.nF>0?"+":"")+(x.nA-x.nF)+" doc · ":"")+"€ "+eur(d):"✓"}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    ${tab("In Fatture in Cloud ma NON qui","var(--red)",R.soloFile,d=>riga(d))}
+    ${tab("Qui ma NON in Fatture in Cloud","var(--amber)",R.soloArch,d=>riga(d,`<td><a style="color:var(--accent);cursor:pointer;font-size:12px" onclick="apriScheda('fattura','${att(d.chiave)}')">apri</a></td>`))}
+    ${R.pagDiversi.length?`<div style="margin-top:10px;padding:8px 12px;border-radius:8px;background:#e3f1fb">
+      <b>${R.pagDiversi.length} fatture risultano pagate in Fatture in Cloud e da pagare qui (o il contrario)</b>
+      <button class="btn btn-main btn-sm" style="margin-left:8px" onclick="ficPrendiPagate()">Mettile come in Fatture in Cloud</button>
+      <div class="muted" style="font-size:11.5px;margin-top:3px">Così «Da pagare» e «Pagate» diventano uguali. Si annulla dal Registro operazioni.</div></div>`
+      :(R.haPag?`<div class="muted" style="margin-top:8px;font-size:12px">✓ Pagate e da pagare uguali a Fatture in Cloud.</div>`
+        :`<div class="muted" style="margin-top:8px;font-size:12px">Questo file non dice quali sono pagate: «Da pagare» e «Pagate» non si possono confrontare con questo export.</div>`)}
+    ${tab("Stesso documento, importo diverso","var(--amber)",R.diversi,x=>riga(x.f,`<td class="num">qui <b>${eur(x.a.imp)}</b></td><td class="num" style="color:var(--red)">${eur(x.a.imp-x.f.imp)}</td><td><a style="color:var(--accent);cursor:pointer;font-size:12px" onclick="apriScheda('fattura','${att(x.a.chiave)}')">apri</a></td>`))}
+    ${R.soloFile.length?`<p class="muted" style="font-size:12px;margin-top:8px">Per far entrare quelle che mancano: <b>⬇ Importa</b> con lo stesso file (fatture: «Fatture ricevute»; note: «Note di credito dei fornitori»; autofatture: «Fatture emesse e autofatture»). Quelle che ci sono già non entrano due volte.</p>`:""}
+  </div>`;
+}
+function ficPrendiPagate(){
+  const L=(FIC_CONF&&FIC_CONF.pagDiversi)||[]; if(!L.length) return;
+  const lavoro=()=>{ D.scadenze=D.scadenze||{};
+    L.forEach(x=>{ const s=D.scadenze[x.a.kScad]||{}; s.pagato=!!x.f.pag; s.dataPag=x.f.pag?(s.dataPag||oggi()):""; D.scadenze[x.a.kScad]=s; x.a.pagata=!!x.f.pag; }); };
+  try{ azione("scadenze","Pagate/da pagare prese da Fatture in Cloud ("+L.length+" fatture)",lavoro); }catch(e){ lavoro(); }
+  FIC_CONF.pagDiversi=[]; sporca(); vTuttiCosti(); toast(L.length+" fatture sistemate come in Fatture in Cloud");
+}
+{ const _vtc=vTuttiCosti; vTuttiCosti=function(){ const r=_vtc.apply(this,arguments);
+    try{ const h=$("main").querySelector("h1"); if(h&&!$("ficBox")){ const d=document.createElement("div"); d.innerHTML=ficPannello(); h.after(d.firstElementChild); } }catch(e){ console.error(e); }
+    return r; }; }
 
 </script>
 </body></html>
