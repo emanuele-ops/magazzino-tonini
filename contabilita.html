@@ -17872,7 +17872,8 @@ function apriArchivio(json,nome){
 }
 function blocca(){
   if(SPORCO&&!confirm("Ci sono modifiche non salvate. Le salvo prima di chiudere?\n\nOK = salva e chiudi · Annulla = resto qui")) return;
-  const fai=()=>{ clearTimeout(TIMER_ONLINE); TIMER_ONLINE=null; CHIAVE=null; SALE=null; VERS_LETTA=null; D=null; SPORCO=false; SOLO_A_MANO=false; chiudiFinestraOnl(); schermataApertura(); };
+  const fai=()=>{ clearTimeout(TIMER_ONLINE); TIMER_ONLINE=null; CHIAVE=null; SALE=null; VERS_LETTA=null; D=null; SPORCO=false; SOLO_A_MANO=false; chiudiFinestraOnl();
+    document.body.classList.remove("lato-aperto"); const _s=$("striscia"); if(_s) _s.innerHTML=""; schermataApertura(); };
   if(SPORCO) aspettaSalvataggio(8000).then(()=>salvaOnline("prima di chiudere")).then(ok=>{ if(ok) fai(); }); else fai();
 }
 /* il gestionale la chiama prima di uscire (a mano, per inattivita', o se l'admin chiude la sessione) */
@@ -19516,12 +19517,12 @@ function contoCard(){
       <div ${x.dett?`onclick="CONTO_APERTE['${x.k}']=!CONTO_APERTE['${x.k}'];disegnaFinestre()" style="cursor:pointer;display:flex;align-items:center;gap:12px;padding:9px 12px"`:'style="display:flex;align-items:center;gap:12px;padding:9px 12px"'}>
         <span style="width:16px;color:var(--gray)">${x.dett?(ap?"▾":"▸"):""}</span>
         <span style="width:18px;text-align:center;font-weight:700;color:var(--gray)">${x.s}</span>
-        <span style="flex:1;${x.tot?"font-weight:700;":""}${x.tot===2?"font-size:15.5px;letter-spacing:.02em":""}">${esc(x.et)} ${x.sotto?`<span class="muted" style="font-weight:400;font-size:12px;letter-spacing:0">· ${esc(x.sotto)}</span>`:""}</span>
-        <span style="width:74px;text-align:right;font-family:ui-monospace,monospace;font-size:12.5px;color:var(--gray)" title="sui ricavi">${x.fuori?"":pct(x)}</span>
-        <b style="min-width:150px;text-align:right;font-family:ui-monospace,monospace;font-size:${x.tot===2?16.5:14.5}px;white-space:nowrap${col?";color:"+col:""}">€ ${eur(segnoV(x))}</b></div>
-      ${ap?`<div style="padding:4px 12px 12px 58px">${x.dett}</div>`:""}</div>`; };
+        <span style="flex:1;${x.tot?"font-weight:700;":""}${x.tot===2?"font-size:15.5px;letter-spacing:.02em":""}">${esc(x.et)} ${x.sotto?`<span class="muted cSotto" style="font-weight:400;font-size:12px;letter-spacing:0">· ${esc(x.sotto)}</span>`:""}</span>
+        <span class="cPct" style="width:74px;text-align:right;font-family:ui-monospace,monospace;font-size:12.5px;color:var(--gray)" title="sui ricavi">${x.fuori?"":pct(x)}</span>
+        <b class="cVal" style="min-width:150px;text-align:right;font-family:ui-monospace,monospace;font-size:${x.tot===2?16.5:14.5}px;white-space:nowrap${col?";color:"+col:""}">€ ${eur(segnoV(x))}</b></div>
+      ${ap?`<div class="cDett" style="padding:4px 12px 12px 58px">${x.dett}</div>`:""}</div>`; };
   return `<div class="card" id="contoHome" style="margin:14px 0 6px;padding:14px 16px">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    <div class="cTesta" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
       <b style="font-size:16px">Il conto del ${esc(anno)}, riga per riga</b>
       <span class="muted" style="font-size:12.5px">dai ricavi, tolti tutti i costi, all'utile · clicca una riga per vedere di cosa è fatta</span>
       <span style="flex:1"></span>
@@ -19537,8 +19538,10 @@ function contoL(){ return contoRighe().L; }
 
 /* ---------------- la colonna a sinistra: tutto il conto in ordine, l'utile in fondo ---------------- */
 { const _ds=window.disegnaStriscia; window.disegnaStriscia=function(){
+    const e=$("striscia");
+    if(!D){ if(e) e.innerHTML=""; return; }
     _ds.apply(this,arguments);
-    const e=$("striscia"); if(!e||!D) return;
+    if(!e) return;
     try{
       const {anno,L,A}=contoRighe();
       const pcS=x=>A.ricavi?" · "+(Math.round(x.v/A.ricavi*1000)/10).toLocaleString("it-IT",{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"";
@@ -19634,6 +19637,81 @@ function excelReportCommessa(c){
 /* i due tasti nella scheda della commessa */
 { const _sc=crScheda; crScheda=function(c){ const h=_sc.apply(this,arguments);
     return h.replace(`>Preventivo ›</button>`,`>Preventivo ›</button> <button class="btn btn-ghost btn-sm" onclick="stampaReportCommessa('${att(c)}')" title="Il report della commessa da stampare o salvare in PDF">🖨 Report PDF</button> <button class="btn btn-ghost btn-sm" onclick="excelReportCommessa('${att(c)}')">⬇ Excel</button>`); }; }
+
+
+/* =====================================================================================
+   v159 — LA VERSIONE DA TELEFONO
+   - le barre in alto su una riga sola: sul telefono i tasti mostrano solo l'icona
+   - il menu a sinistra si apre sopra la pagina, largo quasi tutto lo schermo, e si chiude
+     toccando fuori o scegliendo una voce
+   - il conto della Home sta nello schermo: niente sottotitoli, numeri piu' stretti
+   - con la contabilita' chiusa (password) la colonna a sinistra non mostra nessun numero
+   ===================================================================================== */
+(function(){
+  /* i testi dei tasti in una <span class="tx">: sul telefono si nasconde e resta l'icona */
+  const icone={"Versioni salvate":"🕘","Diagnostica":"🩺"};
+  const sistema=b=>{ if(!b||b.dataset.mob) return; b.dataset.mob=1;
+    const t=b.textContent.trim(); if(!t) return;
+    let ic="", resto=t;
+    const m=t.match(/^([^\p{L}\p{N}\s]+)\s*(.*)$/u);
+    if(m&&m[2]){ ic=m[1]; resto=m[2]; } else if(icone[t]){ ic=icone[t]; }
+    if(!ic) return;
+    b.title=b.title||resto; b.innerHTML=`<span class="ic">${ic}</span><span class="tx"> ${esc(resto)}</span>`; };
+  const tutti=()=>{ document.querySelectorAll(".demoBar button, #tastoImporta").forEach(sistema); };
+  tutti(); setTimeout(tutti,500); setTimeout(tutti,2000);
+  const v=document.createElement("div"); v.id="latoVelo"; v.onclick=()=>document.body.classList.remove("lato-aperto");
+  document.body.appendChild(v);
+  const st=document.createElement("style");
+  st.textContent=`
+  #latoVelo{display:none}
+  @media(max-width:900px){
+    #lato{width:min(86vw,340px)!important;left:-92vw!important;z-index:320;height:100vh;height:100dvh}
+    body.lato-aperto #lato{left:0!important}
+    body.lato-aperto #latoVelo{display:block;position:fixed;inset:0;background:rgba(30,22,15,.38);z-index:310}
+  }
+  @media(max-width:760px){
+    .demoBar{padding:5px 10px!important;gap:6px!important;flex-wrap:nowrap!important;overflow-x:auto}
+    .demoBar>span:first-child{white-space:nowrap;font-size:12px}
+    .demoBar button{padding:5px 8px!important;white-space:nowrap}
+    .demoBar button .tx, #tastoImporta .tx{display:none}
+    #onlComandi{gap:4px!important}
+    header .bar{flex-wrap:nowrap!important;gap:6px!important;padding:6px 10px!important}
+    #gsearch{min-width:0!important;flex:1;width:auto}
+    #tastoImporta{margin-left:0!important;padding:7px 11px!important}
+    main{padding:12px 12px 92px!important}
+    #finestre{padding:12px 12px 0!important}
+    #finestre h1{font-size:22px}
+    body.conFinestre.unaAperta #titoloAperta{padding:0 12px!important}
+    body.conFinestre.unaAperta #main{margin-left:8px;margin-right:8px}
+    #contoHome{padding:10px 8px!important}
+    #contoHome .cTesta{gap:6px!important}
+    #contoHome .cTesta .muted{display:none}
+    #contoHome .cSotto{display:none}
+    #contoHome [id^=conto-]>div:first-child{gap:6px!important;padding:9px 8px!important}
+    #contoHome [id^=conto-]>div:first-child>span:nth-child(2){width:10px!important}
+    #contoHome .cPct{width:46px!important;font-size:11px!important}
+    #contoHome .cVal{min-width:0!important;font-size:13px!important}
+    #contoHome .cDett{padding:2px 6px 10px 8px!important}
+    #contoHome .cDett table{font-size:11.5px}
+    #contoHome .cDett td:nth-child(2){display:none}
+    .fin{min-height:0!important}
+    .kpis,.tiles{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+    #pannello,#drawer{width:100vw!important}
+    .filters{gap:6px}
+    .filters input[type=search],.filters input{min-width:0!important;max-width:100%!important;flex:1 1 140px}
+    h1{font-size:22px}
+    .lead{font-size:13.5px}
+    #ficBox>div[style*="grid-template-columns:repeat(12"]{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+    /* con una finestra aperta, le altre diventano una fila di linguette da far scorrere col dito */
+    body.conFinestre.unaAperta .fGrid{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto;gap:6px!important;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+    body.conFinestre.unaAperta .fin{flex:0 0 auto;max-width:70vw;padding:7px 11px!important}
+    body.conFinestre.unaAperta .fin .fv{display:none!important}
+    body.conFinestre.unaAperta .fin .ft{font-size:13px!important;white-space:nowrap}
+    body.conFinestre.unaAperta .fin.aperta::after{display:none}
+    body.conFinestre.unaAperta #finestre .muted{display:none}
+  }`;
+  document.head.appendChild(st);
+})();
 
 </script>
 </body></html>
