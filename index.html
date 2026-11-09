@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v158 - Atelier</div>
+  <div id="ver-badge">v159 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -753,11 +753,12 @@ function apriContabilita(){
     // non devono coprire la contabilita'
     const st=document.createElement("style");
     st.textContent="body.cont-aperta #ver-badge,body.cont-aperta #btn-refresh,body.cont-aperta #btn-backup,body.cont-aperta #btn-restore,"
-      +"body.cont-aperta #ai-fab,body.cont-aperta .fab,body.cont-aperta .mobile-nav{display:none!important}";
+      +"body.cont-aperta #ai-fab,body.cont-aperta .fab,body.cont-aperta .mobile-nav{display:none!important}"
+      +"@media(max-width:700px){#cont-ov .contSub{display:none}#cont-ov>div:first-child{padding:5px 8px!important}#cont-ov>div:first-child button{padding:5px 9px!important;font-size:12.5px;white-space:nowrap}}";
     document.head.appendChild(st);
     ov.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;background:#3b2f25;color:#fff;font-size:13.5px;flex:0 0 auto">'
       +'<button class="btn" style="background:#fff;color:#3b2f25;padding:6px 12px" onclick="chiudiContabilita()">&larr; Torna al magazzino</button>'
-      +'<b>Contabilità</b><span style="opacity:.7;font-size:12px">separata dal magazzino &middot; protetta da password</span></div>'
+      +'<b>Contabilità</b><span class="contSub" style="opacity:.7;font-size:12px">separata dal magazzino &middot; protetta da password</span></div>'
       +'<iframe id="cont-if" src="contabilita.html" title="Contabilità" style="flex:1;border:0;width:100%;background:#fff"></iframe>';
     document.body.appendChild(ov);
   }
