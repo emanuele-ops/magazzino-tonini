@@ -19459,7 +19459,10 @@ function _perTipo(L){
   return Object.entries(G).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
 }
 function _tabDett(righe,link){
-  return `<table class="mini" style="width:100%;max-width:760px">${righe.map(([a,b,c])=>`<tr><td>${a}</td><td class="r muted" style="white-space:nowrap">${c||""}</td><td class="r" style="white-space:nowrap;font-family:ui-monospace,monospace">€ ${eur(b)}</td></tr>`).join("")}</table>${link||""}`;
+  /* la % e' sul totale delle righe principali (non sui «di cui») */
+  const tot=righe.filter(r=>!/^<span class='muted'>/.test(r[0])).reduce((s,r)=>s+n(r[1]),0);
+  const pc=v=>tot?(Math.round(n(v)/tot*1000)/10).toLocaleString("it-IT",{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"";
+  return `<table class="mini" style="width:100%;max-width:820px">${righe.map(([a,b,c])=>`<tr><td>${a}</td><td class="r muted" style="white-space:nowrap">${c||""}</td><td class="r muted" style="white-space:nowrap;font-family:ui-monospace,monospace">${b?pc(b):""}</td><td class="r" style="white-space:nowrap;font-family:ui-monospace,monospace">€ ${eur(b)}</td></tr>`).join("")}</table>${link||""}`;
 }
 function contoRighe(anno){
   anno=anno||_annoConto();
@@ -19503,8 +19506,10 @@ function contoRighe(anno){
 }
 let CONTO_APERTE={};
 function contoCard(){
-  const {anno,L}=contoRighe();
+  const {anno,L,A}=contoRighe();
   const segnoV=x=>x.s==="−"?-x.v:x.v;
+  /* v158: ogni riga dice anche quanto pesa sui ricavi */
+  const pct=x=>A.ricavi?(Math.round(segnoV(x)/A.ricavi*1000)/10).toLocaleString("it-IT",{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"";
   const riga=x=>{ const ap=!!CONTO_APERTE[x.k]&&x.dett;
     const col=x.tot?(x.v<0?"var(--red)":"var(--green)"):x.avviso?"var(--amber)":x.fuori?"var(--gray)":"";
     return `<div id="conto-${x.k}" style="border-top:${x.tot===2?"2px solid #3b2f25":"1px solid var(--border)"};${x.tot?"background:#f7f3ec;":""}">
@@ -19512,7 +19517,8 @@ function contoCard(){
         <span style="width:16px;color:var(--gray)">${x.dett?(ap?"▾":"▸"):""}</span>
         <span style="width:18px;text-align:center;font-weight:700;color:var(--gray)">${x.s}</span>
         <span style="flex:1;${x.tot?"font-weight:700;":""}${x.tot===2?"font-size:15.5px;letter-spacing:.02em":""}">${esc(x.et)} ${x.sotto?`<span class="muted" style="font-weight:400;font-size:12px;letter-spacing:0">· ${esc(x.sotto)}</span>`:""}</span>
-        <b style="font-family:ui-monospace,monospace;font-size:${x.tot===2?16.5:14.5}px;white-space:nowrap${col?";color:"+col:""}">€ ${eur(segnoV(x))}</b></div>
+        <span style="width:74px;text-align:right;font-family:ui-monospace,monospace;font-size:12.5px;color:var(--gray)" title="sui ricavi">${x.fuori?"":pct(x)}</span>
+        <b style="min-width:150px;text-align:right;font-family:ui-monospace,monospace;font-size:${x.tot===2?16.5:14.5}px;white-space:nowrap${col?";color:"+col:""}">€ ${eur(segnoV(x))}</b></div>
       ${ap?`<div style="padding:4px 12px 12px 58px">${x.dett}</div>`:""}</div>`; };
   return `<div class="card" id="contoHome" style="margin:14px 0 6px;padding:14px 16px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
@@ -19534,7 +19540,8 @@ function contoL(){ return contoRighe().L; }
     _ds.apply(this,arguments);
     const e=$("striscia"); if(!e||!D) return;
     try{
-      const {anno,L}=contoRighe();
+      const {anno,L,A}=contoRighe();
+      const pcS=x=>A.ricavi?" · "+(Math.round(x.v/A.ricavi*1000)/10).toLocaleString("it-IT",{minimumFractionDigits:1,maximumFractionDigits:1})+"%":"";
       const q=(v,t,col,click,capo,tot)=>`<div${click?` onclick="${click}" style="cursor:pointer" title="Clicca per vederlo nella Home"`:""}${capo?' class="capo"':""}${tot?' style="cursor:pointer;background:#f3ede4"':""}><b${col?` style="color:${col}"`:""}>${v}</b><span>${t}</span></div>`;
       let daFareN=0, rifDa=0, cons=0, sc=0;
       try{ daFareN=(D.fatture||[]).filter(f=>!f.categoria&&!eDescrittiva(f)).length+(D.ricavi||[]).filter(r=>!r.destinazione).length; }catch(x){}
@@ -19545,7 +19552,7 @@ function contoL(){ return contoRighe().L; }
        +(cons?q(num0(cons),"consumi di magazzino senza prezzo","var(--red)","vai('magazzino')"):"")
        +`<div class="titContoL" style="border-bottom:1px solid var(--border);padding:6px 11px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--gray);background:#faf7f2">Il conto del ${esc(anno)}</div>`
        +L.filter(x=>!x.fuori).map(x=>q((x.s==="−"?"− ":x.s==="+"?"+ ":"")+"€ "+eur(x.v),
-          (x.s==="="?"= ":"")+x.et.toLowerCase(), x.tot?(x.v<0?"var(--red)":"var(--green)"):(x.avviso?"var(--amber)":""),
+          (x.s==="="?"= ":"")+x.et.toLowerCase()+pcS(x), x.tot?(x.v<0?"var(--red)":"var(--green)"):(x.avviso?"var(--amber)":""),
           "CONTO_APERTE={};CONTO_APERTE['"+x.k+"']=1;vai('area0');setTimeout(()=>{const r=$('conto-"+x.k+"');if(r)r.scrollIntoView({block:'center'});},80)",x.tot===2,x.tot===2)).join("");
     }catch(err){ console.error(err); }
   }; }
