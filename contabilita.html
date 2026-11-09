@@ -19371,5 +19371,262 @@ function ficPrendiPagate(){
     try{ const h=$("main").querySelector("h1"); if(h&&!$("ficBox")){ const d=document.createElement("div"); d.innerHTML=ficPannello(); h.after(d.firstElementChild); } }catch(e){ console.error(e); }
     return r; }; }
 
+
+/* =====================================================================================
+   v156 — NIENTE PROPOSTE SU MATERIALE GIA' CONTABILIZZATO
+   Prima: una fattura nuova di cerniere/basette proponeva di metterle sulle commesse che
+   le avevano consumate, anche se per quella commessa le avevi GIA' messe su un'altra
+   fattura. Adesso, per ogni commessa e materiale (stesso codice, o stesso nome), conto
+   quanto e' stato consumato e quanto e' gia' stato messo sulla commessa da altre fatture:
+   se e' gia' tutto coperto, la proposta non serve e la tolgo (scartata, con il motivo:
+   si puo' riprendere). Quelle che conti tu, a mano, non le tocco mai.
+   ===================================================================================== */
+function matChiave(cod,nome){ const c=String(cod||"").trim(); return c?"C:"+c.toUpperCase():"N:"+SQ(nome||""); }
+function coperturaMateriali(){
+  const cons={}, cov={}, covPer={};
+  (D.magazzino||[]).forEach(g=>{
+    if(g.tipo&&g.tipo!=="Materiale") return;
+    if(!g.commessa||g.commessa==="(senza commessa)") return;
+    const c=risolvi(g.commessa);
+    [matChiave(g.codGestionale,""),matChiave("",g.materiale)].forEach((m,i)=>{ if(i===0&&!g.codGestionale) return;
+      const k=c+"|"+m; cons[k]=(cons[k]||0)+n(g.quantita); });
+  });
+  const fx={}; (D.fatture||[]).forEach(f=>fx[f.id]=f);
+  (D.imputazioni||[]).forEach(i=>{
+    const f=fx[i.id]; if(!f||!n(f.importo)) return;
+    const c=risolvi(i.destinazione);
+    const q=n(f.qta)>0?n(i.importo)/n(f.importo)*n(f.qta):0;
+    [matChiave(f.codForn,""),matChiave("",f.articolo)].forEach((m,j)=>{ if(j===0&&!f.codForn) return;
+      const k=c+"|"+m; cov[k]=(cov[k]||0)+q; const kk=k+"|"+f.id; covPer[kk]=(covPer[kk]||0)+q; });
+  });
+  return {cons,cov,covPer};
+}
+/* la proposta p e' gia' coperta da ALTRE fatture? */
+function propostaCoperta(p,C){
+  const f=(D.fatture||[]).find(x=>x.id===p.id); if(!f) return null;
+  const c=risolvi(p.commessa);
+  const chiavi=[]; if(f.codForn) chiavi.push(matChiave(f.codForn,"")); chiavi.push(matChiave("",f.articolo));
+  if(p.materiale) chiavi.push(matChiave("",p.materiale));
+  for(const m of chiavi){
+    const k=c+"|"+m;
+    const altre=(C.cov[k]||0)-(C.covPer[k+"|"+f.id]||0);       /* quello messo da fatture diverse da questa */
+    if(!(altre>0.0005)) continue;
+    const consumato=C.cons[k]||n(p.qta)||0;
+    if(!consumato||altre>=consumato-0.0005)
+      return {altre:Math.round(altre*1000)/1000,consumato:Math.round(consumato*1000)/1000};
+  }
+  return null;
+}
+function scartaProposteCoperte(silenzioso){
+  if(!D||!(D.proposte||[]).length) return 0;
+  const C=coperturaMateriali();
+  const L=[];
+  (D.proposte||[]).forEach(p=>{ if(p.conferma) return; const x=propostaCoperta(p,C); if(x) L.push([p,x]); });
+  if(!L.length) return 0;
+  const lavoro=()=>L.forEach(([p,x])=>{ p.conferma="NO"; p.giaCoperta=oggi();
+    p.avviso="già contabilizzato: per "+p.commessa+" ci sono già "+x.altre+" "+(p.unita||"pz")+" su altre fatture"+(x.consumato?" (consumati "+x.consumato+")":""); });
+  try{ azione("modifica","Tolte "+L.length+" proposte su materiale già contabilizzato in altre fatture",lavoro); }catch(e){ lavoro(); }
+  SPORCO=true;
+  if(!silenzioso) toast("Ho tolto "+L.length+" proposte: quel materiale, per quelle commesse, è già su altre fatture. Le trovi fra le scartate.");
+  return L.length;
+}
+{ const _gp=generaProposte; generaProposte=function(){ const r=_gp.apply(this,arguments); try{ scartaProposteCoperte(true); }catch(e){ console.error(e); } return r; }; }
+{ const _da=dopoApertura; dopoApertura=function(){ const r=_da.apply(this,arguments);
+    try{ const k=scartaProposteCoperte(true); if(k) setTimeout(()=>toast("Ho tolto "+k+" proposte di abbinamento su materiale già contabilizzato in altre fatture (le trovi fra le scartate)."),1500); }catch(e){ console.error(e); }
+    return r; }; }
+
+
+/* =====================================================================================
+   v157 — IL CONTO RIGA PER RIGA (Home e colonna a sinistra) e il REPORT DELLA COMMESSA
+   Il conto parte dai ricavi e toglie, in ordine, TUTTI i costi fino all'utile netto e al
+   residuo: sono gli stessi numeri di datiAnno, quindi l'ultima riga e' per forza uguale
+   all'«utile netto» delle finestre. Ogni riga si apre e mostra di cosa e' fatta.
+   ===================================================================================== */
+function _annoConto(){ return String((D.config&&D.config.anno)||new Date().getFullYear()); }
+/* le righe di fattura dell'anno, con le stesse regole di datiAnno */
+function _righeAnno(anno){
+  return (D.fatture||[]).filter(f=>!f.sospetta&&annoDi(f.data)===anno&&!(f.carta&&f.cartaStato!=="spesa"));
+}
+function _perCategoria(L){
+  const G={}; L.forEach(f=>{ const c=canonicaDi(f.categoria)||"senza categoria"; const x=G[c]||(G[c]={c,e:0,n:0}); x.e+=n(f.importo); x.n++; });
+  return Object.values(G).sort((a,b)=>Math.abs(b.e)-Math.abs(a.e));
+}
+function _perTipo(L){
+  const nome=f=>f.autofattura?"autofatture":f.carta?"carte di credito (senza fattura)":f.manuale?"voci a mano":
+    String(f.origine||"").indexOf("rifilo")===0?"rifili":String(f.origine||"").indexOf("altra voce")===0?"altre voci del gestionale":
+    n(f.importo)<0?"note di credito e righe in meno":"fatture dei fornitori";
+  const G={}; L.forEach(f=>{ const k=nome(f); G[k]=(G[k]||0)+n(f.importo); });
+  return Object.entries(G).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
+}
+function _tabDett(righe,link){
+  return `<table class="mini" style="width:100%;max-width:760px">${righe.map(([a,b,c])=>`<tr><td>${a}</td><td class="r muted" style="white-space:nowrap">${c||""}</td><td class="r" style="white-space:nowrap;font-family:ui-monospace,monospace">€ ${eur(b)}</td></tr>`).join("")}</table>${link||""}`;
+}
+function contoRighe(anno){
+  anno=anno||_annoConto();
+  const A=datiAnno(anno), R=_righeAnno(anno), amm=n(D.config.ammortamenti);
+  const diT=t=>R.filter(f=>!eMdo(f)&&tratt(f)===t);
+  const vai=(t,lbl)=>`<div style="margin-top:6px"><a style="color:var(--accent);cursor:pointer;font-size:12.5px" onclick="${t}">${lbl} ›</a></div>`;
+  const dettCosti=(t)=>{ const L=diT(t); const cat=_perCategoria(L).slice(0,12).map(x=>[esc(x.c),x.e,x.n+" righe"]);
+    const tip=_perTipo(L).map(([k,v])=>["<span class='muted'>di cui "+esc(k)+"</span>",v,""]);
+    return _tabDett(cat.concat(tip.length>1?tip:[]),vai("fTC.anno='"+anno+"';fTC.mese='';fTC.tipo='';fTC.testo='';vai('costi')","Vedi tutte le righe in Tutti i costi")); };
+  /* ricavi */
+  const RIC=(D.ricavi||[]).filter(r=>annoDi(r.data)===anno);
+  const perCli={}; RIC.forEach(r=>{ const k=r.cliente||"?"; perCli[k]=(perCli[k]||0)+n(r.imponibile); });
+  const nc=RIC.filter(r=>r.nota).reduce((s,r)=>s+n(r.imponibile),0);
+  const ricDett=_tabDett(Object.entries(perCli).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>[esc(k),v,""])
+    .concat(nc?[["<span class='muted'>di cui note di credito a clienti</span>",nc,""]]:[])
+    .concat(A.acc.ricavi?[["<span class='muted'>tolti: affitti e GSE (stanno sotto, a parte)</span>",-A.acc.ricavi,""]]:[]),
+    vai("vai('ricavi')","Vedi le fatture emesse"));
+  /* manodopera */
+  const mdoFt=R.filter(f=>eMdo(f)).reduce((s,f)=>s+n(f.importo),0), mdoOre=A.mdoCosto-mdoFt;
+  const mdoDett=_tabDett([["buste paga e costi del personale (fatture)",mdoFt,""],["dalle ore del gestionale, nei mesi senza busta paga",mdoOre,""],
+    ["<span class='muted'>ore lavorate</span>",0,num0(A.oreLav)+" h"]].filter(x=>x[1]||x[2]),vai("vai('manodopera')","Apri Manodopera e ore"));
+  const altra=R.filter(f=>tratt(f)==="altra_societa").reduce((s,f)=>s+n(f.importo),0);
+  const L=[
+    {k:"ric",s:"",et:"Ricavi",v:A.ricavi,sotto:"fatture emesse dell'anno, senza IVA",dett:ricDett},
+    {k:"mat",s:"−",et:"Materiali e lavorazioni sulle commesse",v:A.materiali,sotto:"costi diretti",dett:dettCosti("commessa_diretto")},
+    {k:"mdc",s:"=",et:"Margine di contribuzione",v:A.mdc,tot:1,sotto:A.ricavi?Math.round(A.mdcPct*100)+"% dei ricavi":""},
+    {k:"mdo",s:"−",et:"Manodopera",v:A.mdoCosto,sotto:num0(A.oreLav)+" ore lavorate",dett:mdoDett},
+    {k:"ind",s:"−",et:"Costi indiretti di commessa",v:A.indiretti,sotto:"si ripartiscono sulle commesse in base alle ore",dett:dettCosti("commessa_indiretto")},
+    {k:"str",s:"−",et:"Costi di struttura",v:A.struttura,sotto:"affitto, utenze, ufficio, consulenti…",dett:dettCosti("struttura")},
+    {k:"amm",s:"−",et:"Ammortamenti",v:amm,sotto:"la quota dell'anno dei beni comprati negli anni",
+      dett:_tabDett([["ammortamenti dell'anno (scritti nel Riepilogo)",amm,""]].concat(A.pluri?[["<span class='muted'>beni comprati quest'anno (non contano qui: entrano con gli ammortamenti)</span>",A.pluri,""]]:[]),vai("vai('riepilogo')","Cambiali nel Riepilogo"))},
+    {k:"dad",s:"−",et:"Costi ancora da classificare",v:A.daDecidere,sotto:A.daDecidere?"da mettere in una categoria":"niente",dett:dettCosti("da_decidere"),avviso:A.daDecidere>0.01},
+    {k:"acc",s:"+",et:"Affitti e GSE (netto)",v:A.acc.netto,sotto:"conti che vanno da soli",
+      dett:_tabDett([["entrate",A.acc.ricavi,""],["costi diretti",-A.acc.diretti,""],["altri costi",-A.acc.altri,""]])},
+    {k:"ut",s:"=",et:"UTILE NETTO",v:A.utile,tot:2},
+    {k:"ext",s:"−",et:"Spese pagate dall'utile",v:A.extra,sotto:"pranzi, regali, sponsorizzazioni…",dett:dettCosti("extra_utile")},
+    {k:"res",s:"=",et:"RESIDUO",v:A.utile-A.extra,tot:2}
+  ];
+  if(altra) L.push({k:"alt",s:"",et:"Fuori dai conti: di altra società",v:altra,fuori:1,sotto:"da riaddebitare, non conta",dett:dettCosti("altra_societa")});
+  return {anno,L,A};
+}
+let CONTO_APERTE={};
+function contoCard(){
+  const {anno,L}=contoRighe();
+  const segnoV=x=>x.s==="−"?-x.v:x.v;
+  const riga=x=>{ const ap=!!CONTO_APERTE[x.k]&&x.dett;
+    const col=x.tot?(x.v<0?"var(--red)":"var(--green)"):x.avviso?"var(--amber)":x.fuori?"var(--gray)":"";
+    return `<div id="conto-${x.k}" style="border-top:${x.tot===2?"2px solid #3b2f25":"1px solid var(--border)"};${x.tot?"background:#f7f3ec;":""}">
+      <div ${x.dett?`onclick="CONTO_APERTE['${x.k}']=!CONTO_APERTE['${x.k}'];disegnaFinestre()" style="cursor:pointer;display:flex;align-items:center;gap:12px;padding:9px 12px"`:'style="display:flex;align-items:center;gap:12px;padding:9px 12px"'}>
+        <span style="width:16px;color:var(--gray)">${x.dett?(ap?"▾":"▸"):""}</span>
+        <span style="width:18px;text-align:center;font-weight:700;color:var(--gray)">${x.s}</span>
+        <span style="flex:1;${x.tot?"font-weight:700;":""}${x.tot===2?"font-size:15.5px;letter-spacing:.02em":""}">${esc(x.et)} ${x.sotto?`<span class="muted" style="font-weight:400;font-size:12px;letter-spacing:0">· ${esc(x.sotto)}</span>`:""}</span>
+        <b style="font-family:ui-monospace,monospace;font-size:${x.tot===2?16.5:14.5}px;white-space:nowrap${col?";color:"+col:""}">€ ${eur(segnoV(x))}</b></div>
+      ${ap?`<div style="padding:4px 12px 12px 58px">${x.dett}</div>`:""}</div>`; };
+  return `<div class="card" id="contoHome" style="margin:14px 0 6px;padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <b style="font-size:16px">Il conto del ${esc(anno)}, riga per riga</b>
+      <span class="muted" style="font-size:12.5px">dai ricavi, tolti tutti i costi, all'utile · clicca una riga per vedere di cosa è fatta</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost btn-sm" onclick="CONTO_APERTE={};disegnaFinestre()">chiudi tutte</button>
+      <button class="btn btn-ghost btn-sm" onclick="contoL().forEach(x=>{ if(x.dett) CONTO_APERTE[x.k]=1; });disegnaFinestre()">apri tutte</button></div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff">${L.map(riga).join("")}</div></div>`;
+}
+function contoL(){ return contoRighe().L; }
+/* in Home, sotto il titolo e sopra le finestre */
+{ const _df=disegnaFinestre; disegnaFinestre=function(){ const r=_df.apply(this,arguments);
+    try{ const F=$("finestre"); if(F&&D&&areaDi(PAGINA)&&areaDi(PAGINA).nome==="Home"){ const g=F.querySelector(".fGrid"); if(g){ const d=document.createElement("div"); d.innerHTML=contoCard(); g.before(d.firstElementChild); } } }catch(e){ console.error(e); }
+    return r; }; }
+
+/* ---------------- la colonna a sinistra: tutto il conto in ordine, l'utile in fondo ---------------- */
+{ const _ds=window.disegnaStriscia; window.disegnaStriscia=function(){
+    _ds.apply(this,arguments);
+    const e=$("striscia"); if(!e||!D) return;
+    try{
+      const {anno,L}=contoRighe();
+      const q=(v,t,col,click,capo,tot)=>`<div${click?` onclick="${click}" style="cursor:pointer" title="Clicca per vederlo nella Home"`:""}${capo?' class="capo"':""}${tot?' style="cursor:pointer;background:#f3ede4"':""}><b${col?` style="color:${col}"`:""}>${v}</b><span>${t}</span></div>`;
+      let daFareN=0, rifDa=0, cons=0, sc=0;
+      try{ daFareN=(D.fatture||[]).filter(f=>!f.categoria&&!eDescrittiva(f)).length+(D.ricavi||[]).filter(r=>!r.destinazione).length; }catch(x){}
+      try{ cons=quantiDaPrezzare(); }catch(x){}
+      e.innerHTML=
+        q(ULTIMO_SALVA?oraCorta(ULTIMO_SALVA):"mai","ultimo salvataggio",ULTIMO_SALVA?(SPORCO?"var(--red)":"var(--green)"):"var(--amber)")
+       +(daFareN?q(num0(daFareN),"righe da completare","var(--amber)","fTC.stato='fare';vai('costi')"):"")
+       +(cons?q(num0(cons),"consumi di magazzino senza prezzo","var(--red)","vai('magazzino')"):"")
+       +`<div class="titContoL" style="border-bottom:1px solid var(--border);padding:6px 11px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--gray);background:#faf7f2">Il conto del ${esc(anno)}</div>`
+       +L.filter(x=>!x.fuori).map(x=>q((x.s==="−"?"− ":x.s==="+"?"+ ":"")+"€ "+eur(x.v),
+          (x.s==="="?"= ":"")+x.et.toLowerCase(), x.tot?(x.v<0?"var(--red)":"var(--green)"):(x.avviso?"var(--amber)":""),
+          "CONTO_APERTE={};CONTO_APERTE['"+x.k+"']=1;vai('area0');setTimeout(()=>{const r=$('conto-"+x.k+"');if(r)r.scrollIntoView({block:'center'});},80)",x.tot===2,x.tot===2)).join("");
+    }catch(err){ console.error(err); }
+  }; }
+
+/* ---------------- la casella «Cerca»: il browser non deve piu' scriverci la mail ----------------
+   Chrome riempie lo stesso i campi con autocomplete=off. Una casella in sola lettura non la
+   tocca: diventa scrivibile solo quando ci clicchi dentro, e se c'era finita la mail la tolgo. */
+(function(){
+  const g=$("gsearch"); if(!g) return;
+  g.setAttribute("readonly","readonly"); g.setAttribute("autocomplete","new-password"); g.type="search";
+  const pulisci=()=>{ if(/@/.test(g.value)&&!g.dataset.scritto) g.value=""; };
+  g.addEventListener("focus",()=>{ g.removeAttribute("readonly"); pulisci(); });
+  g.addEventListener("blur",()=>{ if(!g.value) g.setAttribute("readonly","readonly"); });
+  g.addEventListener("keydown",()=>{ g.dataset.scritto="1"; });
+  setInterval(pulisci,1500);
+})();
+
+/* =====================================================================================
+   REPORT DELLA COMMESSA: da stampare / salvare in PDF, o in Excel
+   ===================================================================================== */
+function datiReportCommessa(c){
+  c=risolvi(c);
+  const N=crNumeri(c);
+  const costi=[];
+  try{ tuttiCosti().forEach(r=>{ (r.dest||[]).forEach(d=>{ if(risolvi(d.commessa)!==c) return;
+    costi.push({data:r.data||"",tipo:(TIPO_COSTO[r.tipo]||{}).et||r.tipo,chi:r.chi||"",nr:r.nr||"",desc:r.desc||"",cat:r.categoria||"",imp:n(d.importo)}); }); }); }catch(e){}
+  costi.sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+  const oreM={}; (D.ore||[]).forEach(o=>{ if(risolvi(o.commessa)!==c) return; oreM[o.mese]=(oreM[o.mese]||0)+n(o.ore); });
+  const costoH=n(N.oreFatte)?n(N.mdoSpeso)/n(N.oreFatte):0;
+  const ore=Object.keys(oreM).sort().map(m=>({mese:m,ore:oreM[m],costo:oreM[m]*costoH}));
+  const ricavi=(D.ricavi||[]).filter(r=>risolvi(r.destinazione)===c).map(r=>({data:r.data||"",doc:(r.documento||"Fattura")+" "+(r.numero||"")+(r.serie?"/"+r.serie:""),
+    cliente:r.cliente||"",voce:r.voce||"",imp:n(r.imponibile)})).sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+  return {c,N,costi,ore,ricavi,attesa:N.attesa||[],costoH};
+}
+function stampaReportCommessa(c){
+  const R=datiReportCommessa(c), N=R.N, d=N.d||{};
+  const e=v=>v==null||v===""?"—":"€ "+eur(v), pc=v=>v==null?"—":Math.round(v*100)+"%";
+  const tot=a=>a.reduce((s,x)=>s+n(x.imp!=null?x.imp:x.costo),0);
+  const kpi=[["Prezzo",e(N.prezzo)],["Costo previsto",e(N.budget)],["Già speso",e(N.speso)],["Impegnato / da ordinare",e(n(N.impegnato)+n(N.daOrd))],
+    ["Costo finale previsto",e(N.previsto)],["Fatturato",e(N.fatturato)],["Margine previsto",e(N.utile)+(N.utilePct!=null?" ("+pc(N.utilePct)+")":"")],
+    ["Lavoro fatto",pc(N.avanz)],["Ore lavorate",num0(N.oreFatte||0)+" h"],["Crediti aperti",e(N.creditiAperti)]];
+  const tab=(tit,th,rows,totale)=>rows.length?`<h2>${tit}</h2><table><thead><tr>${th.map(h=>`<th${(h==="€"||h==="Ore")?' class="r"':""}>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>${totale!=null?`<tfoot><tr><td colspan="${th.length-1}">Totale</td><td class="r">€ ${eur(totale)}</td></tr></tfoot>`:""}</table>`:"";
+  const html=`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Report commessa ${esc(R.c)}</title><style>
+    body{font-family:Georgia,serif;color:#2b2622;margin:28px 34px;font-size:12.5px}
+    h1{font-size:21px;margin:0 0 2px;color:#5a4330} h2{font-size:14.5px;margin:20px 0 6px;color:#5a4330;border-bottom:1.5px solid #8a6d4e;padding-bottom:3px}
+    .sub{color:#777;margin-bottom:12px} .kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+    .kpi div{border:1px solid #e1d8cb;border-radius:6px;padding:6px 8px} .kpi span{display:block;font-size:10.5px;color:#888} .kpi b{font-family:ui-monospace,monospace;font-size:13px}
+    table{width:100%;border-collapse:collapse;font-size:11.5px} th{text-align:left;background:#f0e9e0;padding:4px 6px;font-weight:600} td{padding:3px 6px;border-bottom:1px solid #eee;vertical-align:top}
+    .r{text-align:right;white-space:nowrap;font-family:ui-monospace,monospace} tfoot td{font-weight:700;border-top:1.5px solid #8a6d4e}
+    .bar{margin:12px 0} @media print{body{margin:10mm} .np{display:none}} </style></head><body>
+    <div class="np" style="text-align:right;margin-bottom:8px"><button onclick="window.print()" style="font-size:14px;padding:6px 14px">🖨 Stampa / salva in PDF</button></div>
+    <h1>Commessa ${esc(R.c)} ${esc(descComm(R.c)||d.descrizione||"")}</h1>
+    <div class="sub">${N.cliente?"Cliente <b>"+esc(N.cliente)+"</b> · ":""}Stato: ${esc((typeof LBL_STATO!=="undefined"&&LBL_STATO[N.stato])||N.stato||"—")} · report del ${esc(new Date().toLocaleDateString("it-IT"))} · Atelier Tonini</div>
+    <div class="kpi">${kpi.map(([a,b])=>`<div><span>${a}</span><b>${b}</b></div>`).join("")}</div>
+    ${tab("Costi messi sulla commessa (fatture, materiali, altre voci)",["Data","Tipo","Fornitore","Nr","Descrizione","Categoria","€"],
+      R.costi.map(x=>`<tr><td>${esc(dataIt(x.data))}</td><td>${esc(x.tipo)}</td><td>${esc(x.chi)}</td><td>${esc(x.nr)}</td><td>${esc(String(x.desc).slice(0,70))}</td><td>${esc(x.cat)}</td><td class="r">${eur(x.imp)}</td></tr>`),tot(R.costi))}
+    ${tab("Manodopera, mese per mese",["Mese","Ore","€"],R.ore.map(x=>`<tr><td>${esc(meseIt(x.mese))}</td><td class="r">${(Math.round(x.ore*10)/10).toLocaleString("it-IT")}</td><td class="r">${eur(x.costo)}</td></tr>`),tot(R.ore))}
+    ${R.ore.length?`<div style="color:#777;font-size:11px">Costo orario usato: € ${eur(R.costoH)} (costo della manodopera della commessa ÷ ore).</div>`:""}
+    ${tab("Fatture emesse al cliente",["Data","Documento","Cliente","Voce","€"],R.ricavi.map(x=>`<tr><td>${esc(dataIt(x.data))}</td><td>${esc(x.doc)}</td><td>${esc(x.cliente)}</td><td>${esc(String(x.voce).slice(0,60))}</td><td class="r">${eur(x.imp)}</td></tr>`),tot(R.ricavi))}
+    ${tab("Materiale ancora in attesa (dal magazzino)",["Materiale","Mobile","Stato","Quantità","€"],R.attesa.map(x=>`<tr><td>${esc(x.materiale||x.nome||"")}</td><td>${esc(x.mobile||"")}</td><td>${esc(x.stato||"")}</td><td class="r">${esc(String(x.q!=null?x.q:""))} ${esc(x.unita||"")}</td><td class="r">${eur(x.valore||0)}</td></tr>`),R.attesa.reduce((s,x)=>s+n(x.valore),0))}
+    </body></html>`;
+  const w=window.open("","_blank");
+  if(!w){ toast("Il browser ha bloccato la finestra: consenti i popup per questo sito e riprova"); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },400);
+}
+function excelReportCommessa(c){
+  const R=datiReportCommessa(c), N=R.N, wb=XLSX.utils.book_new();
+  const ws=(aoa,larg)=>{ const s=XLSX.utils.aoa_to_sheet(aoa); if(larg) s["!cols"]=larg.map(w=>({wch:w})); return s; };
+  XLSX.utils.book_append_sheet(wb,ws([["Commessa",R.c],["Descrizione",descComm(R.c)||""],["Cliente",N.cliente||""],["Stato",N.stato||""],[],
+    ["Prezzo",N.prezzo],["Costo previsto",N.budget],["Già speso",N.speso],["Impegnato",N.impegnato],["Da ordinare",N.daOrd],["Costo finale previsto",N.previsto],
+    ["Fatturato",N.fatturato],["Margine previsto",N.utile],["Lavoro fatto %",N.avanz!=null?Math.round(N.avanz*1000)/10:null],["Ore lavorate",N.oreFatte],["Crediti aperti",N.creditiAperti]],[24,40]),"Riepilogo");
+  XLSX.utils.book_append_sheet(wb,ws([["Data","Tipo","Fornitore","Nr","Descrizione","Categoria","Importo €"]].concat(R.costi.map(x=>[x.data,x.tipo,x.chi,x.nr,x.desc,x.cat,Math.round(x.imp*100)/100])),[11,20,30,14,50,22,12]),"Costi");
+  XLSX.utils.book_append_sheet(wb,ws([["Mese","Ore","Costo €"]].concat(R.ore.map(x=>[x.mese,x.ore,Math.round(x.costo*100)/100])),[10,8,12]),"Ore");
+  XLSX.utils.book_append_sheet(wb,ws([["Data","Documento","Cliente","Voce","Imponibile €"]].concat(R.ricavi.map(x=>[x.data,x.doc,x.cliente,x.voce,x.imp])),[11,18,30,50,12]),"Fatture emesse");
+  XLSX.utils.book_append_sheet(wb,ws([["Materiale","Mobile","Stato","Quantità","Unità","Valore €"]].concat(R.attesa.map(x=>[x.materiale||x.nome||"",x.mobile||"",x.stato||"",x.q,x.unita||"",n(x.valore)])),[40,18,16,10,8,12]),"In attesa");
+  XLSX.writeFile(wb,"report_commessa_"+String(R.c).replace(/[^A-Za-z0-9._-]/g,"_")+".xlsx");
+}
+/* i due tasti nella scheda della commessa */
+{ const _sc=crScheda; crScheda=function(c){ const h=_sc.apply(this,arguments);
+    return h.replace(`>Preventivo ›</button>`,`>Preventivo ›</button> <button class="btn btn-ghost btn-sm" onclick="stampaReportCommessa('${att(c)}')" title="Il report della commessa da stampare o salvare in PDF">🖨 Report PDF</button> <button class="btn btn-ghost btn-sm" onclick="excelReportCommessa('${att(c)}')">⬇ Excel</button>`); }; }
+
 </script>
 </body></html>
