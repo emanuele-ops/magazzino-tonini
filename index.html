@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v159 - Atelier</div>
+  <div id="ver-badge">v160 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -832,7 +832,7 @@ function materialeInAttesa(){
     // 3. ordinato e non ancora arrivato
     (STATE.ordini||[]).forEach(function(o){ if(String(o.Stato||'').toLowerCase()==='ricevuto')return;
       (o.Righe||[]).forEach(function(r){ if(r.ricevuto)return;
-        const art2=(r.tipo==='articolo'||r.tipo==='generico'), vuole=art2?(+r.quantita||0):(+r.numPezzi||0);
+        const art2=(r.tipo==='articolo'||r.tipo==='generico'||r.tipo==='voce'), vuole=art2?(+r.quantita||0):(+r.numPezzi||0);
         const gia=(r.qtaRic===undefined||r.qtaRic===null)?0:(+r.qtaRic||0), rest=Math.max(0,vuole-gia); if(!(rest>0))return;
         const m2=(r.tipo==='pannello'&&+r.dim1&&+r.dim2)?rest*(+r.dim1)*(+r.dim2)/1e6:null;
         const m3=(r.tipo==='massiccio'&&+r.dim1&&+r.dim2&&+r.dim3)?rest*(+r.dim1)*(+r.dim2)*(+r.dim3)/1e9:null;
@@ -2334,7 +2334,7 @@ async function call(fn, args) {
       // tolgo partendo dall'ultima riga servita, al contrario di come si era riempita
       for (let i = mie.length - 1; i >= 0 && daTogliere > 0; i--) {
         const x = mie[i];
-        const suo2 = (x.tipo === "articolo" || x.tipo === "generico")
+        const suo2 = (x.tipo === "articolo" || x.tipo === "generico" || x.tipo === "voce")
           ? (parseFloat(x.quantita) || 0) : (parseFloat(x.numPezzi) || 0);
         const gia = (x.qtaRic === undefined || x.qtaRic === null)
           ? (x.ricevuto ? suo2 : 0) : (parseFloat(x.qtaRic) || 0);
@@ -3967,6 +3967,19 @@ async function call(fn, args) {
         if (!es.ok) return es;
         await intestaPezziAllaCommessa("massiccio", es.ids || [], commessa, args.PerCommessa, liberoTutto, mobiliPerPezzi(gr.righe, (es.ids || []).length));
         (es.ids || []).forEach(x => creati.push({ tipo: "massiccio", id: x, nome: (r.descrizione || r.artId) }));
+      } else if (r.tipo === "voce") {
+        // v160: un'ALTRA VOCE (piedini, serrature, lavorazioni...) non sta a
+        // magazzino: non nasce nessun carico. La voce della commessa diventa
+        // "ricevuta", con la bolla, e sull'ordine si segna quanto e' arrivato.
+        // Prima qui si fermava con "non si puo' caricare da sola" e l'ordine
+        // con dentro solo altre voci non si chiudeva mai.
+        for (const x of gr.righe) {
+          if (!x.voceId) continue;
+          const upd = { stato: "ricevuto" };
+          if (ddt) { upd.ddt = ddt; upd.data_ddt = dataDdt; }
+          try { await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(x.voceId), upd); }
+          catch (e) { try { await sbPatch("voci_commessa", "id=eq." + encodeURIComponent(x.voceId), { stato: "ricevuto" }); } catch (e2) {} }
+        }
       } else {
         return { ok: false, err: "Questa riga non si puo' caricare da sola: usa 'Carica a magazzino' sull'ordine intero." };
       }
@@ -3979,7 +3992,7 @@ async function call(fn, args) {
       //  quando ha raggiunto la quantita' ordinata.
       // ============================================================
       const quantoVuole = function (x) {
-        return (x.tipo === "articolo" || x.tipo === "generico")
+        return (x.tipo === "articolo" || x.tipo === "generico" || x.tipo === "voce")
           ? (parseFloat(x.quantita) || 0) : (parseFloat(x.numPezzi) || 0);
       };
       let resta = qta;
@@ -9577,7 +9590,7 @@ function ordineMobili(o){
 // quanto vuole una riga d'ordine (articoli a quantita', pezzi a numero)
 function rigaVuole(r){
   if(!r)return 0;
-  return (r.tipo==='articolo'||r.tipo==='generico')
+  return (r.tipo==='articolo'||r.tipo==='generico'||r.tipo==='voce')
     ? (parseFloat(r.quantita)||0) : (parseFloat(r.numPezzi)||0);
 }
 // quanto ne e' gia' arrivato. Le righe vecchie non hanno il conto:
@@ -9684,8 +9697,8 @@ function raggruppaRigheOrdine(righe){
   (righe||[]).forEach(function(r){
     const k=(r.tipo||'')+'|'+(r.artId||vocNorm(r.descrizione||''))+'|'
       +(r.dim1||'')+'x'+(r.dim2||'')+'x'+(r.dim3||'');
-    const q=(r.tipo==='articolo'||r.tipo==='generico')?(+r.quantita||0):(+r.numPezzi||0);
-    const u=(r.tipo==='articolo'||r.tipo==='generico')?(r.unita||''):'pz';
+    const q=(r.tipo==='articolo'||r.tipo==='generico'||r.tipo==='voce')?(+r.quantita||0):(+r.numPezzi||0);
+    const u=(r.tipo==='articolo'||r.tipo==='generico'||r.tipo==='voce')?(r.unita||''):'pz';
     if(!g[k]){ g[k]={primo:r,righe:[],qta:0,unita:u}; ord.push(k); }
     g[k].righe.push(r); g[k].qta+=q;
   });
