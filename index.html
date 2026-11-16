@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v160 - Atelier</div>
+  <div id="ver-badge">v162 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -519,7 +519,7 @@ function loadAll() {
     const sotto = STATE.articoli.filter(a=>+a.Stock<=+a.SogliaRiordino).length;
     const navD = document.querySelector("#sidebar-nav a[data-page='dashboard']");
     if (sotto>0 && navD) navD.innerHTML += '<span class="nav-badge">'+sotto+'</span>';
-    const pagIniziale = PAGINA_INIZIALE || "dashboard";
+    const pagIniziale = (u.Ruolo==="esterno") ? "ore" : (PAGINA_INIZIALE || "dashboard");
     STATE.pagina = pagIniziale;
     if (SOLO_DETTATURA) modoSoloDettatura();
     try { renderPage(pagIniziale); }
@@ -552,6 +552,7 @@ function adattaRuolo(ruolo){
   document.querySelectorAll("nav a[data-page='sessioni']").forEach(function(a){ a.style.display=(ruolo==="admin")?"":"none"; });
   // la Contabilita' solo a chi l'amministratore l'ha data (e all'amministratore)
   document.querySelectorAll("nav a[data-page='contabilita']").forEach(function(a){ a.style.display=puoContabilita()?"":"none"; });
+  if(ruolo==="esterno"){ modoEsterno(); return; }
   if(ruolo!=="operator")return;
   ["report","qr","ordini","modelli","evasi","fornitori","commesse","offerte","destinati","voci"].forEach(p=>{
     const a=document.querySelector("#sidebar-nav a[data-page='"+p+"']"); if(a)a.style.display="none";
@@ -933,6 +934,21 @@ window.ponteContabilita={
   },
   // cercare nel magazzino dalla contabilita'
   cerca:function(q){ return cercaNelMagazzino(q); },
+  // v162: i montatori esterni con la ditta che li fattura
+  esterni:async function(){ const L=await call("getPersonale"); if(!Array.isArray(L))return [];
+    return L.filter(esternoDi).map(function(p){return {nome:p.Nome,ditta:dittaDi(p),attivo:p.Attivo!==false};}); },
+  // v161: lo «specchietto» della contabilita' per una riga di fattura: i pannelli e i
+  // massicci caricati, i carichi degli articoli, gli ordini e le prenotazioni. Solo lettura.
+  specchio:async function(){
+    const nomi=["getPannelli","getMassicci","getArticoli","getMovimenti","getOrdini","getRiserve"];
+    const res=await Promise.all(nomi.map(function(f){return call(f);}));
+    const male=nomi.filter(function(f,i){return !Array.isArray(res[i]);});
+    if(male.length)throw new Error("non riesco a leggere dal magazzino: "+male.join(", "));
+    const carichi=res[3].filter(function(m){return m.Tipo==="carico"&&m.Annullato!=="SI";}).map(function(m){
+      return {ID:m.ID,Data:m.Data,ArticoloID:m.ArticoloID,Nome:m.NomeArticolo,Q:m.Quantita,U:m.UnitaMisura,Commessa:m.Commessa||"",
+        PezzoID:m.PezzoID||"",Fornitore:m.Fornitore||"",Ddt:m.Ddt||"",DataDdt:m.DataDdt||"",Note:m.Note||""};});
+    return {pannelli:res[0],massicci:res[1],articoli:res[2],carichi:carichi,ordini:res[4],riserve:res[5]};
+  },
 
   // le rinomine fatte nel magazzino (piu' vecchie prima)
   rinomine:async function(){
@@ -1197,6 +1213,7 @@ function openMobileMenu(){
   if(STATE.utente.Ruolo==="admin")pages.push(["sessioni","Sessioni"]);
   if(puoContabilita())pages.push(["contabilita","Contabilità"]);
   const hide=op?["report","ordini","evasi","destinati","fornitori","offerte","modelli","qr","voci"]:[];
+  if(sonoEsterno()) pages.splice(0,pages.length,["ore","Le mie ore"]);
   const items=pages.filter(p=>hide.indexOf(p[0])<0).map(p=>{const att=STATE.pagina===p[0];return '<button class="det-btn" style="margin-top:0;text-align:left;background:'+(att?'var(--accent-light)':'#faf8f4')+';color:'+(att?'var(--accent)':'var(--ink)')+'" onclick="closeModal();navTo(\''+p[0]+'\')">'+p[1]+'</button>';}).join("");
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Menu</h2><div style="display:flex;flex-direction:column;gap:8px">'+items+'</div></div>');
 }
@@ -1270,6 +1287,7 @@ function submitBulk(){
   });
 }
 function renderPage(p){
+  if(sonoEsterno()&&p!=="ore"){ p="ore"; STATE.pagina="ore"; }
   fornScorda();   // l'elenco dei fornitori si ricalcola a ogni pagina
   applicaDensita();
   const m=document.getElementById("main-content");
@@ -1606,6 +1624,16 @@ async function call(fn, args) {
       return rows.map(r => ({ ID: r.id, Nome: r.nome, Mansione: r.mansione || "", Email: r.email || "",
         CostoOrario: +r.costo_orario || 0, EuroKm: +r.euro_km || 0, OreGiorno: +r.ore_giorno || 8,
         Attivo: r.attivo !== false, Note: r.note || "" }));
+    }
+    if (fn === "creaUtenteEsterno") {
+      const io = STATE.utente || {};
+      if (io.Ruolo !== "admin") return { ok: false, err: "Gli accessi li crea solo l'amministratore." };
+      const email = String(args.Email || "").trim().toLowerCase();
+      if (!email || !/@/.test(email)) return { ok: false, err: "Email non valida." };
+      const gia = await sbGet("utenti", "select=email,ruolo&email=eq." + encodeURIComponent(email));
+      if (gia.length) return { ok: false, err: "Esiste gia' un utente con questa email (" + (gia[0].ruolo || "") + "): non lo cambio da qui." };
+      await sbPost("utenti", { email: email, nome: args.Nome || email, password: String(args.Password || ""), ruolo: "esterno", attivo: true });
+      return { ok: true };
     }
     if (fn === "salvaPersona") {
       const d = args;
@@ -11021,7 +11049,8 @@ function oreTrasfertaTxt(tr){
   if(!p.length)return '';
   return p.join(' + ')+((v&&l)?(' = '+nOre(v+l)+' h'):'');
 }
-function oreAdmin(){return (STATE.utente||{}).Ruolo!=='operator';}
+function oreAdmin(){const r=(STATE.utente||{}).Ruolo;return r!=='operator'&&r!=='esterno';}
+function sonoEsterno(){return (STATE.utente||{}).Ruolo==='esterno';}
 function personaMia(){
   const em=String((STATE.utente||{}).Email||'').trim().toLowerCase();
   if(!em)return null;
@@ -15003,15 +15032,52 @@ function openNuovaPersona(id){
    +'<div class="form-group"><label>Ore al giorno</label><input type="number" step="any" min="0" id="np-og" value="'+att(d.OreGiorno)+'"></div></div>'
    +'<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="np-att" '+(d.Attivo!==false?'checked':'')+' style="width:17px;height:17px;accent-color:var(--accent)"> In forza (compare quando si registrano le ore)</label></div>'
    +'<div class="form-group"><label>Note</label><input id="np-note" value="'+att(d.Note)+'"></div>'
+   +(oreAdmin()?('<div class="info-box" style="margin-top:6px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">'
+     +'<input type="checkbox" id="np-est" '+(esternoDi(d)?'checked':'')+' onchange="document.getElementById(\'np-estbox\').style.display=this.checked?\'\':\'none\'" style="width:17px;height:17px;accent-color:var(--accent)"> Montatore esterno che fa fattura</label>'
+     +'<div id="np-estbox" style="'+(esternoDi(d)?'':'display:none')+'">'
+     +'<div style="font-size:12px;color:var(--gray);margin:4px 0 8px">Inserisce solo le sue ore. Il costo non lo calcola il magazzino (costo orario a zero): lo porta la <b>sua fattura</b>, che la contabilit&agrave; divide da sola sulle commesse in base alle ore del mese.</div>'
+     +'<div class="form-group"><label>Ditta che fa la fattura (come la scrive Fatture in Cloud)</label><input id="np-ditta" value="'+att(dittaDi(d))+'" placeholder="es. Zaza Enrico"></div>'
+     +'<div class="form-row"><div class="form-group"><label>Password per entrare (la dai tu a lui)</label><input id="np-pwd" placeholder="almeno 6 caratteri"></div>'
+       +'<div class="form-group"><label>&nbsp;</label><div style="font-size:11.5px;color:var(--gray)">Entrer&agrave; con l\'email qui sopra e questa password: vedr&agrave; solo le sue ore. <b>Lascia vuoto</b> se ha gi&agrave; l\'accesso.</div></div></div>'
+     +'</div></div>'):'')
    +'<div id="np-err"></div><button class="btn-primary" onclick="submitPersona(\''+esc(id||'')+'\')">'+(p?'Salva modifiche':'Aggiungi')+'</button></div>');
 }
+function esternoDi(p){ return /\[esterno\]/i.test(String((p&&p.Note)||'')); }
+function dittaDi(p){ const m=String((p&&p.Note)||'').match(/\[ditta:\s*([^\]]*)\]/i); return m?m[1].trim():''; }
 function submitPersona(id){
   const d={ID:id||'',Nome:gv('np-nome').trim(),Mansione:gv('np-mans').trim(),Email:gv('np-mail').trim(),
     CostoOrario:gv('np-costo'),EuroKm:gv('np-km'),OreGiorno:gv('np-og'),
     Attivo:document.getElementById('np-att').checked,Note:gv('np-note').trim()};
   if(!d.Nome){showErr('np-err','Scrivi il nome.');return;}
+  // v162: il montatore esterno. Il segno sta nelle note: [esterno] [ditta: ...]
+  const est=document.getElementById('np-est'), esterno=!!(est&&est.checked);
+  d.Note=d.Note.replace(/\s*\[esterno\]/ig,'').replace(/\s*\[ditta:[^\]]*\]/ig,'').trim();
+  let pwdEst='';
+  if(esterno){
+    const ditta=(document.getElementById('np-ditta')||{}).value||'';
+    if(!ditta.trim()){showErr('np-err','Scrivi la ditta che fa la fattura: serve alla contabilità per riconoscerla.');return;}
+    d.Note=(d.Note+' [esterno] [ditta: '+ditta.trim().replace(/[\[\]]/g,'')+']').trim();
+    d.CostoOrario=0;
+    if(!d.Mansione)d.Mansione='Montatore esterno';
+    pwdEst=((document.getElementById('np-pwd')||{}).value||'').trim();
+    if(pwdEst&&!d.Email){showErr('np-err','Per dargli l\'accesso serve la sua email.');return;}
+    if(pwdEst&&pwdEst.length<6){showErr('np-err','La password deve avere almeno 6 caratteri.');return;}
+  }
+  if(pwdEst){
+    call('creaUtenteEsterno',{Email:d.Email,Nome:d.Nome,Password:pwdEst}).then(function(r){
+      if(!r||!r.ok){ if(r&&/Esiste gia/.test(r.err||'')){ toast(r.err,'err'); _salvaPersona(id,d); return; }
+        showErr('np-err',(r&&r.err)||'Non riesco a creare l\'accesso');return;}
+      toast('Accesso creato: '+d.Email+' vede solo le sue ore');
+      _salvaPersona(id,d);
+    });
+    return;
+  }
+  _salvaPersona(id,d);
+}
+function _salvaPersona(id,d){
   if(!unSolo('persona-'+(id||'nuova')))return;
   call('salvaPersona',d).then(function(r){
+    salvaSblocca('persona-'+(id||'nuova'));
     if(!r||!r.ok){salvaSblocca('persona-'+(id||'nuova'));showErr('np-err',(r&&r.err)||'Errore');return;}
     call('getPersonale').then(function(p){STATE.personale=p||[];
       call('getOre').then(function(o){STATE.ore=o||[];closeModal();toast(id?'Persona aggiornata':'Persona aggiunta');renderPage(STATE.pagina);});});
@@ -15148,6 +15214,23 @@ function csvMastrinoCommessa(){
 //  Un indirizzo che apre direttamente la dettatura, da mettere
 //  come icona sulla schermata del telefono.
 // ============================================================
+// v162 - IL MONTATORE ESTERNO
+// Entra con il suo utente (ruolo "esterno") e vede SOLO la pagina delle ore,
+// con le sue ore e basta: niente magazzino, niente commesse da aprire, niente
+// backup, niente prezzi. Le sue ore vanno sulle commesse; il costo lo porta la
+// sua fattura, che la contabilita' divide da sola sulle commesse in base a
+// queste ore.
+function modoEsterno(){
+  try{
+    document.body.classList.add("ruolo-esterno");
+    document.querySelectorAll("#sidebar-nav a, .mobile-nav a").forEach(function(a){ a.style.display=(a.dataset.page==="ore")?"":"none"; });
+    ["btn-backup","btn-restore","ai-fab"].forEach(function(id){const e=document.getElementById(id);if(e)e.style.display="none";});
+    const f=document.querySelector(".fab"); if(f)f.style.display="none";
+    if(!document.getElementById("st-esterno")){ const st=document.createElement("style"); st.id="st-esterno";
+      st.textContent="body.ruolo-esterno #btn-backup,body.ruolo-esterno #btn-restore,body.ruolo-esterno #ai-fab,body.ruolo-esterno .fab,body.ruolo-esterno #ver-badge{display:none!important}";
+      document.head.appendChild(st); }
+  }catch(e){}
+}
 function modoSoloDettatura(){
   // niente menu, niente pulsanti: si apre e si parla
   try{
@@ -15859,7 +15942,7 @@ let VOC_TAB='detta', VOC_RIGHE=[], VOC_FONTE='', VOC_ATTESA=false;
 function vocTab(t){VOC_TAB=t;if(VOC_ON)vocStop();renderPage('dettatura');}
 function dettatureInAttesa(){return (STATE.dettature||[]).filter(d=>d.Stato==='da_confermare');}
 function renderDettatura(){
-  const admin=(STATE.utente||{}).Ruolo!=='operator';
+  const admin=oreAdmin();
   const attesa=dettatureInAttesa().length;
   const tabs=[['detta','Detta']];
   if(admin)tabs.push(['attesa','Da confermare'+(attesa?(' ('+attesa+')'):'')]);
