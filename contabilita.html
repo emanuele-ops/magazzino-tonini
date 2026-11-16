@@ -19403,9 +19403,28 @@ function coperturaMateriali(){
   return {cons,cov,covPer};
 }
 /* la proposta p e' gia' coperta da ALTRE fatture? */
+/* v162: «quella commessa ha gia' avuto quel materiale?». Il materiale e' quello del MAGAZZINO
+   (il nome del consumo), e le righe di fattura sono legate a lui dalle proposte (confermate o no).
+   Quanto una riga ha gia' dato a una commessa = euro messi li' / prezzo unitario della riga. */
+function coperturaPerConsumo(){
+  const fx={}; (D.fatture||[]).forEach(f=>fx[f.id]=f);
+  const matDi={}; (D.proposte||[]).forEach(p=>{ if(!p.materiale) return; (matDi[p.id]=matDi[p.id]||new Set()).add(SQ(p.materiale)); });
+  const cons={}, cov={}, per={};
+  (D.magazzino||[]).forEach(g=>{ if(!g.commessa||g.commessa==="(senza commessa)") return; const k=risolvi(g.commessa)+"|"+SQ(g.materiale||""); cons[k]=(cons[k]||0)+n(g.quantita); });
+  (D.imputazioni||[]).forEach(i=>{ const f=fx[i.id]; if(!f||!matDi[f.id]) return;
+    let q=0; if(n(f.qta)>0&&n(f.importo)) q=n(i.importo)/(n(f.importo)/n(f.qta));
+    if(!(q>0)){ const si=(D.proposte||[]).find(p=>p.id===f.id&&risolvi(p.commessa)===risolvi(i.destinazione)&&p.conferma==="SI"); q=si?n(si.qta):0; }
+    if(!(q>0)) return;
+    matDi[f.id].forEach(M=>{ const k=risolvi(i.destinazione)+"|"+M; cov[k]=(cov[k]||0)+q; per[k+"|"+f.id]=(per[k+"|"+f.id]||0)+q; }); });
+  return {cons,cov,per};
+}
+let _COPC=null;
 function propostaCoperta(p,C){
   const f=(D.fatture||[]).find(x=>x.id===p.id); if(!f) return null;
   const c=risolvi(p.commessa);
+  if(p.materiale){ const P=_COPC||coperturaPerConsumo(), k=c+"|"+SQ(p.materiale);
+    const altre=(P.cov[k]||0)-(P.per[k+"|"+f.id]||0), consumato=P.cons[k]||n(p.qta)||0;
+    if(altre>0.0005&&(!consumato||altre>=consumato-0.0005)) return {altre:Math.round(altre*1000)/1000,consumato:Math.round(consumato*1000)/1000}; }
   const chiavi=[]; if(f.codForn) chiavi.push(matChiave(f.codForn,"")); chiavi.push(matChiave("",f.articolo));
   if(p.materiale) chiavi.push(matChiave("",p.materiale));
   for(const m of chiavi){
@@ -19420,12 +19439,12 @@ function propostaCoperta(p,C){
 }
 function scartaProposteCoperte(silenzioso){
   if(!D||!(D.proposte||[]).length) return 0;
-  const C=coperturaMateriali();
+  const C=coperturaMateriali(); _COPC=coperturaPerConsumo();
   const L=[];
-  (D.proposte||[]).forEach(p=>{ if(p.conferma) return; const x=propostaCoperta(p,C); if(x) L.push([p,x]); });
+  try{ (D.proposte||[]).forEach(p=>{ if(p.conferma) return; const x=propostaCoperta(p,C); if(x) L.push([p,x]); }); } finally { _COPC=null; }
   if(!L.length) return 0;
   const lavoro=()=>L.forEach(([p,x])=>{ p.conferma="NO"; p.giaCoperta=oggi();
-    p.avviso="già contabilizzato: per "+p.commessa+" ci sono già "+x.altre+" "+(p.unita||"pz")+" su altre fatture"+(x.consumato?" (consumati "+x.consumato+")":""); });
+    p.avviso="già assegnato: "+p.commessa+" ha già "+x.altre+" "+(p.unita||"pz")+" di questo materiale da altre fatture"+(x.consumato?" (ne ha consumati "+x.consumato+")":""); });
   try{ azione("modifica","Tolte "+L.length+" proposte su materiale già contabilizzato in altre fatture",lavoro); }catch(e){ lavoro(); }
   SPORCO=true;
   if(!silenzioso) toast("Ho tolto "+L.length+" proposte: quel materiale, per quelle commesse, è già su altre fatture. Le trovi fra le scartate.");
@@ -19712,6 +19731,465 @@ function excelReportCommessa(c){
   }`;
   document.head.appendChild(st);
 })();
+
+
+/* =====================================================================================
+   v161 — LE ALTRE VOCI DEL MAGAZZINO SI AGGANCIANO A UNA FATTURA (O ALLA CARTA)
+   Un'«altra voce» (piedini, vetri, trasporto, lavorazione...) non ha bisogno di un prezzo
+   scritto a mano: il suo costo e' in una fattura, o in un pagamento con la carta.
+   - voce SENZA prezzo: te la propongo da agganciare, con le fatture/carte che le somigliano
+   - voce CON prezzo scritto a mano: se in realta' c'e' la fattura o la carta, la agganci e
+     la voce a mano sparisce (il costo lo porta la fattura: non conta due volte)
+   - tutto si sgancia e torna com'era, quando vuoi
+   Niente si aggancia senza il tuo «è questa».
+   ===================================================================================== */
+function _vl(){ D.vociLink=D.vociLink||[]; return D.vociLink; }
+function _parole(s){ const STOP=new Set(["DEL","DELLA","DELLE","DEI","PER","CON","SENZA","SUL","SULLA","NEL","NELLA","UNA","UNO","GLI","LE","PZ","MM","NR","TIPO","COME"]);
+  return [...new Set(SQ(String(s||"")).replace(/[^A-Z0-9]+/g," ").split(" ").filter(w=>w.length>=3&&!STOP.has(w)))]; }
+/* le voci: quelle senza prezzo vengono dai consumi del magazzino, quelle con prezzo sono righe a mano */
+function vociAltre(){
+  const L=_vl(), perK={}; L.forEach(x=>perK[x.k]=x);
+  const out=[];
+  (D.magazzino||[]).forEach(g=>{ if(!/altra/i.test(String(g.tipo||""))) return; if(n(g.importo)>0) return;
+    if(!g._r) g._r=nuovoR();
+    const k="M:"+g._r;
+    out.push({k,tipo:"mag",data:String(g.data||"").slice(0,10),commessa:risolvi(g.commessa||""),desc:g.materiale||"",
+      fornitore:g.fornitore||"",cat:g.codTecnico||"",qta:g.quantita||"",unita:g.unita||"",importo:0,nr:g.nrFattura||"",note:g.note||"",
+      link:perK[k]||null,rif:g}); });
+  (D.fatture||[]).forEach(f=>{ if(!f.manuale||!String(f.origine||"").startsWith("altra voce")) return;
+    const k="F:"+f.id; const dest=[...new Set((D.imputazioni||[]).filter(i=>i.id===f.id).map(i=>risolvi(i.destinazione)))];
+    out.push({k,tipo:"mano",data:String(f.data||"").slice(0,10),commessa:dest[0]||"",desc:f.articolo||"",fornitore:f.fornitore||"",cat:f.categoria||"",
+      qta:f.qta||"",unita:f.um||"",importo:n(f.importo),nr:f.nr||"",note:f.note||"",link:null,rif:f}); });
+  /* le voci a mano gia' sostituite da una fattura restano visibili come «agganciate» */
+  L.forEach(x=>{ if(x.k.startsWith("F:")&&!out.some(o=>o.k===x.k))
+    out.push(Object.assign({},x.voce,{k:x.k,tipo:"mano",link:x,rif:null})); });
+  return out.sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+}
+/* le righe che possono portare il costo: fatture vere e spese con carta, con ancora qualcosa da assegnare */
+function _righeAgganciabili(){
+  return (D.fatture||[]).filter(f=>{
+    if(f.sospetta||f.manuale) return false;
+    if(String(f.origine||"").startsWith("altra voce")||String(f.origine||"").indexOf("rifilo")===0) return false;
+    if(f.carta&&f.cartaStato==="fattura") return false;           /* la carta coperta da fattura: si aggancia la fattura */
+    return n(f.importo)>0 && n(f.importo)-impTot(f.id)>0.009; });
+}
+function candidatiVoce(v,testo){
+  const P=_righeAgganciabili(), pv=_parole(v.desc+" "+v.cat), nr=_sqDoc(v.nr);
+  const t=SQ(testo||"").trim();
+  return P.map(f=>{
+    let s=0, perche=[];
+    if(_stessoForn(f.fornitore,v.fornitore)){ s+=40; perche.push("stesso fornitore"); }
+    if(nr&&_sqDoc(f.nr)===nr){ s+=60; perche.push("stesso n. fattura"); }
+    const pf=_parole(f.articolo+" "+(f.categoria||"")); const comuni=pv.filter(w=>pf.includes(w));
+    if(comuni.length){ s+=Math.min(36,comuni.length*12); perche.push("«"+comuni.slice(0,3).join(", ").toLowerCase()+"»"); }
+    const g=_giorni(v.data,f.data);
+    if(g!==null){ if(g>=-30&&g<=120){ s+=Math.max(2,12-Math.abs(g)/10); perche.push(g===0?"stesso giorno":g>0?g+" gg dopo":(-g)+" gg prima"); } else s-=10; }
+    const res=Math.round((n(f.importo)-impTot(f.id))*100)/100;
+    if(v.importo>0&&_impUguale(res,v.importo)){ s+=35; perche.push("stesso importo"); }
+    if(f.carta) perche.push("carta di credito");
+    return {f,s,perche,res};
+  }).filter(x=>t?SQ([x.f.fornitore,x.f.articolo,x.f.nr,x.f.categoria].join(" ")).includes(t):x.s>=20)
+    .sort((a,b)=>b.s-a.s).slice(0,t?40:8);
+}
+/* aggancia la voce alla riga f per "imp" euro */
+function agganciaVoce(k,fid,imp){
+  const v=vociAltre().find(x=>x.k===k), f=(D.fatture||[]).find(x=>x.id===fid);
+  if(!v||!f){ toast("Non trovo più la voce o la fattura"); return; }
+  if(!v.commessa){ toast("Questa voce non dice a quale commessa va: mettila prima nel magazzino"); return; }
+  imp=Math.round(n(imp)*100)/100; const res=Math.round((n(f.importo)-impTot(f.id))*100)/100;
+  if(!(imp>0)){ toast("Scrivi quanti euro di quella riga vanno sulla voce"); return; }
+  if(imp>res+0.01){ toast("Di quella riga restano solo € "+eur(res)+" da assegnare"); return; }
+  azione("modifica","Altra voce «"+v.desc+"» agganciata a "+(f.carta?"carta":"fattura")+" "+(f.fornitore||"")+" "+(f.nr||""),()=>{
+    D.imputazioni=D.imputazioni||[];
+    D.imputazioni.push({id:f.id,destinazione:v.commessa,quota:n(f.importo)?imp/n(f.importo):1,importo:imp,data:oggi(),origine:"voce",voceK:k});
+    const link={k,fid:f.id,imp,quando:adesso(),voce:{data:v.data,commessa:v.commessa,desc:v.desc,fornitore:v.fornitore,cat:v.cat,qta:v.qta,unita:v.unita,importo:v.importo,nr:v.nr,note:v.note}};
+    if(f.carta&&f.cartaStato!=="spesa"){ link.cartaPrima=f.cartaStato||""; f.cartaStato="spesa"; }
+    if(v.tipo==="mano"&&v.rif){ const m=v.rif;
+      link.tolta={riga:m,imputazioni:(D.imputazioni||[]).filter(i=>i.id===m.id&&i.origine!=="voce")};
+      D.fatture=D.fatture.filter(x=>x!==m); D.imputazioni=D.imputazioni.filter(i=>i.id!==m.id); }
+    _vl().push(link);
+  });
+  try{ ricalcola(); }catch(e){}
+  sporca(); chiudiScheda(); render();
+  toast("Agganciata: il costo di «"+v.desc+"» adesso lo porta "+(f.carta?"la spesa con carta":"la fattura")+" di "+(f.fornitore||"")+(v.tipo==="mano"?" (tolto il prezzo scritto a mano)":""));
+}
+function sganciaVoce(k){
+  const L=_vl(), x=L.find(y=>y.k===k); if(!x) return;
+  if(!confirm("Sgancio «"+x.voce.desc+"» dalla fattura?"+(x.tolta?"\n\nTorna la voce con il prezzo scritto a mano (€ "+eur(x.tolta.riga.importo)+").":"\n\nLa voce torna senza prezzo, da agganciare."))) return;
+  azione("modifica","Altra voce «"+x.voce.desc+"» sganciata dalla fattura",()=>{
+    D.imputazioni=(D.imputazioni||[]).filter(i=>i.voceK!==k);
+    const f=(D.fatture||[]).find(y=>y.id===x.fid);
+    if(f&&x.cartaPrima!=null) f.cartaStato=x.cartaPrima;
+    if(x.tolta&&!(D.fatture||[]).some(y=>y.id===x.tolta.riga.id)){ D.fatture.push(x.tolta.riga); D.imputazioni=D.imputazioni.concat(x.tolta.imputazioni||[]); }
+    D.vociLink=L.filter(y=>y!==x);
+  });
+  try{ ricalcola(); }catch(e){}
+  sporca(); render(); toast("Sganciata");
+}
+/* una voce senza prezzo: metti tu un prezzo (diventa una voce a mano) */
+function prezzoVoce(k){
+  const v=vociAltre().find(x=>x.k===k); if(!v||v.tipo!=="mag") return;
+  const s=prompt("Prezzo di «"+v.desc+"» per la commessa "+v.commessa+" (euro, senza IVA).\n\nMeglio agganciare la fattura, se c'è: così il costo non si scrive due volte.",""); if(s==null) return;
+  const imp=n(String(s).replace(",",".")); if(!(imp>0)){ toast("Prezzo non valido"); return; }
+  azione("modifica","Prezzo a mano per l'altra voce «"+v.desc+"»",()=>{
+    const id="V"+Date.now().toString(36);
+    D.fatture.push({id,data:v.data,nr:v.nr||"",protocollo:"",fornitore:v.fornitore||"(senza fornitore)",articolo:v.desc,categoria:v.cat||"altre voci",
+      importo:imp,qta:n(v.qta)||1,um:v.unita||"",prezzo:imp,iva:0,totaleFattura:imp,codForn:"",pezzi:"",tagMat:"",manuale:true,note:v.note||"",sospetta:false,
+      origine:"altra voce (prezzo scritto in contabilita') "+oggi()});
+    D.imputazioni.push({id,destinazione:v.commessa,quota:1,importo:imp,data:oggi(),origine:"altra voce"});
+    v.rif.importo=imp;   /* il consumo ora ha un prezzo: non e' piu' «senza prezzo» */
+  });
+  try{ ricalcola(); }catch(e){} sporca(); render();
+}
+/* i consumi del magazzino agganciati non sono piu' «senza prezzo» */
+{ const _sc=statoConsumi; statoConsumi=function(){ const out=_sc.apply(this,arguments);
+    try{ const per={}; _vl().forEach(x=>{ if(x.k.startsWith("M:")) per[x.k.slice(2)]=x; });
+      out.forEach(x=>{ const l=x.m&&per[x.m._r]; if(l){ x.ok=true; x.valore=l.imp; x.stato="fattura"; x.come="agganciata a fattura"; } }); }catch(e){}
+    return out; }; }
+/* quando dal magazzino arriva la stessa voce con un prezzo, ma l'hai gia' agganciata: non la rimetto */
+{ const _pav=preparaAltreVoci; preparaAltreVoci=function(){ const out=_pav.apply(this,arguments);
+    try{ const L=_vl(); (out||[]).forEach(r=>{ const hit=L.find(x=>x.voce&&x.voce.data===String(r.data||"").slice(0,10)&&SQ(x.voce.desc)===SQ(r.voce)&&risolvi(x.voce.commessa)===risolvi(r.commessa));
+      if(hit&&r.prendi){ r.prendi=false; r.esito="già agganciata a una fattura"; } }); }catch(e){}
+    return out; }; }
+
+/* ---------------- la pagina ---------------- */
+let fAV={vista:"da",testo:""};
+NUOVE.altrevoci=function(){
+  const V=vociAltre();
+  const da=V.filter(v=>v.tipo==="mag"&&!v.link), mano=V.filter(v=>v.tipo==="mano"&&!v.link&&v.rif), ag=V.filter(v=>v.link);
+  const conCand=da.filter(v=>candidatiVoce(v).length).length;
+  const L=fAV.vista==="da"?da:fAV.vista==="mano"?mano:ag;
+  const t=SQ(fAV.testo||""); const LL=t?L.filter(v=>SQ([v.desc,v.fornitore,v.commessa,v.cat,v.nr].join(" ")).includes(t)):L;
+  const tab=(k,tt,nn)=>`<button class="btn ${fAV.vista===k?"btn-main":"btn-ghost"} btn-sm" onclick="fAV.vista='${k}';render()">${tt} <b>${nn}</b></button>`;
+  const riga=v=>{ const c=v.link?null:candidatiVoce(v)[0];
+    return `<tr><td class="muted" style="white-space:nowrap">${esc(dataIt(v.data))}</td>
+      <td><b>${esc(v.desc)}</b>${v.note?`<div class="muted" style="font-size:11.5px">${esc(v.note)}</div>`:""}</td>
+      <td>${esc(v.fornitore)}${v.cat&&v.cat!==v.fornitore?` <span class="muted">· ${esc(v.cat)}</span>`:""}</td>
+      <td class="mono">${esc(v.commessa)}</td><td class="num">${esc(String(v.qta||""))} ${esc(v.unita||"")}</td>
+      <td class="num">${v.importo>0?"€ "+eur(v.importo):'<span class="muted">—</span>'}</td>
+      <td>${v.link?(()=>{ const f=(D.fatture||[]).find(y=>y.id===v.link.fid)||{};
+          return `<span class="tag t-grn">${f.carta?"carta":"fattura"}</span> ${esc(f.fornitore||"")} ${f.nr?"n. "+esc(f.nr):""} · € ${eur(v.link.imp)}
+            <button class="btn btn-ghost btn-sm" onclick="sganciaVoce('${att(v.k)}')">sgancia</button>`; })()
+        :`<button class="btn btn-main btn-sm" onclick="apriScheda('voceAg','${att(v.k)}',true)">Aggancia fattura / carta</button>
+          ${v.tipo==="mag"?`<button class="btn btn-ghost btn-sm" onclick="prezzoVoce('${att(v.k)}')">metti un prezzo</button>`:""}
+          ${c?`<div class="muted" style="font-size:11.5px;margin-top:3px">forse: ${esc(c.f.fornitore||"")} ${c.f.nr?"n. "+esc(c.f.nr):""} · ${esc(String(c.f.articolo||"").slice(0,40))} (${esc(c.perche.join(", "))})</div>`:""}`}</td></tr>`; };
+  $("main").innerHTML=`
+  <h1>Altre voci: fatture e carte</h1>
+  <p class="lead">Le <b>altre voci</b> del magazzino (piedini, vetri, trasporti, lavorazioni…) non hanno bisogno di un prezzo scritto a mano:
+    il loro costo è in una <b>fattura</b> o in una <b>spesa con la carta</b>. Agganciala: il costo va sulla commessa e non conta due volte.
+    Se avevi scritto un prezzo a mano e poi è arrivata la fattura, agganciala lo stesso: il prezzo a mano sparisce. Tutto si sgancia quando vuoi.</p>
+  <div class="filters">${tab("da","Senza prezzo, da agganciare",da.length)}${tab("mano","Con prezzo scritto a mano",mano.length)}${tab("ag","Agganciate",ag.length)}
+    <input type="search" placeholder="Cerca voce, fornitore, commessa…" value="${esc(fAV.testo)}" oninput="fAV.testo=this.value;clearTimeout(window._tAV);window._tAV=setTimeout(render,250)"></div>
+  ${fAV.vista==="da"&&conCand?`<p class="muted" style="margin:4px 0 8px">Per <b>${conCand}</b> di queste ho trovato una fattura o una spesa con carta che le somiglia: la vedi sotto «forse».</p>`:""}
+  ${fAV.vista==="mano"?`<p class="muted" style="margin:4px 0 8px">Queste hanno un prezzo scritto a mano. Se il costo in realtà è in una fattura o è stato pagato con la carta, agganciala: il prezzo a mano viene tolto e il costo lo porta la fattura.</p>`:""}
+  <div class="tw"><table><thead><tr><th>Data</th><th>Voce</th><th>Fornitore</th><th>Commessa</th><th class="num">Q.tà</th><th class="num">Prezzo a mano</th><th>Costo da</th></tr></thead>
+    <tbody>${LL.length?LL.slice(0,400).map(riga).join(""):`<tr><td colspan="7" class="muted">Niente qui.</td></tr>`}</tbody></table></div>`;
+};
+/* la scheda per scegliere la fattura */
+TIPO_SCH.voceAg="Aggancia a una fattura o alla carta";
+let _AVcerca="";
+SCHEDE.voceAg=function(k){
+  const v=vociAltre().find(x=>x.k===k); if(!v) return '<p class="muted">Voce non trovata.</p>';
+  const C=candidatiVoce(v,_AVcerca);
+  return `<div class="card" style="margin:0 0 10px;padding:10px 12px"><b>${esc(v.desc)}</b><div class="muted" style="font-size:12.5px">${esc(dataIt(v.data))} · ${esc(v.fornitore||"")} · commessa <b>${esc(v.commessa||"—")}</b>${v.qta?" · "+esc(String(v.qta))+" "+esc(v.unita||""):""}${v.importo>0?" · prezzo a mano € "+eur(v.importo):""}</div></div>
+    <input type="search" placeholder="Cerca fra tutte le fatture e le carte: fornitore, articolo, numero…" value="${esc(_AVcerca)}" style="width:100%;margin-bottom:8px"
+      oninput="_AVcerca=this.value;clearTimeout(window._tAV2);window._tAV2=setTimeout(()=>{disegnaScheda();const i=document.querySelector('#pannello input[type=search]');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},300)">
+    ${C.length?C.map(x=>{ const def=v.importo>0?Math.min(v.importo,x.res):x.res;
+      return `<div style="border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:7px">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>${esc(x.f.fornitore||"")}</b>${x.f.carta?' <span class="tag t-blu">carta</span>':""}
+          <span class="muted">${esc(dataIt(x.f.data))}${x.f.nr?" · n. "+esc(x.f.nr):""}</span><span style="flex:1"></span><span class="mono">€ ${eur(x.f.importo)}</span></div>
+        <div style="font-size:12.5px">${esc(String(x.f.articolo||"").slice(0,90))} <span class="muted">· ${esc(x.f.categoria||"")}</span></div>
+        <div class="muted" style="font-size:11.5px">${x.perche.length?"perché: "+esc(x.perche.join(", "))+" · ":""}ancora da assegnare € ${eur(x.res)}</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap"><span class="muted" style="font-size:12px">sulla voce vanno €</span>
+          <input type="number" step="0.01" min="0" value="${(Math.round(def*100)/100).toFixed(2)}" style="width:100px" id="avImp_${att(x.f.id)}">
+          <button class="btn btn-main btn-sm" onclick="agganciaVoce('${att(k)}','${att(x.f.id)}',document.getElementById('avImp_${att(x.f.id)}').value)">✓ è questa</button></div></div>`; }).join("")
+      :`<p class="muted">${_AVcerca?"Nessuna fattura o spesa con carta con queste parole (e con ancora qualcosa da assegnare).":"Non trovo niente che le somigli. Cerca qui sopra per fornitore, articolo o numero di fattura: se la fattura non è ancora arrivata, aspettala e torna qui."}</p>`}`;
+};
+/* nel menu: Magazzino → «Altre voci: fatture e carte», con il conto di quelle da agganciare */
+(function(){
+  const g=GRUPPI.find(x=>x[0]==="Magazzino");
+  if(g&&!g[1].some(x=>x[0]==="altrevoci")) g[1].splice(1,0,["altrevoci","Altre voci: fatture e carte"]);
+  if(typeof SPIEGA_PAGINA!=="undefined") SPIEGA_PAGINA.altrevoci=["Le altre voci del magazzino agganciate alla loro fattura o alla spesa con carta, senza scrivere prezzi a mano."];
+  try{ ANTE.altrevoci=()=>{ const V=vociAltre(); const da=V.filter(v=>v.tipo==="mag"&&!v.link).length, mano=V.filter(v=>v.tipo==="mano"&&!v.link&&v.rif).length;
+    return [[num0(da),"senza prezzo, da agganciare",da?"var(--amber)":"var(--green)"],[num0(mano),"con prezzo a mano"]]; }; }catch(e){}
+  const _df=daFare; daFare=function(kk){ if(kk==="altrevoci"){ try{ return vociAltre().filter(v=>v.tipo==="mag"&&!v.link&&candidatiVoce(v).length).length; }catch(e){ return 0; } } return _df.apply(this,arguments); };
+})();
+/* dopo «Aggiorna dal magazzino»: se ci sono voci senza prezzo che somigliano a una fattura, te lo dico */
+{ const _adm=aggiornaDalMagazzino; aggiornaDalMagazzino=async function(){ const r=await _adm.apply(this,arguments);
+    try{ const k=vociAltre().filter(v=>v.tipo==="mag"&&!v.link&&candidatiVoce(v).length).length;
+      if(k) setTimeout(()=>toast(k+" altre voci senza prezzo somigliano a una fattura o a una spesa con carta: agganciale in Magazzino → «Altre voci: fatture e carte»."),3500); }catch(e){}
+    return r; }; }
+
+/* =====================================================================================
+   v161 — LO SPECCHIETTO DEL MAGAZZINO PER UNA RIGA DI FATTURA
+   Clicchi «📦 magazzino» su una riga e a destra vedi:
+   - i PANNELLI e i MASSICCI caricati in magazzino da quel fornitore nel mese prima della
+     fattura (e nel mese della fattura): codici, misure, bolla. Un tasto mette i codici
+     sulla riga, cosi' l'aggancio pannello -> commessa si fa da solo.
+   - per la FERRAMENTA (articoli): i carichi, gli ordini con la commessa, le prenotazioni e
+     i consumi per commessa; un tasto mette sulla commessa la sua parte della riga.
+   Il magazzino si legge e basta: da qui non si cambia niente di la'.
+   ===================================================================================== */
+let _SPEC={quando:0,dati:null,err:"",inCorso:null};
+function specchioCarica(forza){
+  if(!PONTE||typeof PONTE.specchio!=="function"){ _SPEC.err="Lo specchietto funziona dentro il gestionale (aggiorna anche il magazzino alla v161)."; return Promise.resolve(); }
+  if(!forza&&_SPEC.dati&&Date.now()-_SPEC.quando<120000) return Promise.resolve();
+  if(_SPEC.inCorso) return _SPEC.inCorso;
+  _SPEC.inCorso=PONTE.specchio().then(d=>{ _SPEC.dati=d; _SPEC.quando=Date.now(); _SPEC.err=""; })
+    .catch(e=>{ _SPEC.err=(e&&e.message)||String(e); }).finally(()=>{ _SPEC.inCorso=null; });
+  return _SPEC.inCorso;
+}
+function apriSpecchio(fid){
+  apriScheda("specchio",fid);
+  specchioCarica().then(()=>{ try{ disegnaScheda(); }catch(e){} });
+}
+TIPO_SCH.specchio="Cosa dice il magazzino";
+let _SPEC_TUTTO=false;
+function _primoMesePrima(d){ const x=new Date(String(d).slice(0,10)+"T00:00:00"); if(isNaN(x)) return ""; x.setDate(1); x.setMonth(x.getMonth()-1); return x.toISOString().slice(0,10); }
+function _piuGiorni(d,g){ const x=new Date(String(d).slice(0,10)+"T00:00:00"); if(isNaN(x)) return ""; x.setDate(x.getDate()+g); return x.toISOString().slice(0,10); }
+function _numeriIn(s){ return (String(s||"").match(/\d{2,5}/g)||[]).map(Number); }
+SCHEDE.specchio=function(fid){
+  const f=(D.fatture||[]).find(x=>x.id===fid); if(!f) return '<p class="muted">Riga non trovata.</p>';
+  const head=`<div class="card" style="margin:0 0 10px;padding:10px 12px"><b>${esc(f.fornitore||"")}</b> <span class="muted">· ${esc(dataIt(f.data))}${f.nr?" · n. "+esc(f.nr):""}</span>
+    <div style="font-size:13px">${esc(f.articolo||"")}</div><div class="muted" style="font-size:12px">${f.qta?esc(String(f.qta))+" "+esc(f.um||"")+" · ":""}€ ${eur(f.importo)}${f.codForn?" · cod. "+esc(f.codForn):""}${codiciDi(f).length?" · codici sulla riga: "+esc(f.pezzi):""}</div></div>`;
+  if(!_SPEC.dati) return head+(_SPEC.err?`<p class="warnbox">${esc(_SPEC.err)}</p>`:`<p class="muted">Leggo il magazzino…</p>`);
+  const S=_SPEC.dati, art={}; (S.articoli||[]).forEach(a=>art[a.ID]=a);
+  const da=_SPEC_TUTTO?_piuGiorni(f.data,-185):_primoMesePrima(f.data), a=_piuGiorni(f.data,7);
+  const dentro=d=>{ const x=String(d||"").slice(0,10); return x&&x>=da&&x<=a; };
+  /* codici gia' scritti su una qualunque riga di fattura */
+  const suFatt={}; (D.fatture||[]).forEach(x=>codiciDi(x).forEach(c=>suFatt[String(c).toUpperCase()]=x));
+  const parF=_parole(f.articolo), numF=_numeriIn(f.articolo);
+  /* ---------- pannelli e massicci ---------- */
+  const pezzi=[].concat((S.pannelli||[]).map(p=>({tipo:"pannello",id:p.ID,art:p.ArticoloID,dims:[p.Larghezza_mm,p.Altezza_mm].filter(Boolean),data:p.DataCarico,forn:p.Fornitore,ddt:p.Ddt,comm:p.Commesse})),
+    (S.massicci||[]).map(p=>({tipo:"massiccio",id:p.ID,art:p.ArticoloID,dims:[p.Lunghezza_mm,p.Larghezza_mm,p.Spessore_mm].filter(Boolean),data:p.DataCarico,forn:p.Fornitore,ddt:p.Ddt,comm:p.Commesse})))
+    .filter(p=>dentro(p.data)&&(!p.forn||_stessoForn(p.forn,f.fornitore)));
+  const G={}; pezzi.forEach(p=>{ const k=p.tipo+"|"+p.art+"|"+p.dims.join("x")+"|"+(p.ddt||"")+"|"+String(p.data||"").slice(0,10);
+    const g=G[k]||(G[k]={tipo:p.tipo,art:p.art,dims:p.dims,ddt:p.ddt,data:String(p.data||"").slice(0,10),forn:p.forn,ids:[],comm:{}}); g.ids.push(p.id); if(p.comm) String(p.comm).split(",").map(s=>s.trim()).filter(Boolean).forEach(c=>g.comm[c]=(g.comm[c]||0)+1); });
+  const gruppi=Object.values(G).map(g=>{ const nome=(art[g.art]||{}).Nome||g.art; let s=0;
+      const comuni=_parole(nome).filter(w=>parF.includes(w)).length; s+=comuni*10;
+      g.dims.forEach(d=>{ if(numF.includes(Number(d))) s+=15; });
+      if(n(f.qta)&&Math.abs(n(f.qta)-g.ids.length)<0.01) s+=12;
+      if(_stessoForn(g.forn,f.fornitore)) s+=5;
+      const liberi=g.ids.filter(c=>!suFatt[String(c).toUpperCase()]);
+      return Object.assign(g,{nome,s,liberi}); }).sort((x,y)=>y.s-x.s||String(y.data).localeCompare(String(x.data)));
+  const boxPezzi=gruppi.length?gruppi.slice(0,15).map(g=>{ const usati=g.ids.filter(c=>suFatt[String(c).toUpperCase()]);
+      return `<div style="border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:7px${g.s>=25?";border-color:#b8862f;background:#fffaf0":""}">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline"><b>${esc(g.nome)}</b> <span class="mono">${esc(g.dims.join(" × "))}</span><span style="flex:1"></span>
+          <span class="muted">${esc(dataIt(g.data))}${g.ddt?" · bolla "+esc(g.ddt):""}</span></div>
+        <div class="mono" style="font-size:12.5px;margin:3px 0">${esc(comprimiCodici(g.ids))} <span class="muted">(${g.ids.length} ${g.tipo==="pannello"?"pannelli":"massicci"})</span>
+          ${n(f.qta)&&Math.abs(n(f.qta)-g.ids.length)<0.01?'<span class="tag t-grn">stesso numero della riga</span>':""}</div>
+        ${Object.keys(g.comm).length?`<div class="muted" style="font-size:11.5px">nel magazzino sono su: ${Object.entries(g.comm).map(([c,k])=>esc(c)+" ("+k+")").join(", ")}</div>`:""}
+        ${usati.length?`<div style="font-size:11.5px;color:var(--amber)">${usati.length} già scritti su un'altra riga di fattura (${esc(comprimiCodici(usati))})</div>`:""}
+        ${g.liberi.length?`<button class="btn btn-main btn-sm" style="margin-top:5px" onclick="specMettiCodici('${att(f.id)}',${JSON.stringify(g.liberi).replace(/"/g,"&quot;")})">Metti questi ${g.liberi.length} codici sulla riga</button>`:""}</div>`; }).join("")
+    :`<p class="muted">Nessun pannello o massiccio caricato da questo fornitore ${_SPEC_TUTTO?"negli ultimi 6 mesi":"fra il mese prima e la data della fattura"}.</p>`;
+  /* ---------- articoli (ferramenta) ---------- */
+  const AA=(S.articoli||[]).map(x=>{ let s=0;
+      if(f.codForn&&String(x.CodiceFornitore||"").trim()&&_sqDoc(x.CodiceFornitore)===_sqDoc(f.codForn)) s+=80;
+      const comuni=_parole(x.Nome).filter(w=>parF.includes(w)).length; s+=comuni*12;
+      if(x.Fornitore&&_stessoForn(x.Fornitore,f.fornitore)) s+=10;
+      return {a:x,s}; }).filter(x=>x.s>=30).sort((x,y)=>y.s-x.s).slice(0,3);
+  const boxArt=AA.map(({a:x})=>{
+    const car=(S.carichi||[]).filter(m=>m.ArticoloID===x.ID&&dentro(m.Data));
+    const ord=[]; (S.ordini||[]).forEach(o=>(o.Righe||[]).forEach(r=>{ if(r.artId===x.ID) ord.push({o,r}); }));
+    const ordRec=ord.filter(z=>dentro(z.o.Data)||(String(z.o.Stato||"").toLowerCase()!=="ricevuto"));
+    const ris=(S.riserve||[]).filter(r=>r.ArticoloID===x.ID);
+    const cons={}; (D.magazzino||[]).forEach(g=>{ if(g.codGestionale===x.ID||SQ(g.materiale)===SQ(x.Nome)){ const c=risolvi(g.commessa||""); if(c) cons[c]=(cons[c]||0)+n(g.quantita); } });
+    const perC={}; const tocca=c=>perC[c]=perC[c]||{ord:0,ric:0,pren:0,cons:0};
+    ordRec.forEach(z=>{ const c=risolvi(z.o.Commessa||""); if(!c) return; tocca(c).ord+=n(z.r.quantita); tocca(c).ric+=n(z.r.qtaRic); });
+    ris.forEach(r=>{ const c=risolvi(r.Commessa||""); if(c) tocca(c).pren+=n(r.Quantita); });
+    Object.keys(cons).forEach(c=>tocca(c).cons+=cons[c]);
+    const res=Math.round((n(f.importo)-impTot(f.id))*100)/100, pu=n(f.qta)?n(f.importo)/n(f.qta):0;
+    const giaSu={}; (D.imputazioni||[]).filter(i=>i.id===f.id).forEach(i=>giaSu[risolvi(i.destinazione)]=(giaSu[risolvi(i.destinazione)]||0)+n(i.importo));
+    return `<div style="border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:9px">
+      <div><b>${esc(x.Nome)}</b> <span class="muted">· ${esc(x.ID)}${x.CodiceFornitore?" · cod. "+esc(x.CodiceFornitore):""} · in magazzino ${esc(String(x.Stock))} ${esc(x.UnitaMisura||"")}</span></div>
+      ${car.length?`<div style="font-size:12px;margin-top:4px"><b>Caricati</b> ${car.map(m=>esc(dataIt(String(m.Data).slice(0,10)))+": "+esc(String(m.Q))+" "+esc(m.U||"")+(m.Ddt?" (bolla "+esc(m.Ddt)+")":"")+(m.Commessa?" → "+esc(m.Commessa):"")).join(" · ")}</div>`:'<div class="muted" style="font-size:12px;margin-top:4px">Nessun carico nel periodo.</div>'}
+      ${ord.length?`<div style="font-size:12px;margin-top:3px"><b>Ordini</b> ${ordRec.slice(0,8).map(z=>esc(z.o.ID)+" "+esc(dataIt(String(z.o.Data).slice(0,10)))+": "+esc(String(z.r.quantita))+" "+esc(z.r.unita||"")+(z.o.Commessa?" per "+esc(z.o.Commessa):"")+(z.r.ricevuto?" ✓ arrivati":n(z.r.qtaRic)?" ("+esc(String(z.r.qtaRic))+" arrivati)":"")).join(" · ")||'<span class="muted">nessuno recente</span>'}</div>`:""}
+      ${Object.keys(perC).length?`<table class="mini" style="width:100%;margin-top:6px"><tr class="muted"><td>Commessa</td><td class="r">ordinati</td><td class="r">prenotati</td><td class="r">consumati</td><td class="r">su questa riga</td><td></td></tr>
+        ${Object.entries(perC).sort((p,q)=>(q[1].ord+q[1].cons)-(p[1].ord+p[1].cons)).map(([c,v])=>{ const qq=v.cons||v.ord||v.pren; const euro=Math.min(res,Math.round(qq*pu*100)/100);
+          return `<tr><td><span class="ent" data-ent="commessa" data-k="${esc(c)}">${esc(c)}</span></td><td class="r">${v.ord?num0(v.ord):"—"}</td><td class="r">${v.pren?num0(v.pren):"—"}</td><td class="r">${v.cons?num0(v.cons):"—"}</td>
+            <td class="r">${giaSu[c]?"€ "+eur(giaSu[c]):"—"}</td>
+            <td>${pu&&res>0.01&&qq>0&&!giaSu[c]?`<button class="btn btn-ghost btn-sm" title="mette sulla commessa ${esc(String(qq))} ${esc(f.um||"")} × € ${eur(pu)}" onclick="specAssegna('${att(f.id)}','${att(c)}',${euro})">metti ${num0(qq)} = € ${eur(euro)}</button>`:""}</td></tr>`; }).join("")}</table>`:""}
+    </div>`; }).join("");
+  return head
+    +`<div class="filters" style="margin:0 0 8px"><span class="muted">Periodo: ${esc(dataIt(da))} → ${esc(dataIt(a))}</span><span style="flex:1"></span>
+       <button class="btn btn-ghost btn-sm" onclick="_SPEC_TUTTO=!_SPEC_TUTTO;disegnaScheda()">${_SPEC_TUTTO?"solo il mese prima":"allarga a 6 mesi"}</button>
+       <button class="btn btn-ghost btn-sm" onclick="specchioCarica(true).then(disegnaScheda)">↻ rileggi</button></div>`
+    +sez("🪵 Pannelli e massicci caricati","dal fornitore della fattura",boxPezzi)
+    +(AA.length?sez("🔩 Articoli che somigliano a questa riga","carichi · ordini · prenotazioni · consumi per commessa",boxArt):"");
+};
+function specMettiCodici(fid,ids){
+  const f=(D.fatture||[]).find(x=>x.id===fid); if(!f) return;
+  azione("modifica","Codici del magazzino sulla riga «"+(f.articolo||"")+"»",()=>{
+    const L=[...new Set(codiciDi(f).concat(ids))]; f.pezzi=comprimiCodici(L); f.nPezzi=L.length; f.usaCodici=true; });
+  try{ generaProposte(true); }catch(e){ console.error(e); }
+  sporca(); try{ ricalcola(); }catch(e){} disegnaScheda();
+  toast("Messi "+ids.length+" codici sulla riga: le commesse dove il magazzino li ha usati diventano proposte da confermare");
+}
+function specAssegna(fid,comm,euro){
+  const f=(D.fatture||[]).find(x=>x.id===fid); if(!f) return;
+  euro=Math.round(n(euro)*100)/100; if(!(euro>0)) return;
+  azione("modifica","Riga «"+(f.articolo||"")+"» su "+comm+" dallo specchietto del magazzino",()=>{
+    D.imputazioni.push({id:f.id,destinazione:comm,quota:n(f.importo)?euro/n(f.importo):1,importo:euro,data:oggi(),origine:"specchietto magazzino"}); });
+  sporca(); try{ ricalcola(); }catch(e){} disegnaScheda(); toast("€ "+eur(euro)+" su "+comm);
+}
+/* il tasto «📦 magazzino» sulle righe: nella scheda della fattura e nella pagina Fatture */
+{ const _sf=SCHEDE.fattura; SCHEDE.fattura=function(k){ let h=_sf.apply(this,arguments);
+    const g=documenti().find(x=>x.chiave===k); if(!g) return h;
+    g.righe.forEach(f=>{ const i=D.fatture.indexOf(f);
+      h=h.replace(`onchange="D.fatture[${i}].categoria=scegliCategoria(this.value);sporca();_rifai()">`,
+        `onchange="D.fatture[${i}].categoria=scegliCategoria(this.value);sporca();_rifai()"> <a style="color:var(--accent);cursor:pointer;font-size:12px" onclick="apriSpecchio('${att(f.id)}')" title="Pannelli caricati, ordini e prenotazioni del magazzino per questa riga">📦 magazzino</a>`); });
+    return h; }; }
+{ const _vf=vFatture; vFatture=function(){ const r=_vf.apply(this,arguments);
+    try{ document.querySelectorAll('#main a[onclick^="apriRipartizione("]').forEach(el=>{ if(el.dataset.spec) return; el.dataset.spec=1;
+      const m=String(el.getAttribute("onclick")).match(/apriRipartizione\('([^']+)'\)/); if(!m) return;
+      const b=document.createElement("a"); b.textContent=" · 📦 carichi del magazzino"; b.style.cssText="color:var(--accent);cursor:pointer"; b.href="javascript:void(0)";
+      b.onclick=e=>{ e.stopPropagation(); apriSpecchio(m[1]); }; el.after(b); }); }catch(e){}
+    return r; }; }
+
+/* =====================================================================================
+   v161 — NIENTE PROPOSTE SU CONSUMI VECCHI
+   Se una commessa ha consumato le basette a giugno, la fattura di settembre NON puo' essere
+   quella merce: era gia' in magazzino, comprata prima (con un'altra fattura). Prima il
+   programma accettava fatture fino a 12 mesi DOPO il consumo, e ti riproponeva roba gia'
+   scaricata. Adesso: la fattura puo' arrivare al massimo 1 mese dopo il consumo (merce
+   consegnata in un mese, fatturata il mese dopo). Si cambia in «Aggiusta i valori».
+   Le proposte gia' aperte che non rispettano la regola le scarto, con il motivo scritto.
+   Quelle per codice pannello o per bolla restano: li' il documento e' certo.
+   ===================================================================================== */
+function scartaProposteVecchie(silenzioso){
+  return 0;   /* v162: tolta. Il criterio giusto e' «quella commessa ha gia' avuto quella quantita'», non la data */
+  if(!D||!(D.proposte||[]).length) return 0;
+  const av=(D.config.mesiAvanti==null||D.config.mesiAvanti==='')?1:n(D.config.mesiAvanti);
+  const L=(D.proposte||[]).filter(p=>!p.conferma&&!["pezzo","ddt","voce"].includes(p.aggancio)&&n(p.scarto)>av);
+  if(!L.length) return 0;
+  const lavoro=()=>L.forEach(p=>{ p.conferma="NO"; p.consumoVecchio=oggi();
+    p.avviso="consumo di "+n(p.scarto)+" mesi prima della fattura: quella merce era già in magazzino, l'ha portata una fattura precedente"; });
+  try{ azione("modifica","Scartate "+L.length+" proposte su consumi più vecchi della fattura",lavoro); }catch(e){ lavoro(); }
+  SPORCO=true;
+  if(!silenzioso) toast("Scartate "+L.length+" proposte su consumi vecchi: quella merce l'hanno portata fatture precedenti.");
+  return L.length;
+}
+{ const _gp2=generaProposte; generaProposte=function(){ const r=_gp2.apply(this,arguments); try{ scartaProposteVecchie(true); }catch(e){ console.error(e); } return r; }; }
+{ const _da2=dopoApertura; dopoApertura=function(){ const r=_da2.apply(this,arguments);
+    try{ /* v162: rimetto com'era quello che la v161 aveva cambiato per la data */
+      if(D&&D.config&&D.config._avanti161&&!D.config._avanti162){ if(n(D.config.mesiAvanti)===1) D.config.mesiAvanti=12; D.config._avanti162=oggi(); SPORCO=true;
+        (D.proposte||[]).forEach(p=>{ if(p.consumoVecchio&&p.conferma==="NO"){ p.conferma=""; delete p.consumoVecchio; p.avviso=""; } }); }
+      const k=scartaProposteVecchie(true)+(typeof scartaProposteCoperte==="function"?scartaProposteCoperte(true):0);
+      if(k) setTimeout(()=>toast("Ho scartato "+k+" proposte di abbinamento su materiale già scaricato o già su altre fatture (le trovi fra le scartate, con il motivo)."),2500); }catch(e){ console.error(e); }
+    return r; }; }
+
+
+/* =====================================================================================
+   v162 — I MONTATORI ESTERNI: LA LORO FATTURA SI DIVIDE DA SOLA SULLE COMMESSE
+   Il montatore esterno inserisce le sue ore nel magazzino (con il suo accesso, vede solo
+   quelle). Quando arriva la sua fattura, la divido sulle commesse in proporzione alle sue
+   ore del mese della fattura (se in quel mese non ci sono ore, quelle del mese prima).
+   Lo faccio da solo; nella pagina «Montatori esterni» vedi come l'ho divisa e puoi rifarla
+   o toglierla. Tutto annullabile dal Registro operazioni.
+   ===================================================================================== */
+function _mE(){ D.config.esterni=D.config.esterni||[]; D.config.montSplit=D.config.montSplit||{}; return D.config; }
+function montatoriEsterni(){ return (_mE().esterni||[]).filter(x=>x&&x.nome&&x.ditta); }
+async function aggiornaEsterni(){
+  if(!PONTE||typeof PONTE.esterni!=="function") return false;
+  try{ const L=await PONTE.esterni(); if(!Array.isArray(L)) return false;
+    const C=_mE(), prima=JSON.stringify(C.esterni);
+    /* tengo le ditte scritte a mano qui se il magazzino non le ha */
+    const vecchi={}; (C.esterni||[]).forEach(x=>vecchi[SQ(x.nome)]=x);
+    C.esterni=L.map(x=>({nome:x.nome,ditta:x.ditta||(vecchi[SQ(x.nome)]||{}).ditta||"",attivo:x.attivo!==false}));
+    (prima!==JSON.stringify(C.esterni)) && (SPORCO=true);
+    return true; }catch(e){ return false; }
+}
+function _oreEsterno(nome,mese){
+  const H={}; (D.oreDettaglio||[]).forEach(d=>{ if(SQ(d.persona)!==SQ(nome)||String(d.mese)!==mese||!d.commessa) return;
+    const c=risolvi(d.commessa); H[c]=(H[c]||0)+n(d.ore); });
+  Object.keys(H).forEach(c=>{ if(!(H[c]>0)) delete H[c]; });
+  return H;
+}
+function _mesePrima(m){ const [y,mm]=String(m).split("-").map(Number); if(!y) return ""; const d=new Date(y,mm-2,1); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+/* le fatture di un montatore, con lo stato della divisione */
+function fattureEsterno(E){
+  return documenti().filter(g=>!g.sospetta&&_stessoForn(g.fornitore,E.ditta)).map(g=>{
+    const m=mese(g.data); let mOre=m, H=_oreEsterno(E.nome,m);
+    if(!Object.keys(H).length){ mOre=_mesePrima(m); H=_oreEsterno(E.nome,mOre); }
+    const fatta=_mE().montSplit[g.chiave]||null;
+    const res=g.righe.reduce((s,f)=>s+Math.max(0,n(f.importo)-impTot(f.id)),0);
+    return {g,mOre:Object.keys(H).length?mOre:"",H,fatta,res}; }).sort((a,b)=>String(b.g.data).localeCompare(String(a.g.data)));
+}
+function _dividiUna(E,x){
+  const T=Object.values(x.H).reduce((s,v)=>s+v,0); if(!(T>0)) return 0;
+  const comm=Object.keys(x.H).sort((a,b)=>x.H[b]-x.H[a]); let k=0;
+  x.g.righe.forEach(f=>{
+    const res=Math.round((n(f.importo)-impTot(f.id))*100)/100; if(!(res>0.009)) return;
+    let resto=res;
+    comm.forEach((c,i)=>{ const q=i===comm.length-1?resto:Math.round(res*x.H[c]/T*100)/100; if(!(q>0.004)) return; resto=Math.round((resto-q)*100)/100;
+      D.imputazioni.push({id:f.id,destinazione:c,quota:n(f.importo)?q/n(f.importo):1,importo:q,data:oggi(),origine:"ore montatore",meseOre:x.mOre}); k++; });
+  });
+  _mE().montSplit[x.g.chiave]={mese:x.mOre,quando:oggi(),ore:T,persona:E.nome};
+  return k;
+}
+function ripartisciMontatori(silenzioso){
+  if(!D||D.config.montAuto===false) return 0;
+  const E=montatoriEsterni(); if(!E.length) return 0;
+  const lavori=[];
+  E.forEach(e=>fattureEsterno(e).forEach(x=>{ if(!x.fatta&&x.res>0.01&&x.mOre) lavori.push([e,x]); }));
+  if(!lavori.length) return 0;
+  let k=0;
+  azione("modifica","Fatture dei montatori esterni divise sulle commesse in base alle ore ("+lavori.length+")",()=>{ lavori.forEach(([e,x])=>{ if(_dividiUna(e,x)) k++; }); });
+  try{ ricalcola(); }catch(e){} SPORCO=true;
+  if(!silenzioso&&k) toast("Ho diviso "+k+" fatture dei montatori esterni sulle commesse, in base alle loro ore (le vedi in Commesse → «Montatori esterni»).");
+  return k;
+}
+function rifaiMontatore(chiave,togli){
+  const g=documenti().find(x=>x.chiave===chiave); if(!g) return;
+  const E=montatoriEsterni().find(e=>_stessoForn(g.fornitore,e.ditta));
+  azione("modifica",(togli?"Tolta":"Rifatta")+" la divisione della fattura "+(g.fornitore||"")+" "+(g.nr||""),()=>{
+    const ids=new Set(g.righe.map(f=>f.id));
+    D.imputazioni=(D.imputazioni||[]).filter(i=>!(ids.has(i.id)&&i.origine==="ore montatore"));
+    if(togli){ _mE().montSplit[chiave]={mese:"",quando:oggi(),tolta:true}; return; }
+    delete _mE().montSplit[chiave];
+    if(E){ const x=fattureEsterno(E).find(y=>y.g.chiave===chiave); if(x&&x.mOre) _dividiUna(E,x); }
+  });
+  try{ ricalcola(); }catch(e){} sporca(); render();
+}
+NUOVE.montatori=function(){
+  const E=_mE().esterni||[];
+  const blocco=e=>{ const F=e.ditta?fattureEsterno(e):[];
+    return `<div class="card" style="margin-bottom:12px"><div class="filters" style="margin:0 0 6px"><b style="font-size:15px">${esc(e.nome)}</b>
+      <span class="muted">ditta che fattura</span><input class="inline" style="width:240px" value="${esc(e.ditta||"")}" placeholder="come in Fatture in Cloud"
+        onchange="(_mE().esterni.find(x=>x.nome==='${att(e.nome)}')||{}).ditta=this.value.trim();sporca();render()">
+      <span style="flex:1"></span><span class="muted">${F.length} fatture</span></div>
+      ${!e.ditta?'<p class="warnbox">Scrivi la ditta che fa la fattura: senza non so quali fatture sono sue.</p>':F.length?`<div class="tw"><table><thead><tr><th>Data</th><th>Nr</th><th class="num">€</th><th>Ore del mese</th><th>Divisa così</th><th></th></tr></thead><tbody>
+        ${F.map(x=>{ const imp=(D.imputazioni||[]).filter(i=>x.g.righe.some(f=>f.id===i.id)); const T=Object.values(x.H).reduce((s,v)=>s+v,0);
+          const per={}; imp.forEach(i=>{ const c=risolvi(i.destinazione); per[c]=(per[c]||0)+n(i.importo); });
+          return `<tr><td>${esc(dataIt(x.g.data))}</td><td>${esc(x.g.nr||"")}</td><td class="num">${eur(x.g.somma)}</td>
+            <td>${x.mOre?esc(meseIt(x.mOre))+": "+Object.entries(x.H).map(([c,h])=>esc(c)+" "+num0(h)+" h ("+Math.round(h/T*100)+"%)").join(", "):'<span style="color:var(--amber)">nessuna ora nel mese della fattura né in quello prima</span>'}</td>
+            <td>${Object.keys(per).length?Object.entries(per).map(([c,v])=>esc(c)+" € "+eur(v)).join(" · "):'<span class="muted">—</span>'}${x.res>0.01?` <span style="color:var(--red)">· € ${eur(x.res)} non assegnati</span>`:""}
+              ${x.fatta&&x.fatta.tolta?' <span class="tag t-gry">divisione tolta</span>':x.fatta?' <span class="tag t-grn">divisa da sola</span>':""}</td>
+            <td style="white-space:nowrap">${x.mOre?`<button class="btn btn-ghost btn-sm" onclick="rifaiMontatore('${att(x.g.chiave)}')">${x.fatta?"rifai":"dividi"}</button>`:""}
+              ${x.fatta&&!x.fatta.tolta?`<button class="btn btn-ghost btn-sm" onclick="rifaiMontatore('${att(x.g.chiave)}',true)">togli</button>`:""}</td></tr>`; }).join("")}</tbody></table></div>`
+        :'<p class="muted">Nessuna fattura di questa ditta in archivio.</p>'}</div>`; };
+  $("main").innerHTML=`<h1>Montatori esterni</h1>
+  <p class="lead">I montatori che fanno fattura inseriscono le loro ore nel magazzino (con il loro accesso vedono solo quelle). Quando arriva la loro fattura,
+    la divido <b>da sola</b> sulle commesse in proporzione alle ore del mese della fattura (se in quel mese non ci sono ore, uso il mese prima).
+    Qui vedi come l'ho divisa: puoi rifarla (per esempio dopo che hanno corretto le ore) o toglierla.</p>
+  <div class="filters"><label class="muted"><input type="checkbox" ${D.config.montAuto!==false?"checked":""} onchange="D.config.montAuto=this.checked;sporca();if(this.checked)ripartisciMontatori();render()"> dividi da sola le fatture nuove</label>
+    <button class="btn btn-ghost btn-sm" onclick="aggiornaEsterni().then(()=>{ripartisciMontatori();render();})">↻ rileggi i montatori dal magazzino</button></div>
+  ${E.length?E.map(blocco).join(""):`<div class="card"><p>Non ci sono ancora montatori esterni.</p><p class="muted">Nel magazzino: <b>Ore e trasferte → Persone → + Nuova persona</b> (o modifica una persona), spunta <b>«Montatore esterno che fa fattura»</b>, scrivi la ditta e, se vuoi, la password del suo accesso. Poi qui premi «rileggi».</p></div>`}`;
+};
+(function(){
+  const g=GRUPPI.find(x=>x[0]==="Commesse");
+  if(g&&!g[1].some(x=>x[0]==="montatori")){ const i=g[1].findIndex(x=>x[0]==="manodopera"); g[1].splice(i>=0?i+1:g[1].length,0,["montatori","Montatori esterni"]); }
+  if(typeof SPIEGA_PAGINA!=="undefined") SPIEGA_PAGINA.montatori=["Le fatture dei montatori esterni divise da sole sulle commesse in base alle loro ore."];
+  try{ ANTE.montatori=()=>{ const E=montatoriEsterni(); let nf=0,senza=0; E.forEach(e=>fattureEsterno(e).forEach(x=>{ nf++; if(!x.mOre&&!x.fatta) senza++; }));
+    return [[num0(E.length),"montatori esterni"],[num0(nf),"loro fatture"+(senza?" · "+senza+" senza ore":"")]]; }; }catch(e){}
+})();
+/* quando: all'apertura, dopo il magazzino, dopo un import di fatture */
+{ const _da3=dopoApertura; dopoApertura=function(){ const r=_da3.apply(this,arguments);
+    setTimeout(()=>{ aggiornaEsterni().then(()=>{ try{ const k=ripartisciMontatori(true); if(k){ toast("Ho diviso "+k+" fatture dei montatori esterni sulle commesse in base alle loro ore."); try{render();}catch(e){} } }catch(e){ console.error(e); } }); },1800);
+    return r; }; }
+{ const _adm2=aggiornaDalMagazzino; aggiornaDalMagazzino=async function(){ const r=await _adm2.apply(this,arguments);
+    try{ await aggiornaEsterni(); if(ripartisciMontatori(false)) render(); }catch(e){} return r; }; }
+{ const _ci=confermaImport; confermaImport=function(){ const r=_ci.apply(this,arguments); try{ if(ripartisciMontatori(false)) render(); }catch(e){} return r; }; }
 
 </script>
 </body></html>
