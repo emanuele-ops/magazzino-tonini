@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v166 - Atelier</div>
+  <div id="ver-badge">v167 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -1679,7 +1679,7 @@ async function call(fn, args) {
       const rows = await sbGet("personale", "select=*&order=nome.asc");
       return rows.map(r => ({ ID: r.id, Nome: r.nome, Mansione: r.mansione || "", Email: r.email || "",
         CostoOrario: +r.costo_orario || 0, EuroKm: +r.euro_km || 0, OreGiorno: +r.ore_giorno || 8,
-        Attivo: r.attivo !== false, Note: r.note || "" }));
+        Attivo: r.attivo !== false, Note: r.note || "", Ammesse: r.commesse_ammesse || "" }));
     }
     if (fn === "creaUtenteEsterno") {
       const io = STATE.utente || {};
@@ -1707,10 +1707,13 @@ async function call(fn, args) {
         await sbPatch("personale", "id=eq." + encodeURIComponent(d.ID), row);
         // se cambia il nome, allineo anche le registrazioni gia fatte
         await sbPatch("ore", "persona_id=eq." + encodeURIComponent(d.ID), { persona: row.nome }).catch(()=>{});
-        return { ok: true, id: d.ID };
+        const av = await salvaAmmesse(d.ID, d.Ammesse);
+        return { ok: true, id: d.ID, avviso: av };
       }
       const r = await sbPost("personale", row);
-      return { ok: true, id: (r && r[0] && r[0].id) || "" };
+      const nid = (r && r[0] && r[0].id) || "";
+      const av = nid ? await salvaAmmesse(nid, d.Ammesse) : "";
+      return { ok: true, id: nid, avviso: av };
     }
     if (fn === "eliminaPersona") {
       const usate = await sbGet("ore", "select=id&persona_id=eq." + encodeURIComponent(args.id) + "&limit=1");
@@ -18204,86 +18207,98 @@ function riepilogoPulizia(r){
 }
 
 // ============================================================
-// v165 - IL MONTATORE ESTERNO NON VEDE L'ELENCO DELLE COMMESSE
-// e non scarica niente.
-// - La commessa non si sceglie da un elenco: si scrive. Le proposte
-//   escono solo dopo almeno 5 caratteri, al massimo 5 alla volta, e
-//   arrivano dal database (funzione cerca_commesse), che non da' mai
-//   l'elenco intero.
-// - Delle commesse vede solo quelle dove ha gia' messo ore sue.
-// - Niente stampa, niente CSV, niente Excel delle ore.
+// v167 - LE COMMESSE DEL MONTATORE ESTERNO LE DECIDE L'AMMINISTRATORE
+// In Persone -> scheda del montatore, l'amministratore spunta le
+// commesse su cui puo' segnare le ore. Il montatore vede SOLO quelle
+// (piu' quelle dove ha gia' ore sue), in un elenco corto. Niente
+// ricerca: non puo' scrivere a caso per trovare altre commesse.
+// Lo blocca anche il database (script 68).
 // ============================================================
-const ESTERNO_MIN_CAR = 5;
+function ammesseDi(p){ return String((p&&p.Ammesse)||'').split(',').map(function(x){return x.trim();}).filter(Boolean); }
+async function salvaAmmesse(id, ammesse){
+  if(ammesse===undefined || ammesse===null) return "";
+  try{ await sbPatch("personale", "id=eq." + encodeURIComponent(id), { commesse_ammesse: String(ammesse) }); return ""; }
+  catch(e){ return "Le commesse del montatore non sono salvate: su Supabase va lanciato lo script 68_montatori_commesse_ammesse.sql."; }
+}
 function esternoCommesseMie(){
   const mia = personaMia(); if(!mia) return new Set();
-  const s = new Set(); (STATE.ore||[]).forEach(function(r){ if(r.PersonaID===mia.ID && r.Commessa) s.add(String(r.Commessa)); });
+  const s = new Set(ammesseDi(mia));
+  (STATE.ore||[]).forEach(function(r){ if(r.PersonaID===mia.ID && r.Commessa) s.add(String(r.Commessa)); });
   return s;
 }
-let ESTERNO_SCELTE = {};   // commesse trovate scrivendo, in questa sessione
 function esternoFiltraCommesse(){
   if(!sonoEsterno()) return;
   const mie = esternoCommesseMie();
-  Object.keys(ESTERNO_SCELTE).forEach(function(k){ mie.add(k); });
   STATE.commesse = (STATE.commesse||[]).filter(function(c){ return mie.has(String(c.ID)); });
-  Object.keys(ESTERNO_SCELTE).forEach(function(k){
-    if(!STATE.commesse.some(function(c){ return String(c.ID)===k; })) STATE.commesse.push({ID:k,Nome:ESTERNO_SCELTE[k]||""});
-  });
-}
-async function cercaCommesseEsterno(testo){
-  const r = await fetch(SB_URL+"/rest/v1/rpc/cerca_commesse",{method:"POST",
-    headers: await sbH({"Content-Type":"application/json"}), body: JSON.stringify({testo:String(testo||"")})});
-  if(!r.ok){ authScaduto(r); throw new Error(await r.text()); }
-  return r.json();
-}
-let _ESTCERCA_T = null, _ESTCERCA_N = 0;
-function esternoCercaComm(){
-  const q = (document.getElementById("no-comm-q")||{}).value||"";
-  const box = document.getElementById("no-comm-sug"); if(!box) return;
-  const hid = document.getElementById("no-comm"); if(hid) hid.value = "";
-  const pulito = q.replace(/\s+/g,"");
-  clearTimeout(_ESTCERCA_T);
-  if(pulito.length < ESTERNO_MIN_CAR){
-    box.innerHTML = '<div style="font-size:12px;color:var(--gray);margin-top:5px">Scrivi almeno '+ESTERNO_MIN_CAR+' caratteri del codice o del nome della commessa'+(pulito.length?(' (ancora '+(ESTERNO_MIN_CAR-pulito.length)+')'):'')+'.</div>';
-    return;
-  }
-  box.innerHTML = '<div style="font-size:12px;color:var(--gray);margin-top:5px">Cerco…</div>';
-  const n = ++_ESTCERCA_N;
-  _ESTCERCA_T = setTimeout(function(){
-    cercaCommesseEsterno(q.trim()).then(function(L){
-      if(n !== _ESTCERCA_N) return;
-      if(!Array.isArray(L) || !L.length){ box.innerHTML = '<div style="font-size:12px;color:var(--amber);margin-top:5px">Nessuna commessa trovata: controlla il codice o chiedi all\'ufficio.</div>'; return; }
-      box.innerHTML = L.map(function(c){
-        return '<div class="est-sug" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-top:5px;cursor:pointer;background:var(--white)" '
-          +'data-id="'+att(c.id)+'" data-nome="'+att(c.nome||"")+'" onclick="esternoPrendiComm(this)"><strong>'+esc(c.id)+'</strong>'+(c.nome&&c.nome!==c.id?(' - '+esc(c.nome)):'')+'</div>';
-      }).join("");
-    }).catch(function(e){
-      if(n !== _ESTCERCA_N) return;
-      box.innerHTML = '<div style="font-size:12px;color:var(--red);margin-top:5px">Non riesco a cercare adesso: riprova tra poco.</div>';
-      console.error(e);
-    });
-  }, 350);
-}
-function esternoPrendiComm(el){
-  const id = el.getAttribute("data-id"), nome = el.getAttribute("data-nome")||"";
-  ESTERNO_SCELTE[id] = nome;
-  const hid = document.getElementById("no-comm"); if(hid) hid.value = id;
-  const q = document.getElementById("no-comm-q"); if(q) q.value = id+(nome&&nome!==id?(" - "+nome):"");
-  const box = document.getElementById("no-comm-sug"); if(box) box.innerHTML = '<div style="font-size:12px;color:var(--green);margin-top:5px">✓ commessa scelta</div>';
 }
 { const _ono = openNuovaOra; openNuovaOra = function(id, pre){
     const r = _ono.apply(this, arguments);
     if(sonoEsterno()){
-      const box = document.getElementById("no-box-comm");
-      if(box){
-        const sel = document.getElementById("no-comm"); const att0 = sel ? sel.value : "";
-        const nome0 = att0 ? (nomeCommessa(att0)||ESTERNO_SCELTE[att0]||"") : "";
-        box.innerHTML = '<label>Commessa *</label>'
-          +'<input id="no-comm-q" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="scrivi il codice o il nome" '
-          +'value="'+att(att0?(att0+(nome0&&nome0!==att0?(" - "+nome0):"")):"")+'" oninput="esternoCercaComm()">'
-          +'<input id="no-comm" type="hidden" value="'+att(att0)+'">'
-          +'<div id="no-comm-sug"></div>';
+      const sel = document.getElementById("no-comm");
+      if(sel && sel.tagName==="SELECT"){
+        const mia = personaMia(), amm = ammesseDi(mia), cur = sel.value;
+        const lista = amm.slice(); if(cur && lista.indexOf(cur)<0) lista.push(cur);
+        sel.innerHTML = '<option value="">- Scegli -</option>' + lista.map(function(c){
+          const n = nomeCommessa(c);
+          return '<option value="'+att(c)+'"'+(c===cur?' selected':'')+'>'+esc(c)+(n&&n!==c?(' - '+esc(n)):'')+'</option>'; }).join("");
+        if(!amm.length){
+          const box = document.getElementById("no-box-comm");
+          if(box) box.insertAdjacentHTML("beforeend",'<div style="font-size:12px;color:var(--amber);margin-top:5px">Non hai ancora commesse assegnate: chiedi all\'ufficio di abilitartele.</div>');
+        }
       }
     }
+    return r;
+  }; }
+/* l'amministratore spunta le commesse nella scheda del montatore */
+function ammFiltra(){
+  const q = String((document.getElementById("np-amm-q")||{}).value||"").toLowerCase().trim();
+  document.querySelectorAll("#np-amm-lista label").forEach(function(l){
+    const ok = !q || l.textContent.toLowerCase().indexOf(q)>=0 || l.querySelector("input").checked;
+    l.style.display = ok ? "" : "none"; });
+}
+function ammConta(){
+  const n = document.querySelectorAll("#np-amm-lista input:checked").length;
+  const e = document.getElementById("np-amm-n"); if(e) e.textContent = n ? (n===1?"1 scelta":(n+" scelte")) : "nessuna scelta";
+}
+{ const _onp = openNuovaPersona; openNuovaPersona = function(id){
+    const r = _onp.apply(this, arguments);
+    try{
+      const box = document.getElementById("np-estbox"); if(!box || !oreAdmin()) return r;
+      const p = id ? (STATE.personale||[]).filter(function(x){return x.ID===id;})[0] : null;
+      const amm = new Set(ammesseDi(p));
+      const L = (STATE.commesse||[]).slice().sort(function(a,b){
+        const sa = amm.has(String(a.ID))?0:1, sb = amm.has(String(b.ID))?0:1;
+        if(sa!==sb) return sa-sb;
+        const ca = a.Stato==='chiusa'?1:0, cb = b.Stato==='chiusa'?1:0; if(ca!==cb) return ca-cb;
+        return String(b.ID).localeCompare(String(a.ID)); });
+      box.insertAdjacentHTML("beforeend",
+        '<div class="form-group"><label>Commesse su cui può segnare le ore <span id="np-amm-n" style="font-weight:400;color:var(--gray)"></span></label>'
+        +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:5px">Vede e può scegliere <b>solo</b> queste. Le altre commesse per lui non esistono.</div>'
+        +'<input id="np-amm-q" placeholder="cerca fra le commesse" oninput="ammFiltra()" style="margin-bottom:6px">'
+        +'<div id="np-amm-lista" style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--white)">'
+        + (L.length ? L.map(function(c){
+            return '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-weight:400">'
+              +'<input type="checkbox" class="np-amm" value="'+att(c.ID)+'" '+(amm.has(String(c.ID))?'checked':'')+' onchange="ammConta()" style="width:16px;height:16px;accent-color:var(--accent)">'
+              +'<span><b>'+esc(c.ID)+'</b>'+(c.Nome&&c.Nome!==c.ID?(' - '+esc(c.Nome)):'')+(c.Stato==='chiusa'?' <span style="color:var(--gray)">(chiusa)</span>':'')+'</span></label>'; }).join("")
+          : '<div style="color:var(--gray);font-size:12px">Nessuna commessa.</div>')
+        +'</div></div>');
+      ammConta();
+    }catch(e){ console.error(e); }
+    return r;
+  }; }
+let AMMESSE_IN_ATTESA = null;
+{ const _sp = submitPersona; submitPersona = function(id){
+    const est = document.getElementById("np-est");
+    if(est && document.getElementById("np-amm-lista")){
+      const scelte = Array.prototype.map.call(document.querySelectorAll("#np-amm-lista input.np-amm:checked"), function(i){ return i.value; });
+      AMMESSE_IN_ATTESA = est.checked ? scelte.join(",") : "";
+    } else AMMESSE_IN_ATTESA = null;
+    return _sp.apply(this, arguments);
+  }; }
+{ const _c167 = call; call = async function(fn, args){
+    if(fn === "salvaPersona" && args && AMMESSE_IN_ATTESA !== null){ args.Ammesse = AMMESSE_IN_ATTESA; AMMESSE_IN_ATTESA = null; }
+    const r = await _c167.apply(this, arguments);
+    if(fn === "salvaPersona" && r && r.avviso) setTimeout(function(){ toast(r.avviso, "err"); }, 700);
     return r;
   }; }
 /* niente scarichi per il montatore esterno */
@@ -18388,7 +18403,11 @@ function oreTabEsterni(){
   return '<div class="card" style="margin-top:14px"><div class="info-box">Le ore dei <b>montatori esterni</b> non sono manodopera dell\'azienda: '
     +'il loro costo arriva con la loro fattura. Per questo <b>non entrano nel monte ore</b>, nei mastrini, nelle tabelle e nei report. '
     +'Servono solo a dividere la fattura sulle commesse, in percentuale: la contabilità lo fa da sola.</div>'
-    +'<div style="font-size:12.5px;color:var(--gray)">Montatori: '+est.map(function(p){ return '<b>'+esc(p.Nome)+'</b>'+(dittaDi(p)?(' ('+esc(dittaDi(p))+')'):''); }).join(', ')+'</div></div>'
+    +est.map(function(p){ const am=ammesseDi(p);
+      return '<div style="padding:8px 0;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">'
+        +'<div style="flex:1;min-width:220px"><b>'+esc(p.Nome)+'</b>'+(dittaDi(p)?(' <span style="color:var(--gray)">('+esc(dittaDi(p))+')</span>'):'')
+        +'<div style="font-size:12px;color:var(--gray);margin-top:2px">Commesse abilitate: '+(am.length?am.map(function(c){return commTxt(c);}).join(', '):'<span style="color:var(--amber)">nessuna: non può segnare ore su commesse</span>')+'</div></div>'
+        +'<button class="btn btn-ghost" onclick="openNuovaPersona(\''+esc(p.ID)+'\')">Cambia commesse</button></div>'; }).join('')+'</div>'
     +(blocchi || '<div class="card" style="color:var(--gray)">Nessuna ora registrata dai montatori esterni.</div>');
 }
 function meseAnnoIt(m){ const n=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre']; const p=String(m).split('-'); return (n[(+p[1]||1)-1]||'')+' '+p[0]; }
