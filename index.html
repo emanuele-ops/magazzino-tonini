@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='19' fill='%238a6d4e'/%3E%3Ctext x='20' y='27' font-family='Georgia' font-size='16' fill='white' text-anchor='middle' font-weight='bold'%3EAT%3C/text%3E%3C/svg%3E">
-<title>Magazzino Atelier Tonini</title>
+<title>Gestionale Atelier Tonini</title>
 <meta name="theme-color" content="#8a6d4e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v164 - Atelier</div>
+  <div id="ver-badge">v166 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -494,7 +494,7 @@ function loadAll() {
     // Login Supabase
     if (u.autorizzato === "__login__") {
       document.getElementById("main-content").innerHTML =
-        '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al Magazzino</h2><div class="form-group"><label>Email o nome utente</label><input id="lg-email" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="nome@ateliertonini.it oppure mario.rossi"></div><div class="form-group"><label>Password</label><input id="lg-pwd" type="password" placeholder="••••••"></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
+        '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al gestionale Atelier Tonini</h2><div class="form-group"><label>Email o nome utente</label><input id="lg-email" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="nome@ateliertonini.it oppure mario.rossi"></div><div class="form-group"><label>Password</label><input id="lg-pwd" type="password" placeholder="••••••"></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
       // se sono uscito perche' l'ha deciso il programma o l'amministratore, lo dico
       try {
         const perche = sessionStorage.getItem("at_uscita");
@@ -18202,6 +18202,218 @@ function riepilogoPulizia(r){
   if(p.ordine)v.push('riaperto l ordine '+p.ordine);
   return v.length?(' - '+v.join(', ')):'';
 }
+
+// ============================================================
+// v165 - IL MONTATORE ESTERNO NON VEDE L'ELENCO DELLE COMMESSE
+// e non scarica niente.
+// - La commessa non si sceglie da un elenco: si scrive. Le proposte
+//   escono solo dopo almeno 5 caratteri, al massimo 5 alla volta, e
+//   arrivano dal database (funzione cerca_commesse), che non da' mai
+//   l'elenco intero.
+// - Delle commesse vede solo quelle dove ha gia' messo ore sue.
+// - Niente stampa, niente CSV, niente Excel delle ore.
+// ============================================================
+const ESTERNO_MIN_CAR = 5;
+function esternoCommesseMie(){
+  const mia = personaMia(); if(!mia) return new Set();
+  const s = new Set(); (STATE.ore||[]).forEach(function(r){ if(r.PersonaID===mia.ID && r.Commessa) s.add(String(r.Commessa)); });
+  return s;
+}
+let ESTERNO_SCELTE = {};   // commesse trovate scrivendo, in questa sessione
+function esternoFiltraCommesse(){
+  if(!sonoEsterno()) return;
+  const mie = esternoCommesseMie();
+  Object.keys(ESTERNO_SCELTE).forEach(function(k){ mie.add(k); });
+  STATE.commesse = (STATE.commesse||[]).filter(function(c){ return mie.has(String(c.ID)); });
+  Object.keys(ESTERNO_SCELTE).forEach(function(k){
+    if(!STATE.commesse.some(function(c){ return String(c.ID)===k; })) STATE.commesse.push({ID:k,Nome:ESTERNO_SCELTE[k]||""});
+  });
+}
+async function cercaCommesseEsterno(testo){
+  const r = await fetch(SB_URL+"/rest/v1/rpc/cerca_commesse",{method:"POST",
+    headers: await sbH({"Content-Type":"application/json"}), body: JSON.stringify({testo:String(testo||"")})});
+  if(!r.ok){ authScaduto(r); throw new Error(await r.text()); }
+  return r.json();
+}
+let _ESTCERCA_T = null, _ESTCERCA_N = 0;
+function esternoCercaComm(){
+  const q = (document.getElementById("no-comm-q")||{}).value||"";
+  const box = document.getElementById("no-comm-sug"); if(!box) return;
+  const hid = document.getElementById("no-comm"); if(hid) hid.value = "";
+  const pulito = q.replace(/\s+/g,"");
+  clearTimeout(_ESTCERCA_T);
+  if(pulito.length < ESTERNO_MIN_CAR){
+    box.innerHTML = '<div style="font-size:12px;color:var(--gray);margin-top:5px">Scrivi almeno '+ESTERNO_MIN_CAR+' caratteri del codice o del nome della commessa'+(pulito.length?(' (ancora '+(ESTERNO_MIN_CAR-pulito.length)+')'):'')+'.</div>';
+    return;
+  }
+  box.innerHTML = '<div style="font-size:12px;color:var(--gray);margin-top:5px">Cerco…</div>';
+  const n = ++_ESTCERCA_N;
+  _ESTCERCA_T = setTimeout(function(){
+    cercaCommesseEsterno(q.trim()).then(function(L){
+      if(n !== _ESTCERCA_N) return;
+      if(!Array.isArray(L) || !L.length){ box.innerHTML = '<div style="font-size:12px;color:var(--amber);margin-top:5px">Nessuna commessa trovata: controlla il codice o chiedi all\'ufficio.</div>'; return; }
+      box.innerHTML = L.map(function(c){
+        return '<div class="est-sug" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-top:5px;cursor:pointer;background:var(--white)" '
+          +'data-id="'+att(c.id)+'" data-nome="'+att(c.nome||"")+'" onclick="esternoPrendiComm(this)"><strong>'+esc(c.id)+'</strong>'+(c.nome&&c.nome!==c.id?(' - '+esc(c.nome)):'')+'</div>';
+      }).join("");
+    }).catch(function(e){
+      if(n !== _ESTCERCA_N) return;
+      box.innerHTML = '<div style="font-size:12px;color:var(--red);margin-top:5px">Non riesco a cercare adesso: riprova tra poco.</div>';
+      console.error(e);
+    });
+  }, 350);
+}
+function esternoPrendiComm(el){
+  const id = el.getAttribute("data-id"), nome = el.getAttribute("data-nome")||"";
+  ESTERNO_SCELTE[id] = nome;
+  const hid = document.getElementById("no-comm"); if(hid) hid.value = id;
+  const q = document.getElementById("no-comm-q"); if(q) q.value = id+(nome&&nome!==id?(" - "+nome):"");
+  const box = document.getElementById("no-comm-sug"); if(box) box.innerHTML = '<div style="font-size:12px;color:var(--green);margin-top:5px">✓ commessa scelta</div>';
+}
+{ const _ono = openNuovaOra; openNuovaOra = function(id, pre){
+    const r = _ono.apply(this, arguments);
+    if(sonoEsterno()){
+      const box = document.getElementById("no-box-comm");
+      if(box){
+        const sel = document.getElementById("no-comm"); const att0 = sel ? sel.value : "";
+        const nome0 = att0 ? (nomeCommessa(att0)||ESTERNO_SCELTE[att0]||"") : "";
+        box.innerHTML = '<label>Commessa *</label>'
+          +'<input id="no-comm-q" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="scrivi il codice o il nome" '
+          +'value="'+att(att0?(att0+(nome0&&nome0!==att0?(" - "+nome0):"")):"")+'" oninput="esternoCercaComm()">'
+          +'<input id="no-comm" type="hidden" value="'+att(att0)+'">'
+          +'<div id="no-comm-sug"></div>';
+      }
+    }
+    return r;
+  }; }
+/* niente scarichi per il montatore esterno */
+function _togliScarichi(html){
+  return String(html).replace(/<button\b[^>]*onclick="(?:csv|stampa|xls|excel|scarica)[^"]*"[^>]*>[\s\S]*?<\/button>/gi, "");
+}
+{ const _ro = renderOre; renderOre = function(){ esternoFiltraCommesse(); const h = _ro.apply(this, arguments); return sonoEsterno() ? _togliScarichi(h) : h; }; }
+{ const _oc = oreContenuto; oreContenuto = function(){ const h = _oc.apply(this, arguments); return sonoEsterno() ? _togliScarichi(h) : h; }; }
+["stampaMastrinoPersona","csvMastrinoPersona","csvDettaglioPeriodo","csvPersoneCommessePeriodo","stampaRegistroOre","csvRegistroOre",
+ "csvDettaglioGiorni","csvPersoneCommesse","csvTutteLeOre","csvAgenda","stampaAgenda","csvDettaglioMese","csvTabellaMese","csvRiepilogoAnno",
+ "csvOrePerCommessa","csvOrePerPersona","csvPersonale","stampaMastrinoCommessa","csvMastrinoCommessa"].forEach(function(nome){
+  try{ const f = window[nome]; if(typeof f !== "function") return;
+    window[nome] = function(){ if(sonoEsterno()){ toast("Le ore non si possono scaricare da questo accesso.","err"); return; } return f.apply(this, arguments); };
+  }catch(e){}
+});
+{ const _me = modoEsterno; modoEsterno = function(){
+    const r = _me.apply(this, arguments);
+    try{
+      if(!document.getElementById("st-esterno-165")){ const st = document.createElement("style"); st.id = "st-esterno-165";
+        st.textContent = "@media print{body.ruolo-esterno *{visibility:hidden!important}}"; document.head.appendChild(st); }
+      esternoFiltraCommesse();
+    }catch(e){}
+    return r;
+  }; }
+
+
+// ============================================================
+// v166 - LE ORE DEI MONTATORI ESTERNI NON FANNO MONTE ORE
+// Il montatore esterno fa fattura: le sue ore non sono manodopera
+// dell'azienda. Per l'ufficio le tolgo da STATE.ore (quindi da tutti
+// i totali, mastrini, tabelle, report, dashboard, offerte) e le tengo
+// a parte in STATE.oreEsterne. Si vedono in Ore e trasferte ->
+// «Montatori esterni» e in fondo al report della commessa, come
+// manodopera esterna. Alla contabilita' arrivano lo stesso, come
+// «Manodopera esterna»: servono solo a dividere la loro fattura.
+// Il montatore, quando entra, vede le sue ore come prima.
+// ============================================================
+STATE.oreEsterne = STATE.oreEsterne || [];
+function personaleEsterniIds(){
+  const s = new Set(); (STATE.personale||[]).forEach(function(p){ if(esternoDi(p)) s.add(String(p.ID)); }); return s;
+}
+function personaleEsterniNomi(){
+  const s = new Set(); (STATE.personale||[]).forEach(function(p){ if(esternoDi(p)) s.add(String(p.Nome||'').trim().toLowerCase()); }); return s;
+}
+function separaOreEsterne(){
+  if(sonoEsterno() || !Array.isArray(STATE.ore)) return;
+  const ids = personaleEsterniIds(); if(!ids.size){ return; }
+  const dentro = [], fuori = [];
+  STATE.ore.forEach(function(r){ (ids.has(String(r.PersonaID)) ? fuori : dentro).push(r); });
+  if(!fuori.length) return;
+  const visti = new Set(fuori.map(function(r){ return String(r.ID); }));
+  STATE.oreEsterne = fuori.concat((STATE.oreEsterne||[]).filter(function(r){ return !visti.has(String(r.ID)) && ids.has(String(r.PersonaID)); }));
+  STATE.ore = dentro;
+}
+/* quando arrivano ore nuove (getOre) le separo subito */
+{ const _rp = renderPage; renderPage = function(){ try{ separaOreEsterne(); }catch(e){} return _rp.apply(this, arguments); }; }
+{ const _call = call; call = async function(fn, args){
+    const r = await _call.apply(this, arguments);
+    if(fn === "getOre" && Array.isArray(r) && !sonoEsterno()){
+      const ids = personaleEsterniIds();
+      if(ids.size){ STATE.oreEsterne = r.filter(function(x){ return ids.has(String(x.PersonaID)); });
+        return r.filter(function(x){ return !ids.has(String(x.PersonaID)); }); }
+    }
+    return r;
+  }; }
+/* il file per la contabilita' (e il CSV dei movimenti): ci metto anche le ore esterne, segnate come tali */
+{ const _rmv = righeMovimentiEVoci; righeMovimentiEVoci = function(pref){
+    separaOreEsterne();
+    const salva = STATE.ore, est = STATE.oreEsterne||[];
+    STATE.ore = (salva||[]).concat(est);
+    let tab; try{ tab = _rmv.apply(this, arguments); } finally { STATE.ore = salva; }
+    if(est.length){
+      const nomi = personaleEsterniNomi();
+      tab.forEach(function(r, i){ if(i && r[1]==='Manodopera' && nomi.has(String(r[3]||'').trim().toLowerCase())) r[1]='Manodopera esterna'; });
+    }
+    return tab;
+  }; }
+/* riepilogo: ore esterne per persona e commessa */
+function oreEsterneDi(filtro){ return (STATE.oreEsterne||[]).filter(filtro||function(){return true;}); }
+function tabellaOreEsterne(list, perCommessa){
+  if(!list.length) return '';
+  const G = {};
+  list.forEach(function(r){ const k = perCommessa ? (r.Persona||'') : ((r.Persona||'')+'|'+(r.Commessa||'')); (G[k]=G[k]||[]).push(r); });
+  return '<table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12.5px"><thead><tr style="background:#f0e9e0">'
+    +'<th align="left">Montatore</th>'+(perCommessa?'':'<th align="left">Commessa</th>')+'<th align="right">Ore</th><th align="right">%</th></tr></thead><tbody>'
+    +(function(){ const tot = list.reduce(function(a,r){ return a+(+r.Ore||0); },0);
+      return Object.keys(G).sort().map(function(k){ const h = G[k].reduce(function(a,r){ return a+(+r.Ore||0); },0); const p = k.split('|');
+        return '<tr><td>'+esc(p[0])+'</td>'+(perCommessa?'':'<td>'+commTxt(p[1]||'')+'</td>')+'<td align="right">'+nOre(h)+'</td><td align="right">'+(tot?Math.round(h/tot*100):0)+'%</td></tr>'; }).join('')
+      +'<tr style="background:#efefef;font-weight:bold"><td>Totale</td>'+(perCommessa?'':'<td></td>')+'<td align="right">'+nOre(tot)+'</td><td></td></tr>'; })()
+    +'</tbody></table>';
+}
+function oreTabEsterni(){
+  separaOreEsterne();
+  const est = (STATE.personale||[]).filter(esternoDi);
+  if(!est.length) return '<div class="card" style="margin-top:14px;color:var(--gray)">Non ci sono montatori esterni. Si segnano in <b>Persone</b>, con la spunta «Montatore esterno che fa fattura».</div>';
+  const mesi = {}; (STATE.oreEsterne||[]).forEach(function(r){ const m = String(r.Data||'').slice(0,7); if(m) mesi[m]=1; });
+  const L = Object.keys(mesi).sort().reverse();
+  const blocchi = L.map(function(m){
+    const list = oreEsterneDi(function(r){ return String(r.Data||'').slice(0,7)===m; });
+    return '<div class="card" style="margin-bottom:12px"><div class="card-title">'+esc(meseAnnoIt(m))+'</div>'+tabellaOreEsterne(list,false)+'</div>';
+  }).join('');
+  return '<div class="card" style="margin-top:14px"><div class="info-box">Le ore dei <b>montatori esterni</b> non sono manodopera dell\'azienda: '
+    +'il loro costo arriva con la loro fattura. Per questo <b>non entrano nel monte ore</b>, nei mastrini, nelle tabelle e nei report. '
+    +'Servono solo a dividere la fattura sulle commesse, in percentuale: la contabilità lo fa da sola.</div>'
+    +'<div style="font-size:12.5px;color:var(--gray)">Montatori: '+est.map(function(p){ return '<b>'+esc(p.Nome)+'</b>'+(dittaDi(p)?(' ('+esc(dittaDi(p))+')'):''); }).join(', ')+'</div></div>'
+    +(blocchi || '<div class="card" style="color:var(--gray)">Nessuna ora registrata dai montatori esterni.</div>');
+}
+function meseAnnoIt(m){ const n=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre']; const p=String(m).split('-'); return (n[(+p[1]||1)-1]||'')+' '+p[0]; }
+{ const _ro = renderOre; renderOre = function(){
+    const h = _ro.apply(this, arguments);
+    if(!oreAdmin() || !(STATE.personale||[]).some(esternoDi)) return h;
+    const b = '<button class="btn '+(ORE_TAB==='esterni'?'btn-accent':'btn-ghost')+'" onclick="oreTab(\'esterni\')">Montatori esterni</button>';
+    return h.replace(/(<button class="btn [^"]*" onclick="oreTab\('personale'\)">)/, b+'$1');
+  }; }
+{ const _oc = oreContenuto; oreContenuto = function(){ if(ORE_TAB==='esterni' && oreAdmin()) return oreTabEsterni(); return _oc.apply(this, arguments); }; }
+/* nel report della commessa: un riquadro a parte */
+{ const _br = buildReportCommessa; buildReportCommessa = function(comm){
+    const h = _br.apply(this, arguments);
+    try{
+      separaOreEsterne();
+      const list = oreEsterneDi(function(r){ return r.Commessa===comm; });
+      if(!list.length) return h;
+      const blocco = '<h3 style="font-size:15px;margin:18px 0 8px">Manodopera esterna (montatori che fanno fattura)</h3>'
+        +'<div style="font-size:12px;color:#777;margin-bottom:6px">Ore registrate dai montatori esterni: non sono nel totale delle ore. Il costo è nella loro fattura, divisa sulle commesse in base a queste ore.</div>'
+        +tabellaOreEsterne(list,true);
+      const i = h.lastIndexOf('</div>');
+      return i>0 ? h.slice(0,i)+blocco+h.slice(i) : h+blocco;
+    }catch(e){ return h; }
+  }; }
+
 </script>
 </body>
 </html>
