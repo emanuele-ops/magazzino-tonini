@@ -274,7 +274,7 @@
     <div class="sidebar-header" style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
       <img id="side-logo" alt="Atelier Tonini" style="height:30px">
       <small id="sidebar-utente">Caricamento...</small>
-      <small id="logout-link" onclick="doLogout()" style="display:block;margin-top:3px;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:11px">Esci</small>
+      <small style="display:flex;gap:10px;margin-top:3px;font-size:11px"><span id="logout-link" onclick="doLogout()" style="color:var(--accent);cursor:pointer;text-decoration:underline">Esci</span><span onclick="openMiaPassword()" style="color:var(--accent);cursor:pointer;text-decoration:underline">Cambia password</span></small>
     </div>
     <nav id="sidebar-nav">
       <a class="active" data-page="dashboard"><span class="nav-dot"></span>Dashboard</a>
@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v162 - Atelier</div>
+  <div id="ver-badge">v164 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -494,7 +494,7 @@ function loadAll() {
     // Login Supabase
     if (u.autorizzato === "__login__") {
       document.getElementById("main-content").innerHTML =
-        '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al Magazzino</h2><div class="form-group"><label>Email</label><input id="lg-email" type="email" placeholder="nome@ateliertonini.it"></div><div class="form-group"><label>Password</label><input id="lg-pwd" type="password" placeholder="••••••"></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
+        '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al Magazzino</h2><div class="form-group"><label>Email o nome utente</label><input id="lg-email" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="nome@ateliertonini.it oppure mario.rossi"></div><div class="form-group"><label>Password</label><input id="lg-pwd" type="password" placeholder="••••••"></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
       // se sono uscito perche' l'ha deciso il programma o l'amministratore, lo dico
       try {
         const perche = sessionStorage.getItem("at_uscita");
@@ -716,6 +716,7 @@ async function sessEsci(motivoDaScrivere,motivoLetto,da){
   const msg=sessMessaggio(motivo,da);
   try{ if(msg)sessionStorage.setItem("at_uscita",msg); }catch(e){}
   try{localStorage.removeItem("at_utente");localStorage.removeItem("at_sessione");localStorage.removeItem("at_ultima_att");}catch(e){}
+  try{ await Promise.race([authEsci(),new Promise(function(r){setTimeout(r,1500);})]); }catch(e){ authSalva(null); }
   UTENTE_CORRENTE=null;
   window.__USCITA_FORZATA=true;
   try{ const f=document.getElementById("cont-if"); if(f&&f.contentWindow)f.contentWindow.onbeforeunload=null; }catch(e){}
@@ -796,9 +797,9 @@ async function contabilitaSalvaPrimaDiUscire(){
 }
 async function sbPostMinimo(table, body){
   const r = await fetch(SB_URL + "/rest/v1/" + table, { method: "POST",
-    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+    headers: await sbH({ "Content-Type": "application/json", Prefer: "return=minimal" }),
     body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
   return true;
 }
 // una riga del CSV pulita come la vedrebbe chi apre il file
@@ -1126,7 +1127,9 @@ function sessHTML(){
     +d.utenti.slice().sort((a,b)=>a.Nome.localeCompare(b.Nome)).map(function(u){
       const scelte=opz.some(o=>o[0]===u.Inattivita)?opz:opz.concat([[u.Inattivita,sessTestoInattivita(u.Inattivita)]]);
       return '<tr style="border-top:1px solid var(--border)'+(u.Attivo?'':';opacity:.5')+'">'
-        +'<td style="padding:8px 6px"><strong>'+att(u.Nome)+'</strong><div style="font-size:11.5px;color:var(--gray)">'+att(u.Email)+' &middot; '+att(u.Ruolo)+(u.Attivo?'':' &middot; disattivato')+'</div></td>'
+        +'<td style="padding:8px 6px"><strong>'+att(u.Nome)+'</strong><div style="font-size:11.5px;color:var(--gray)">'+att(u.Email)+' &middot; '+att(u.Ruolo)+(u.Attivo?'':' &middot; disattivato')+'</div>'
+        +(u.HaMigrato?('<div style="font-size:11.5px;margin-top:2px">'+(u.Migrato?'<span style="color:var(--green)">&#10003; nuovo accesso</span>':'<span style="color:var(--amber)">non ancora entrato col nuovo accesso</span>')
+          +' &middot; <a style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openPasswordUtente(\''+esc(u.Email)+'\')">nuova password</a></div>'):'')+'</td>'
         +'<td style="padding:8px 6px"><select onchange="sessRegola(\''+esc(u.Email)+'\',\'inattivita_min\',this.value)">'
         +scelte.map(o=>'<option value="'+o[0]+'"'+(o[0]===u.Inattivita?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></td>'
         +'<td style="padding:8px 6px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" style="width:18px;height:18px;accent-color:var(--accent)" '
@@ -1324,12 +1327,63 @@ const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 // Utente corrente (login semplice via localStorage)
 let UTENTE_CORRENTE = null;
 
+// ============================================================
+//  v164 - L'ACCESSO SICURO (Supabase Auth)
+//  Prima il database si apriva con la chiave scritta in questo file, che e'
+//  pubblico: chiunque poteva leggere e cambiare tutto, password comprese.
+//  Adesso ognuno entra con il SUO utente: Supabase gli da' un "gettone"
+//  (valido un'ora, si rinnova da solo) e le tabelle si aprono solo a chi lo
+//  ha. Il nome utente senza @ diventa nome@utenti.ateliertonini.it (nessuna
+//  email viene mandata: e' solo il formato che Supabase vuole).
+// ============================================================
+const AUTH_DOM = "utenti.ateliertonini.it";
+function emailAuth(u){ u=String(u||"").trim().toLowerCase(); return u.indexOf("@")>=0 ? u : (u+"@"+AUTH_DOM); }
+let AUTH = null;
+try { AUTH = JSON.parse(localStorage.getItem("at_auth")||"null"); } catch(e){ AUTH = null; }
+function authSalva(s){
+  AUTH = (s && s.access_token) ? { access_token:s.access_token, refresh_token:s.refresh_token,
+    expires_at: Date.now() + (Math.max(120,(+s.expires_in||3600)) - 60) * 1000 } : null;
+  try { if (AUTH) localStorage.setItem("at_auth", JSON.stringify(AUTH)); else localStorage.removeItem("at_auth"); } catch(e){}
+}
+async function authPost(path, body, token){
+  const r = await fetch(SB_URL + "/auth/v1/" + path, { method:"POST",
+    headers:{ apikey:SB_KEY, "Content-Type":"application/json", Authorization:"Bearer " + (token||SB_KEY) }, body:JSON.stringify(body||{}) });
+  let j = {}; try { j = await r.json(); } catch(e){}
+  return { ok:r.ok, status:r.status, j:j, msg:(j.error_description||j.msg||j.message||j.error||"") };
+}
+async function authEntra(user, pwd){
+  const r = await authPost("token?grant_type=password", { email:emailAuth(user), password:pwd });
+  if (r.ok && r.j.access_token){ authSalva(r.j); return { ok:true }; }
+  return { ok:false, msg:r.msg, status:r.status };
+}
+// crea l'utente su Supabase SENZA entrare con lui (serve all'amministratore)
+async function authRegistra(user, pwd){ return authPost("signup", { email:emailAuth(user), password:pwd }); }
+async function authEsci(){ try { if (AUTH) await authPost("logout", {}, AUTH.access_token); } catch(e){} authSalva(null); }
+let _authRinnovo = null;
+async function authToken(){
+  if (!AUTH) return null;
+  if (Date.now() < AUTH.expires_at) return AUTH.access_token;
+  if (!_authRinnovo) _authRinnovo = authPost("token?grant_type=refresh_token", { refresh_token:AUTH.refresh_token })
+    .then(function(r){ if (r.ok && r.j.access_token) authSalva(r.j); else authSalva(null); })
+    .catch(function(){}).finally(function(){ _authRinnovo = null; });
+  await _authRinnovo;
+  return AUTH ? AUTH.access_token : null;
+}
+async function sbH(extra){ const t = await authToken(); return Object.assign({ apikey:SB_KEY, Authorization:"Bearer " + (t||SB_KEY) }, extra||{}); }
+// il gettone non vale piu' (scaduto e non rinnovabile): si rientra
+function authScaduto(r){
+  if (r.status === 401 && AUTH){ authSalva(null);
+    try { sessionStorage.setItem("at_uscita","Il tuo accesso e' scaduto: rientra con la tua password."); } catch(e){}
+    try { localStorage.removeItem("at_utente"); } catch(e){}
+    setTimeout(function(){ window.__USCITA_FORZATA=true; location.reload(); }, 300); }
+}
+
 async function sbGet(table, params) {
   let url = SB_URL + "/rest/v1/" + table + "?";
   if (params) url += params;
   else url += "select=*";
-  const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY } });
-  if (!r.ok) throw new Error(await r.text());
+  const r = await fetch(url, { headers: await sbH() });
+  if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
   return r.json();
 }
 // Legge una tabella INTERA, a blocchi di mille righe.
@@ -1341,9 +1395,8 @@ async function sbGetTutto(table, ordine, params) {
   for (;;) {
     let url = SB_URL + "/rest/v1/" + table + "?" + (params || "select=*");
     if (ordine) url += "&order=" + ordine;
-    const r = await fetch(url, { headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY,
-      Range: da + "-" + (da + PASSO - 1), "Range-Unit": "items" } });
-    if (!r.ok) throw new Error(await r.text());
+    const r = await fetch(url, { headers: await sbH({ Range: da + "-" + (da + PASSO - 1), "Range-Unit": "items" }) });
+    if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
     const blocco = await r.json();
     out = out.concat(blocco);
     if (!blocco.length || blocco.length < PASSO) return out;
@@ -1354,36 +1407,36 @@ async function sbGetTutto(table, ordine, params) {
 async function sbPost(table, body) {
   const r = await fetch(SB_URL + "/rest/v1/" + table, {
     method: "POST",
-    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
+    headers: await sbH({ "Content-Type": "application/json", Prefer: "return=representation" }),
     body: JSON.stringify(body)
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
   return r.json();
 }
 async function sbUpsert(table, body) {
   const r = await fetch(SB_URL + "/rest/v1/" + table, {
     method: "POST",
-    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    headers: await sbH({ "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }),
     body: JSON.stringify(body)
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
   return true;
 }
 async function sbPatch(table, filter, body) {
   const r = await fetch(SB_URL + "/rest/v1/" + table + "?" + filter, {
     method: "PATCH",
-    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
+    headers: await sbH({ "Content-Type": "application/json", Prefer: "return=representation" }),
     body: JSON.stringify(body)
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
   return r.json();
 }
 async function sbDelete(table, filter) {
   const r = await fetch(SB_URL + "/rest/v1/" + table + "?" + filter, {
     method: "DELETE",
-    headers: { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY }
+    headers: await sbH()
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { authScaduto(r); throw new Error(await r.text()); }
   return true;
 }
 function newId(prefix) {
@@ -1514,6 +1567,12 @@ async function call(fn, args) {
       // cambiargli il ruolo non serviva a niente finche' non svuotava il
       // browser. Adesso il nome e il ruolo li prendo da li', non da quello
       // che si e' portato dietro il telefono.
+      if (UTENTE_CORRENTE && UTENTE_CORRENTE.Email && !AUTH) {
+        // entrato con il vecchio sistema: rientra una volta, cosi' passa al nuovo accesso
+        UTENTE_CORRENTE = null;
+        try { localStorage.removeItem("at_utente"); sessionStorage.setItem("at_uscita","Da oggi si entra con il nuovo accesso sicuro: rientra una volta con la tua solita password."); } catch (e) {}
+        return { autorizzato: "__login__" };
+      }
       if (UTENTE_CORRENTE && UTENTE_CORRENTE.Email) {
         let righe = [];
         try {
@@ -1536,11 +1595,8 @@ async function call(fn, args) {
         return UTENTE_CORRENTE;
       }
       if (UTENTE_CORRENTE) return UTENTE_CORRENTE;
-      const utenti = await sbGet("utenti");
-      if (utenti.length === 0) {
-        UTENTE_CORRENTE = { Email: "admin@ateliertonini.it", Nome: "Admin", Ruolo: "admin", autorizzato: true };
-        return UTENTE_CORRENTE;
-      }
+      // v164: tolto «se la tabella utenti e' vuota entri come amministratore»: con le
+      // tabelle protette chi non e' entrato vede la tabella vuota, e sarebbe entrato come admin.
       // Mostra schermata di login
       return { autorizzato: "__login__" };
     }
@@ -1629,10 +1685,16 @@ async function call(fn, args) {
       const io = STATE.utente || {};
       if (io.Ruolo !== "admin") return { ok: false, err: "Gli accessi li crea solo l'amministratore." };
       const email = String(args.Email || "").trim().toLowerCase();
-      if (!email || !/@/.test(email)) return { ok: false, err: "Email non valida." };
+      // un'email oppure un nome utente: almeno 3 caratteri, senza spazi
+      if (!email || email.length < 3 || /\s/.test(email)) return { ok: false, err: "Scrivi un'email o un nome utente di almeno 3 caratteri, senza spazi." };
       const gia = await sbGet("utenti", "select=email,ruolo&email=eq." + encodeURIComponent(email));
       if (gia.length) return { ok: false, err: "Esiste gia' un utente con questa email (" + (gia[0].ruolo || "") + "): non lo cambio da qui." };
-      await sbPost("utenti", { email: email, nome: args.Nome || email, password: String(args.Password || ""), ruolo: "esterno", attivo: true });
+      const ruolo = args.Ruolo === "operator" ? "operator" : "esterno";
+      if (String(args.Password || "").length < 6) return { ok: false, err: "La password deve avere almeno 6 caratteri." };
+      const rg = await authRegistra(email, String(args.Password));
+      if (!rg.ok) return { ok: false, err: /already|registered|exists/i.test(rg.msg) ? "Esiste gia' un accesso con questo nome: scegline un altro." : ("Supabase non crea l'accesso: " + rg.msg) };
+      try { await sbPost("utenti", { email: email, nome: args.Nome || email, password: "", ruolo: ruolo, attivo: true, migrato: new Date().toISOString() }); }
+      catch (e) { await sbPost("utenti", { email: email, nome: args.Nome || email, password: "", ruolo: ruolo, attivo: true }); }
       return { ok: true };
     }
     if (fn === "salvaPersona") {
@@ -1940,7 +2002,7 @@ async function call(fn, args) {
         utenti: utenti.map(u => Object.assign({ Email: u.email, Nome: u.nome || u.email, Ruolo: u.ruolo || "operator",
           Attivo: u.attivo !== false, HaColonne: (u.inattivita_min !== undefined && u.un_dispositivo !== undefined),
           Contabilita: u.contabilita === true, HaColCont: u.contabilita !== undefined,
-          Titolare: u.titolare === true },
+          Titolare: u.titolare === true, Migrato: !!u.migrato, HaMigrato: u.migrato !== undefined },
           { Inattivita: regoleDi(u).inattivita_min, UnDispositivo: regoleDi(u).un_dispositivo }))
       };
     }
@@ -4162,17 +4224,82 @@ async function call(fn, args) {
 }
 function toast(msg,tipo){const el=document.getElementById("toast");el.textContent=msg;el.className=tipo||"ok";el.style.display="block";setTimeout(()=>el.style.display="none",3500);}
 
+// v164: cambiare la propria password (nuovo accesso)
+function openMiaPassword(){
+  if(!AUTH){ toast("Prima entra con il nuovo accesso","err"); return; }
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Cambia la tua password</h2>'
+   +'<div class="form-group"><label>Password nuova (almeno 6 caratteri)</label><input type="password" id="mp-1" autocomplete="new-password"></div>'
+   +'<div class="form-group"><label>Riscrivila</label><input type="password" id="mp-2" autocomplete="new-password"></div>'
+   +'<div id="mp-err"></div><button class="btn-primary" onclick="submitMiaPassword()">Cambia</button></div>');
+}
+async function submitMiaPassword(){
+  const a=gv('mp-1'), b=gv('mp-2');
+  if(a.length<6){showErr('mp-err','Almeno 6 caratteri.');return;}
+  if(a!==b){showErr('mp-err','Le due password non sono uguali.');return;}
+  const t=await authToken();
+  const r=await fetch(SB_URL+"/auth/v1/user",{method:"PUT",headers:{apikey:SB_KEY,Authorization:"Bearer "+t,"Content-Type":"application/json"},body:JSON.stringify({password:a})});
+  if(!r.ok){ let m=""; try{ const j=await r.json(); m=j.msg||j.error_description||j.message||""; }catch(e){} showErr('mp-err','Non cambiata: '+m); return; }
+  closeModal(); toast("Password cambiata");
+}
+// v164: l'amministratore da' una password nuova a un utente (funzione sul database, solo per l'admin)
+function openPasswordUtente(email){
+  openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Nuova password per '+att(email)+'</h2>'
+   +'<div class="info-box">Se non ha ancora il nuovo accesso glielo creo io con questa password. Dagliela tu: potr&agrave; cambiarla da «Cambia password».</div>'
+   +'<div class="form-group"><label>Password nuova (almeno 6 caratteri)</label><input id="pu-1"></div>'
+   +'<div id="pu-err"></div><button class="btn-primary" onclick="submitPasswordUtente(\''+esc(email)+'\')">Imposta</button></div>');
+}
+async function submitPasswordUtente(email){
+  const a=gv('pu-1').trim(); if(a.length<6){showErr('pu-err','Almeno 6 caratteri.');return;}
+  // se non ha ancora l'accesso su Supabase, lo creo; se ce l'ha, cambio la password con la funzione del database
+  const rg=await authRegistra(email,a);
+  if(rg.ok){ try{ await sbPatch("utenti","email=eq."+encodeURIComponent(email),{migrato:new Date().toISOString()}); }catch(e){} closeModal(); toast("Accesso creato con la password nuova"); return; }
+  const r=await fetch(SB_URL+"/rest/v1/rpc/admin_imposta_password",{method:"POST",headers:await sbH({"Content-Type":"application/json"}),body:JSON.stringify({utente:emailAuth(email),nuova:a})});
+  if(!r.ok){ showErr('pu-err','Non riesco: '+(await r.text())+'<br><small>Hai lanciato su Supabase il file 66a_accesso_sicuro_1.sql?</small>'); return; }
+  try{ await sbPatch("utenti","email=eq."+encodeURIComponent(email),{migrato:new Date().toISOString()}); }catch(e){}
+  closeModal(); toast("Password cambiata per "+email);
+}
 async function doLogin(){
   const email=document.getElementById("lg-email").value.trim();
   const pwd=document.getElementById("lg-pwd").value.trim();
   const err=document.getElementById("lg-err");
   if(!email||!pwd){err.textContent="Inserisci email e password.";return;}
   try {
-    const rows = await sbGet("utenti","select=*&email=eq."+encodeURIComponent(email));
-    if(!rows.length){err.textContent="Utente non trovato.";return;}
+    err.style.color=""; err.textContent="Entro…";
+    const cercaUtente=async function(){
+      // v163: si entra con l'email OPPURE con un nome utente (sta nella stessa colonna).
+      // Maiuscole e minuscole non contano.
+      let rows = await sbGet("utenti","select=*&email=eq."+encodeURIComponent(email));
+      if(!rows.length && email!==email.toLowerCase()) rows = await sbGet("utenti","select=*&email=eq."+encodeURIComponent(email.toLowerCase()));
+      if(!rows.length) rows = await sbGet("utenti","select=*&email=ilike."+encodeURIComponent(email.replace(/[%_*]/g,"")));
+      return rows;
+    };
+    // v164: prima il nuovo accesso sicuro
+    authSalva(null);
+    let ra = await authEntra(email, pwd);
+    if(!ra.ok){
+      // primo ingresso dopo il cambio: controllo la vecchia password e creo il nuovo accesso
+      let vecchi=[]; try{ vecchi=await cercaUtente(); }catch(e){ vecchi=[]; }
+      const v=vecchi[0];
+      if(!v||!v.password||v.password!==pwd){ err.textContent="Utente o password sbagliati."; return; }
+      if(!v.attivo){err.textContent="Account disabilitato.";return;}
+      let nuova=pwd;
+      if(nuova.length<6){
+        nuova=prompt("Il nuovo accesso vuole una password di almeno 6 caratteri.\n\nScegline una nuova (da qui in poi entri con questa):","")||"";
+        if(nuova.length<6){ err.textContent="Serve una password di almeno 6 caratteri: riprova."; return; }
+      }
+      const rg=await authRegistra(v.email, nuova);
+      if(!rg.ok && !/already|registered|exists/i.test(rg.msg)){ err.textContent="Non riesco a creare il nuovo accesso: "+rg.msg; return; }
+      if(!rg.ok){ err.textContent="Hai gia' il nuovo accesso: entra con la password che hai scelto allora."; return; }
+      ra = await authEntra(v.email, nuova);
+      if(!ra.ok){ err.innerHTML="Nuovo accesso creato, ma non riesco a entrare: "+att(ra.msg||"")+".<br><small>Su Supabase: Authentication &rarr; Sign In / Providers &rarr; Email &rarr; togli <b>Confirm email</b>.</small>"; return; }
+      try{ await sbPatch("utenti","email=eq."+encodeURIComponent(v.email),{migrato:new Date().toISOString()}); }catch(e){}
+      if(nuova!==pwd) toast("Da adesso la tua password e' quella nuova");
+    }
+    const rows = await cercaUtente();
+    if(!rows.length){ await authEsci(); err.textContent="Il tuo accesso c'e', ma non sei fra gli utenti del magazzino: chiedi all'amministratore."; return; }
     const u=rows[0];
-    if(u.password!==pwd){err.textContent="Password errata.";return;}
-    if(!u.attivo){err.textContent="Account disabilitato.";return;}
+    if(!u.attivo){ await authEsci(); err.textContent="Account disabilitato.";return;}
+    err.textContent="";
     UTENTE_CORRENTE={Email:u.email,Nome:u.nome||u.email,Ruolo:u.ruolo||"operator",autorizzato:true,Contabilita:u.contabilita===true,
       Titolare:u.titolare===true,HaTitolare:u.titolare!==undefined};
     localStorage.setItem("at_utente",JSON.stringify(UTENTE_CORRENTE));
@@ -15025,7 +15152,7 @@ function openNuovaPersona(id){
    +'<h2>'+(p?'Modifica persona':'Nuova persona')+'</h2>'
    +'<div class="form-row"><div class="form-group"><label>Nome e cognome *</label><input id="np-nome" value="'+att(d.Nome)+'"></div>'
    +'<div class="form-group"><label>Mansione</label><input id="np-mans" value="'+att(d.Mansione)+'" placeholder="es. falegname"></div></div>'
-   +'<div class="form-group"><label>Email dell\'utente dell\'app</label><input id="np-mail" value="'+att(d.Email)+'" placeholder="nome@ateliertonini.it">'
+   +'<div class="form-group"><label>Email o nome utente per entrare nell\'app</label><input id="np-mail" value="'+att(d.Email)+'" autocapitalize="none" placeholder="nome@ateliertonini.it oppure mario.rossi">'
    +'<div style="font-size:11.5px;color:var(--gray);margin-top:4px">Serve solo se questa persona entra nell\'app con un suo accesso: così quando registra le ore trova già se stessa.</div></div>'
    +'<div class="form-row-3"><div class="form-group"><label>Costo orario &euro; *</label><input type="number" step="any" min="0" id="np-costo" value="'+att(d.CostoOrario)+'"></div>'
    +'<div class="form-group"><label>Rimborso &euro;/km</label><input type="number" step="any" min="0" id="np-km" value="'+att(d.EuroKm)+'"></div>'
@@ -15037,9 +15164,9 @@ function openNuovaPersona(id){
      +'<div id="np-estbox" style="'+(esternoDi(d)?'':'display:none')+'">'
      +'<div style="font-size:12px;color:var(--gray);margin:4px 0 8px">Inserisce solo le sue ore. Il costo non lo calcola il magazzino (costo orario a zero): lo porta la <b>sua fattura</b>, che la contabilit&agrave; divide da sola sulle commesse in base alle ore del mese.</div>'
      +'<div class="form-group"><label>Ditta che fa la fattura (come la scrive Fatture in Cloud)</label><input id="np-ditta" value="'+att(dittaDi(d))+'" placeholder="es. Zaza Enrico"></div>'
-     +'<div class="form-row"><div class="form-group"><label>Password per entrare (la dai tu a lui)</label><input id="np-pwd" placeholder="almeno 6 caratteri"></div>'
-       +'<div class="form-group"><label>&nbsp;</label><div style="font-size:11.5px;color:var(--gray)">Entrer&agrave; con l\'email qui sopra e questa password: vedr&agrave; solo le sue ore. <b>Lascia vuoto</b> se ha gi&agrave; l\'accesso.</div></div></div>'
-     +'</div></div>'):'')
+     +'</div></div>'
+     +'<div class="form-row" style="margin-top:8px"><div class="form-group"><label>Password per un accesso nuovo (la dai tu)</label><input id="np-pwd" placeholder="almeno 6 caratteri"></div>'
+       +'<div class="form-group"><label>&nbsp;</label><div style="font-size:11.5px;color:var(--gray)">Crea il suo utente con l\'email o il nome utente qui sopra. Montatore esterno: vede solo le sue ore. Altrimenti entra come <b>operatore</b>. <b>Lascia vuoto</b> se ha gi&agrave; l\'accesso.</div></div></div>'):'')
    +'<div id="np-err"></div><button class="btn-primary" onclick="submitPersona(\''+esc(id||'')+'\')">'+(p?'Salva modifiche':'Aggiungi')+'</button></div>');
 }
 function esternoDi(p){ return /\[esterno\]/i.test(String((p&&p.Note)||'')); }
@@ -15059,15 +15186,19 @@ function submitPersona(id){
     d.Note=(d.Note+' [esterno] [ditta: '+ditta.trim().replace(/[\[\]]/g,'')+']').trim();
     d.CostoOrario=0;
     if(!d.Mansione)d.Mansione='Montatore esterno';
-    pwdEst=((document.getElementById('np-pwd')||{}).value||'').trim();
-    if(pwdEst&&!d.Email){showErr('np-err','Per dargli l\'accesso serve la sua email.');return;}
+  }
+  pwdEst=((document.getElementById('np-pwd')||{}).value||'').trim();
+  {
+    if(pwdEst&&!d.Email){showErr('np-err','Per dargli l\'accesso serve un\'email o un nome utente.');return;}
+    if(pwdEst&&(d.Email.length<3||/\s/.test(d.Email))){showErr('np-err','Il nome utente deve avere almeno 3 caratteri, senza spazi.');return;}
+    d.Email=d.Email.toLowerCase();
     if(pwdEst&&pwdEst.length<6){showErr('np-err','La password deve avere almeno 6 caratteri.');return;}
   }
   if(pwdEst){
-    call('creaUtenteEsterno',{Email:d.Email,Nome:d.Nome,Password:pwdEst}).then(function(r){
+    call('creaUtenteEsterno',{Email:d.Email,Nome:d.Nome,Password:pwdEst,Ruolo:esterno?'esterno':'operator'}).then(function(r){
       if(!r||!r.ok){ if(r&&/Esiste gia/.test(r.err||'')){ toast(r.err,'err'); _salvaPersona(id,d); return; }
         showErr('np-err',(r&&r.err)||'Non riesco a creare l\'accesso');return;}
-      toast('Accesso creato: '+d.Email+' vede solo le sue ore');
+      toast('Accesso creato: '+d.Email+(esterno?' (vede solo le sue ore)':' (operatore)'));
       _salvaPersona(id,d);
     });
     return;
