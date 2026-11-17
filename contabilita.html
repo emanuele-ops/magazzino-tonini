@@ -20191,5 +20191,47 @@ NUOVE.montatori=function(){
     try{ await aggiornaEsterni(); if(ripartisciMontatori(false)) render(); }catch(e){} return r; }; }
 { const _ci=confermaImport; confermaImport=function(){ const r=_ci.apply(this,arguments); try{ if(ripartisciMontatori(false)) render(); }catch(e){} return r; }; }
 
+
+/* =====================================================================================
+   v163 — LE ORE DEI MONTATORI ESTERNI NON SONO MANODOPERA
+   Il loro costo arriva con la loro fattura (divisa da sola sulle commesse, v162). Le loro ore
+   servono SOLO a dividere quella fattura: non hanno costo orario, non entrano nelle ore del
+   mese usate per la manodopera e non spostano le buste paga. Restano nel dettaglio delle ore,
+   che e' quello che legge la divisione della fattura.
+   ===================================================================================== */
+function eEsterno(persona){
+  const k=SQ(persona); if(!k) return false;
+  return ((D&&D.config&&D.config.esterni)||[]).some(x=>x&&SQ(x.nome)===k);
+}
+{ const _td=tariffaDi; tariffaDi=function(persona){ return eEsterno(persona)?0:_td.apply(this,arguments); }; }
+/* le ore del mese (D.ore) che arrivano dall'import: le rifaccio dal dettaglio SENZA i montatori
+   esterni. Le righe messe a mano non le tocco. Si puo' rifare quante volte si vuole. */
+function togliOreEsterniDaMensili(){
+  if(!D||!(D.config.esterni||[]).length) return 0;
+  const det=D.oreDettaglio||[]; if(!det.some(d=>eEsterno(d.persona))) return 0;
+  const mesi=[...new Set(det.map(d=>String(d.mese)))];
+  const cambiati=[];
+  mesi.forEach(m=>{
+    const giusto={}; det.forEach(d=>{ if(String(d.mese)!==m||eEsterno(d.persona)) return; giusto[d.commessa]=(giusto[d.commessa]||0)+n(d.ore); });
+    const daImp=(D.ore||[]).filter(o=>String(o.mese)===m&&String(o.origine||"").startsWith("movimenti"));
+    if(!daImp.length) return;
+    const ora={}; daImp.forEach(o=>{ ora[o.commessa]=(ora[o.commessa]||0)+n(o.ore); });
+    const chiavi=new Set(Object.keys(giusto).concat(Object.keys(ora)));
+    let diverso=false; chiavi.forEach(c=>{ if(Math.abs((giusto[c]||0)-(ora[c]||0))>0.009) diverso=true; });
+    if(!diverso) return;
+    const org=daImp[0].origine;
+    D.ore=(D.ore||[]).filter(o=>!(String(o.mese)===m&&String(o.origine||"").startsWith("movimenti")));
+    Object.keys(giusto).forEach(c=>{ const v=Math.round(giusto[c]*100)/100; if(v>0) D.ore.push({mese:m,commessa:c,ore:v,origine:org}); });
+    cambiati.push(m);
+  });
+  cambiati.forEach(m=>{ try{ ricalcolaMdo(m); }catch(e){} });
+  if(cambiati.length){ try{ ricalcola(); }catch(e){} SPORCO=true; }
+  return cambiati.length;
+}
+{ const _co=confermaOre; confermaOre=function(){ const r=_co.apply(this,arguments); try{ if(togliOreEsterniDaMensili()) render(); }catch(e){} return r; }; }
+{ const _rom=ricostruisciOreMesi; ricostruisciOreMesi=function(){ const r=_rom.apply(this,arguments); try{ togliOreEsterniDaMensili(); }catch(e){} return r; }; }
+{ const _ae=aggiornaEsterni; aggiornaEsterni=async function(){ const r=await _ae.apply(this,arguments);
+    try{ const k=togliOreEsterniDaMensili(); if(k) toast("Ho tolto le ore dei montatori esterni dalla manodopera di "+k+" mesi: il loro costo è la fattura."); }catch(e){} return r; }; }
+
 </script>
 </body></html>
