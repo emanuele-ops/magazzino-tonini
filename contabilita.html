@@ -17966,14 +17966,25 @@ async function aggiornaDalMagazzino(silenzioso){
             X.spariti.push(y);
           });
         }catch(e){ console.error(e); }
-        X.spariti=X.spariti.filter(y=>!y.tenutoDopoMagazzino);
+        /* v165: anche quelli «tenuti» una volta: se il magazzino continua a non averli, sono stati cancellati davvero */
         if(!X.agg.length&&!X.cambiati.length&&!X.spariti.length) return;      /* niente di nuovo: non tocco niente */
         /* i nuovi e le correzioni entrano subito */
         if(X.agg.length||X.cambiati.length){
           X.prosegui({nuovi:X.agg,cambiati:X.cambiati,spariti:[]});
           esito.nuovi=X.agg.length; esito.cambiati=X.cambiati.length;
         }
-        /* quelli spariti dal magazzino NO: te li faccio vedere, decidi tu */
+        /* v165: quelli cancellati o annullati nel magazzino li tolgo anche qui, da solo: il magazzino comanda.
+           Solo se sono pochi: tanti insieme vuol dire quasi sempre che la lettura del magazzino non e' venuta bene,
+           e allora te li faccio vedere e decidi tu. Tutto annullabile dal Registro operazioni. */
+        const tetto=Math.max(30,Math.round((D.magazzino||[]).length*0.1));
+        if(X.spariti.length&&X.spariti.length<=tetto){
+          const L=X.spariti.slice();
+          X.prosegui({nuovi:[],cambiati:[],spariti:L});
+          L.forEach(y=>{ delete y.tenutoDopoMagazzino; });
+          esito.tolti=L.length; esito.toltiElenco=L.map(y=>dataIt(String(y.data).slice(0,10))+" · "+(y.commessa||"")+" · "+(y.materiale||"")+(y.pezzi?" ("+y.pezzi+")":"")+" · "+(y.quantita||"")+" "+(y.unita||""));
+          D.log=D.log||[]; D.log.push({quando:adesso(),cosa:"Tolti "+L.length+" consumi cancellati o annullati nel magazzino: "+esito.toltiElenco.join("; ")});
+          X.spariti=[];
+        }
         if(X.spariti.length){
           esito.daVedere=X.spariti.length;
           esito.revisione=Object.assign({},X,{agg:[],cambiati:[],
@@ -18043,6 +18054,7 @@ async function aggiornaDalMagazzino(silenzioso){
   if(esito.nuovi) parti.push(esito.nuovi+" consumi nuovi");
   if(esito.cambiati) parti.push(esito.cambiati+" corretti"+(esito.primaVoltaForn?" (solo questa volta: ho messo il fornitore giusto, prima veniva letto dalla colonna sbagliata)":""));
   if(esito.ore) parti.push("ore aggiornate");
+  if(esito.tolti) parti.push(esito.tolti+" consumi tolti perché cancellati o annullati nel magazzino ("+esito.toltiElenco.slice(0,3).join("; ")+(esito.tolti>3?"; …":"")+")");
   if(esito.commNuove) parti.push(esito.commNuove+" commesse nuove dal magazzino");
   if(esito.commRinominate) parti.push(esito.commRinominate+" commesse con il codice cambiato (conti spostati)");
   if(esito.commCambiate) parti.push(esito.commCambiate+" commesse aggiornate (nome o stato)");
@@ -19998,7 +20010,8 @@ SCHEDE.specchio=function(fid){
     const ord=[]; (S.ordini||[]).forEach(o=>(o.Righe||[]).forEach(r=>{ if(r.artId===x.ID) ord.push({o,r}); }));
     const ordRec=ord.filter(z=>dentro(z.o.Data)||(String(z.o.Stato||"").toLowerCase()!=="ricevuto"));
     const ris=(S.riserve||[]).filter(r=>r.ArticoloID===x.ID);
-    const cons={}; (D.magazzino||[]).forEach(g=>{ if(g.codGestionale===x.ID||SQ(g.materiale)===SQ(x.Nome)){ const c=risolvi(g.commessa||""); if(c) cons[c]=(cons[c]||0)+n(g.quantita); } });
+    const cons={}, ultimo={}; (D.magazzino||[]).forEach(g=>{ if(g.codGestionale===x.ID||SQ(g.materiale)===SQ(x.Nome)){ if(typeof consumoPagato==="function"&&consumoPagato(g)) return; const c=risolvi(g.commessa||""); if(!c||c==="(senza commessa)") return; cons[c]=(cons[c]||0)+n(g.quantita); const d=String(g.data||"").slice(0,10); if(d>(ultimo[c]||"")) ultimo[c]=d; } });
+    const COP=(typeof coperturaPerConsumo==="function")?coperturaPerConsumo():{cov:{},per:{}};
     const perC={}; const tocca=c=>perC[c]=perC[c]||{ord:0,ric:0,pren:0,cons:0};
     ordRec.forEach(z=>{ const c=risolvi(z.o.Commessa||""); if(!c) return; tocca(c).ord+=n(z.r.quantita); tocca(c).ric+=n(z.r.qtaRic); });
     ris.forEach(r=>{ const c=risolvi(r.Commessa||""); if(c) tocca(c).pren+=n(r.Quantita); });
@@ -20009,11 +20022,13 @@ SCHEDE.specchio=function(fid){
       <div><b>${esc(x.Nome)}</b> <span class="muted">· ${esc(x.ID)}${x.CodiceFornitore?" · cod. "+esc(x.CodiceFornitore):""} · in magazzino ${esc(String(x.Stock))} ${esc(x.UnitaMisura||"")}</span></div>
       ${car.length?`<div style="font-size:12px;margin-top:4px"><b>Caricati</b> ${car.map(m=>esc(dataIt(String(m.Data).slice(0,10)))+": "+esc(String(m.Q))+" "+esc(m.U||"")+(m.Ddt?" (bolla "+esc(m.Ddt)+")":"")+(m.Commessa?" → "+esc(m.Commessa):"")).join(" · ")}</div>`:'<div class="muted" style="font-size:12px;margin-top:4px">Nessun carico nel periodo.</div>'}
       ${ord.length?`<div style="font-size:12px;margin-top:3px"><b>Ordini</b> ${ordRec.slice(0,8).map(z=>esc(z.o.ID)+" "+esc(dataIt(String(z.o.Data).slice(0,10)))+": "+esc(String(z.r.quantita))+" "+esc(z.r.unita||"")+(z.o.Commessa?" per "+esc(z.o.Commessa):"")+(z.r.ricevuto?" ✓ arrivati":n(z.r.qtaRic)?" ("+esc(String(z.r.qtaRic))+" arrivati)":"")).join(" · ")||'<span class="muted">nessuno recente</span>'}</div>`:""}
-      ${Object.keys(perC).length?`<table class="mini" style="width:100%;margin-top:6px"><tr class="muted"><td>Commessa</td><td class="r">ordinati</td><td class="r">prenotati</td><td class="r">consumati</td><td class="r">su questa riga</td><td></td></tr>
-        ${Object.entries(perC).sort((p,q)=>(q[1].ord+q[1].cons)-(p[1].ord+p[1].cons)).map(([c,v])=>{ const qq=v.cons||v.ord||v.pren; const euro=Math.min(res,Math.round(qq*pu*100)/100);
-          return `<tr><td><span class="ent" data-ent="commessa" data-k="${esc(c)}">${esc(c)}</span></td><td class="r">${v.ord?num0(v.ord):"—"}</td><td class="r">${v.pren?num0(v.pren):"—"}</td><td class="r">${v.cons?num0(v.cons):"—"}</td>
+      ${Object.keys(perC).length?`<table class="mini" style="width:100%;margin-top:6px"><tr class="muted"><td>Commessa</td><td>ultimo consumo</td><td class="r">ordinati</td><td class="r">prenotati</td><td class="r">consumati</td><td class="r">già su altre fatture</td><td class="r">su questa riga</td><td></td></tr>
+        ${Object.entries(perC).sort((p,q)=>String(ultimo[q[0]]||"").localeCompare(String(ultimo[p[0]]||""))||(q[1].ord+q[1].cons)-(p[1].ord+p[1].cons)).map(([c,v])=>{ const k=c+"|"+SQ(x.Nome); const altre=Math.max(0,(COP.cov[k]||0)-(COP.per[k+"|"+f.id]||0)); const scop=Math.max(0,Math.round((v.cons-altre)*1000)/1000);
+          const qq=v.cons?scop:(v.ord||v.pren); const euro=Math.min(res,Math.round(qq*pu*100)/100);
+          return `<tr${v.cons&&!scop?' style="opacity:.55"':""}><td><span class="ent" data-ent="commessa" data-k="${esc(c)}">${esc(c)}</span></td><td>${ultimo[c]?esc(dataIt(ultimo[c])):"—"}</td><td class="r">${v.ord?num0(v.ord):"—"}</td><td class="r">${v.pren?num0(v.pren):"—"}</td><td class="r">${v.cons?num0(v.cons):"—"}</td>
+            <td class="r">${altre?num0(altre):"—"}</td>
             <td class="r">${giaSu[c]?"€ "+eur(giaSu[c]):"—"}</td>
-            <td>${pu&&res>0.01&&qq>0&&!giaSu[c]?`<button class="btn btn-ghost btn-sm" title="mette sulla commessa ${esc(String(qq))} ${esc(f.um||"")} × € ${eur(pu)}" onclick="specAssegna('${att(f.id)}','${att(c)}',${euro})">metti ${num0(qq)} = € ${eur(euro)}</button>`:""}</td></tr>`; }).join("")}</table>`:""}
+            <td>${v.cons&&!scop?'<span class="muted" style="font-size:11px">già coperto</span>':""}${pu&&res>0.01&&qq>0&&!giaSu[c]?`<button class="btn btn-ghost btn-sm" title="mette sulla commessa ${esc(String(qq))} ${esc(f.um||"")} × € ${eur(pu)}" onclick="specAssegna('${att(f.id)}','${att(c)}',${euro})">metti ${num0(qq)} = € ${eur(euro)}</button>`:""}</td></tr>`; }).join("")}</table>`:""}
     </div>`; }).join("");
   return head
     +`<div class="filters" style="margin:0 0 8px"><span class="muted">Periodo: ${esc(dataIt(da))} → ${esc(dataIt(a))}</span><span style="flex:1"></span>
@@ -20035,7 +20050,7 @@ function specAssegna(fid,comm,euro){
   euro=Math.round(n(euro)*100)/100; if(!(euro>0)) return;
   azione("modifica","Riga «"+(f.articolo||"")+"» su "+comm+" dallo specchietto del magazzino",()=>{
     D.imputazioni.push({id:f.id,destinazione:comm,quota:n(f.importo)?euro/n(f.importo):1,importo:euro,data:oggi(),origine:"specchietto magazzino"}); });
-  sporca(); try{ ricalcola(); }catch(e){} disegnaScheda(); toast("€ "+eur(euro)+" su "+comm);
+  sporca(); try{ ricalcola(); }catch(e){} render(); toast("€ "+eur(euro)+" su "+comm);
 }
 /* il tasto «📦 magazzino» sulle righe: nella scheda della fattura e nella pagina Fatture */
 { const _sf=SCHEDE.fattura; SCHEDE.fattura=function(k){ let h=_sf.apply(this,arguments);
@@ -20500,6 +20515,254 @@ SCHEDE.voceAg=function(k){
 };
 { const o=titoloScheda; titoloScheda=function(s){ if(s&&s.tipo==="voceAg"){ const v=vociAltre().find(x=>x.k===s.chiave); return v?v.desc:"Altra voce"; } return o.apply(this,arguments); }; }
 { const o=apriScheda; apriScheda=function(tipo,chiave){ if(tipo==="voceAg"){ _AV2={vista:"proposte",q:"",forn:"",mese:"",aperta:""}; } return o.apply(this,arguments); }; }
+
+
+/* =====================================================================================
+   v165 — FATTURA «STORNATA» DA UNA NOTA DI CREDITO
+   Sulla fattura scegli la nota di credito del fornitore che la storna. Fattura e nota si
+   chiudono a vicenda: la parte stornata va in «(fatture stornate)», fuori dai conti (fa zero),
+   quindi non resta niente «da assegnare»; in Scadenze tutte e due risultano chiuse.
+   Se la nota e' piu' piccola, si storna solo quella parte: il resto della fattura si assegna
+   come sempre. Tutto annullabile.
+   ===================================================================================== */
+const DEST_STORNO="(fatture stornate)"; try{ NATURA_BUCKET[DEST_STORNO]="altra_societa"; }catch(e){}
+function _st(){ D.stornate=D.stornate||[]; return D.stornate; }
+function stornoDi(chiave){ return _st().find(x=>x.fatt===chiave||x.nc===chiave)||null; }
+function _residuoRiga(f){ return Math.round((n(f.importo)-impTot(f.id))*100)/100; }
+function noteCreditoPer(g){
+  return documenti().filter(d=>d.chiave!==g.chiave&&!d.sospetta&&_stessoForn(d.fornitore,g.fornitore)&&(d.somma<-0.005||/^NC /.test(String(d.nr||""))))
+    .filter(d=>!stornoDi(d.chiave)||stornoDi(d.chiave).fatt===g.chiave)
+    .sort((a,b)=>Math.abs(_giorni(g.data,a.data)||999)-Math.abs(_giorni(g.data,b.data)||999));
+}
+function segnaStornata(chF,chNC){
+  const g=_docDaChiave(chF), nc=_docDaChiave(chNC); if(!g||!nc){ toast("Non trovo la fattura o la nota di credito"); return; }
+  if(stornoDi(chF)||stornoDi(chNC)){ toast("Una delle due è già usata in uno storno"); return; }
+  const rF=g.righe.filter(f=>_residuoRiga(f)>0.009), rN=nc.righe.filter(f=>_residuoRiga(f)<-0.009);
+  const resF=rF.reduce((a,f)=>a+_residuoRiga(f),0), resN=-rN.reduce((a,f)=>a+_residuoRiga(f),0);
+  const A=Math.round(Math.min(resF,resN)*100)/100;
+  if(!(A>0)){ toast("Non c'è niente da stornare: la fattura o la nota sono già tutte assegnate"); return; }
+  const diff=Math.round((resF-resN)*100)/100;
+  if(Math.abs(diff)>0.01&&!confirm("La nota di credito (€ "+eur(resN)+") non è uguale alla fattura (€ "+eur(resF)+").\n\n"
+      +(diff>0?"Storno solo € "+eur(A)+": gli altri € "+eur(diff)+" della fattura restano da assegnare come sempre.":"Storno € "+eur(A)+": gli altri € "+eur(-diff)+" della nota restano da assegnare.")+"\n\nProcedo?")) return;
+  azione("modifica","Fattura "+(g.fornitore||"")+" n. "+(g.nr||"")+" stornata dalla nota "+(nc.nr||"")+" (€ "+eur(A)+")",()=>{
+    if(!(D.destinazioni||[]).some(d=>d.nome===DEST_STORNO)) D.destinazioni.push({nome:DEST_STORNO,tipo:"commessa",codice:DEST_STORNO,descrizione:"fatture e note di credito che si annullano: fuori dai conti",natura:"altra_societa"});
+    const metti=(L,tot,segno)=>{ let resto=A; L.forEach((f,i)=>{ const r=Math.abs(_residuoRiga(f)); const q=i===L.length-1?resto:Math.round(A*r/tot*100)/100; const v=Math.min(q,r); resto=Math.round((resto-v)*100)/100; if(!(v>0.004)) return;
+        D.imputazioni.push({id:f.id,destinazione:DEST_STORNO,quota:n(f.importo)?segno*v/n(f.importo):1,importo:segno*v,data:oggi(),origine:"storno",stornoK:chF}); }); };
+    metti(rF,resF,1); metti(rN,resN,-1);
+    D.scadenze=D.scadenze||{};
+    const prima={}; [scadKeyF(g),scadKeyF(nc)].forEach(k=>{ prima[k]=D.scadenze[k]?JSON.parse(JSON.stringify(D.scadenze[k])):null;
+      if(Math.abs(diff)<=0.01) D.scadenze[k]=Object.assign({},D.scadenze[k]||{},{pagato:true,dataPag:oggi(),note:"stornata con nota di credito"}); });
+    _st().push({fatt:chF,nc:chNC,importo:A,quando:adesso(),prima});
+  });
+  try{ ricalcola(); }catch(e){} sporca(); render();
+  toast("Fattura STORNATA: € "+eur(A)+" chiusi con la nota di credito "+(nc.nr||""));
+}
+function annullaStorno(ch){
+  const x=stornoDi(ch); if(!x) return;
+  if(!confirm("Tolgo lo storno fra la fattura e la nota di credito? Torneranno tutte e due da assegnare.")) return;
+  azione("modifica","Tolto lo storno della fattura "+x.fatt,()=>{
+    D.imputazioni=(D.imputazioni||[]).filter(i=>i.stornoK!==x.fatt);
+    Object.entries(x.prima||{}).forEach(([k,v])=>{ if(v) D.scadenze[k]=v; else delete D.scadenze[k]; });
+    D.stornate=_st().filter(y=>y!==x); });
+  try{ ricalcola(); }catch(e){} sporca(); render(); toast("Storno tolto");
+}
+function boxStorno(g){
+  const x=stornoDi(g.chiave);
+  const eNC=g.somma<-0.005||/^NC /.test(String(g.nr||""));
+  if(x){ const altro=_docDaChiave(x.fatt===g.chiave?x.nc:x.fatt);
+    return `<div style="background:#fdecea;border:1px solid #e3a5a0;border-radius:10px;padding:9px 12px;margin:0 0 10px" onclick="event.stopPropagation()">
+      <b style="color:var(--red)">${x.fatt===g.chiave?"STORNATA":"STORNA UNA FATTURA"}</b> · € ${eur(x.importo)} ${x.fatt===g.chiave?"chiusi dalla nota di credito":"chiusi sulla fattura"}
+      ${altro?`<b>${esc(altro.nr||"")}</b> del ${esc(dataIt(altro.data))}`:""} · non resta niente da assegnare per questa parte, e in Scadenze ${Math.abs((altro?Math.abs(altro.somma):0)-Math.abs(g.somma))<=0.01?"sono tutte e due chiuse":"conta la differenza"}.
+      <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="annullaStorno('${att(g.chiave)}')">togli lo storno</button></div>`; }
+  if(eNC) return "";
+  const N=noteCreditoPer(g);
+  return `<div style="background:#fff;border:1px dashed var(--border);border-radius:10px;padding:8px 12px;margin:0 0 10px;font-size:12.5px" onclick="event.stopPropagation()">
+    <b>Fattura stornata?</b> <span class="muted">Se il fornitore l'ha annullata con una nota di credito, scegli la nota: si chiudono a vicenda.</span>
+    ${N.length?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px"><select id="stNC_${att(g.chiave)}" style="max-width:420px">${N.map(d=>`<option value="${att(d.chiave)}">${esc(d.nr||"")} del ${esc(dataIt(d.data))} · € ${eur(d.somma)}${Math.abs(Math.abs(d.somma)-g.somma)<=0.01?" (stesso importo)":""}</option>`).join("")}</select>
+      <button class="btn btn-no btn-sm" onclick="segnaStornata('${att(g.chiave)}',document.getElementById('stNC_${att(g.chiave)}').value)">Segna STORNATA</button></div>`
+      :`<div class="muted" style="margin-top:4px">Nessuna nota di credito di ${esc(g.fornitore||"")} in archivio: importala (Importa → note di credito dei fornitori) e torna qui.</div>`}</div>`;
+}
+{ const o=pannelloPagamenti; pannelloPagamenti=function(g){ let b=""; try{ if(g&&g.chiave) b=boxStorno(g); }catch(e){ console.error(e); } return b+o.apply(this,arguments); }; }
+{ const o=window.badgePagamenti; if(typeof o==="function") window.badgePagamenti=function(g){ let t=""; try{ const x=g&&g.chiave&&stornoDi(g.chiave); if(x) t=` <span class="tag t-red" title="€ ${eur(x.importo)} chiusi con una nota di credito">${x.fatt===g.chiave?"STORNATA":"storna fattura"}</span>`; }catch(e){} return t+o.apply(this,arguments); }; }
+
+
+/* =====================================================================================
+   v166 — VIA LE «PROPOSTE DI ABBINAMENTO» AUTOMATICHE
+   Non funzionavano (proponevano consumi vecchi o gia' coperti). Adesso:
+   - non ne creo piu' di nuove;
+   - quelle in attesa le tolgo (quelle gia' agganciate restano, e si possono annullare);
+   - per abbinare: sulla riga premi «📦 magazzino», a destra vedi carichi e consumi per commessa
+     dal piu' recente, con quanto e' gia' coperto da altre fatture, e scegli tu.
+   ===================================================================================== */
+/* v167: restano SOLO le proposte per codice pannello (stesso pannello sulla fattura e nel magazzino), da confermare tu */
+{ const _gp=generaProposte; generaProposte=function(){ return _gp.call(this,true); }; }
+function togliProposteInAttesa(){
+  if(!D) return 0; const L=D.proposte||[]; const via=L.filter(p=>p.conferma!=="SI"&&p.conferma!=="NO"&&p.aggancio!=="pezzo");
+  if(!via.length) return 0;
+  azione("modifica","Tolte "+via.length+" proposte di abbinamento automatiche in attesa (non si usano più)",()=>{ D.proposte=L.filter(p=>p.conferma==="SI"||p.conferma==="NO"||p.aggancio==="pezzo"); });
+  SPORCO=true; return via.length;
+}
+{ const o=dopoApertura; dopoApertura=function(){ const r=o.apply(this,arguments); try{ if(togliProposteInAttesa()){ ricalcola(); render(); } }catch(e){ console.error(e); } return r; }; }
+{ const o=aggiornaDalMagazzino; aggiornaDalMagazzino=async function(){ const r=await o.apply(this,arguments); try{ if(togliProposteInAttesa()){ ricalcola(); render(); } }catch(e){} return r; }; }
+/* nella fattura: le proposte per pannello da confermare (come prima); se non ce ne sono, gli agganci gia' fatti in piccolo */
+const _pdOrig=pannelloDdt;
+pannelloDdt=function(g){
+  { const ids0=new Set(g.righe.map(f=>f.id)); if((D.proposte||[]).some(p=>ids0.has(p.id)&&!p.conferma&&p.aggancio==="pezzo")) return _pdOrig.apply(this,arguments)
+      +`<div class="muted" style="font-size:12px;margin:0 0 8px">Per gli altri articoli premi <b>«📦 magazzino»</b> sulla riga: a destra vedi carichi e consumi per commessa, dal più recente, e scegli tu.</div>`; }
+  const ids=new Set(g.righe.map(f=>f.id));
+  const conf=(D.proposte||[]).map((p,i)=>({p,i})).filter(o=>ids.has(o.p.id)&&o.p.conferma==="SI");
+  const aiuto=`<div class="muted" style="font-size:12px;margin:0 0 8px">Per abbinare una riga ai consumi del magazzino premi <b>«📦 magazzino»</b> accanto alla categoria: a destra vedi carichi e consumi per commessa, dal più recente.</div>`;
+  if(!conf.length) return aiuto;
+  return `<div class="card" style="margin:0 0 10px;padding:8px 12px"><b style="font-size:13px">Già agganciate dal magazzino</b> <span class="muted">(${conf.length})</span>
+    ${conf.map(({p,i})=>{ const f=(D.fatture||[]).find(x=>x.id===p.id)||{}; const pct=Math.min(100,n(p.quotaPct)||n(p.pct)||100);
+      return `<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0;border-top:1px solid var(--border)"><span style="flex:1">${esc(String(p.materiale||p.articolo||"").slice(0,60))} → <b>${esc(p.commessa)}</b> <span class="muted">${p.pezzi?"pezzi "+esc(p.pezzi)+" · ":""}${String(Math.round(pct*10)/10).replace(".",",")}% = € ${eur(n(f.importo)*pct/100)}</span></span>
+        <button class="btn btn-ghost btn-sm" onclick="annullaDdt(${i})">annulla</button></div>`; }).join("")}</div>`+aiuto;
+};
+
+
+/* =====================================================================================
+   v167 — LE FATTURE ELETTRONICHE (XML): LA BOLLA DI OGNI RIGA
+   Carichi una cartella di XML (o .xml.p7m) del mese. Per ogni fattura trovo quella gia'
+   in archivio (stesso fornitore e numero) e scrivo su ogni riga la sua bolla (DDT) e la data.
+   Non aggancio niente: nello specchietto «📦 magazzino» la riga ti propone i carichi del
+   magazzino con LA STESSA BOLLA, e la commessa per cui sono arrivati. Confermi tu.
+   ===================================================================================== */
+let XML_ESITO=null;
+function _tag(el,nome){ return el?el.getElementsByTagNameNS("*",nome):[]; }
+function _t(el,nome){ const x=_tag(el,nome)[0]; return x?String(x.textContent||"").trim():""; }
+function _testoDaP7m(buf){
+  let b=new Uint8Array(buf);
+  /* a volte il .p7m e' scritto in base64 */
+  const testa=String.fromCharCode.apply(null,b.slice(0,8));
+  if(/^MI[I-K]/.test(testa)){ try{ const s=atob(new TextDecoder("ascii").decode(b).replace(/\s+/g,"")); b=new Uint8Array(s.length); for(let i=0;i<s.length;i++) b[i]=s.charCodeAt(i); }catch(e){} }
+  let lat=""; for(let i=0;i<b.length;i+=8192) lat+=String.fromCharCode.apply(null,b.subarray(i,i+8192));
+  let i0=lat.indexOf("<?xml"); if(i0<0){ const m=lat.search(/<[A-Za-z0-9_]*:?FatturaElettronica[\s>]/); i0=m; }
+  if(i0<0) return "";
+  const fine=lat.search(/FatturaElettronica>(?![\s\S]*FatturaElettronica>)/); if(fine<0) return "";
+  let x=lat.slice(i0,fine+"FatturaElettronica>".length);
+  /* i pezzi della busta firmata spezzano il testo: li tolgo (in un XML questi byte non ci sono mai) */
+  x=x.replace(/\x04\x82[\s\S]{2}|\x04\x81[\s\S]|\x04[\x01-\x7f](?=[\s\S])/g,"");
+  const by=new Uint8Array(x.length); for(let i=0;i<x.length;i++) by[i]=x.charCodeAt(i)&255;
+  return new TextDecoder("utf-8").decode(by);
+}
+async function leggiFileXml(file){
+  const buf=await file.arrayBuffer();
+  let txt=/\.p7m$/i.test(file.name)?_testoDaP7m(buf):new TextDecoder("utf-8").decode(new Uint8Array(buf));
+  if(!/FatturaElettronica/.test(txt)) txt=_testoDaP7m(buf);
+  const doc=new DOMParser().parseFromString(txt,"application/xml");
+  if(doc.getElementsByTagName("parsererror").length||!_tag(doc,"FatturaElettronicaBody").length) throw new Error("non è una fattura elettronica leggibile");
+  const ced=_tag(doc,"CedentePrestatore")[0];
+  const forn=_t(ced,"Denominazione")||((_t(ced,"Nome")+" "+_t(ced,"Cognome")).trim());
+  const piva=_t(_tag(ced,"IdFiscaleIVA")[0],"IdCodice");
+  const out=[];
+  Array.from(_tag(doc,"FatturaElettronicaBody")).forEach(body=>{
+    const dg=_tag(body,"DatiGeneraliDocumento")[0];
+    const ddt=Array.from(_tag(body,"DatiDDT")).map(d=>({nr:_t(d,"NumeroDDT"),data:_t(d,"DataDDT"),linee:Array.from(_tag(d,"RiferimentoNumeroLinea")).map(x=>String(x.textContent).trim())}));
+    const linee=Array.from(_tag(body,"DettaglioLinee")).map(l=>({n:_t(l,"NumeroLinea"),desc:_t(l,"Descrizione"),qta:n(_t(l,"Quantita")),um:_t(l,"UnitaMisura"),tot:n(_t(l,"PrezzoTotale")),
+      cod:Array.from(_tag(l,"CodiceArticolo")).map(c=>_t(c,"CodiceValore")).filter(Boolean).join(" ")}));
+    out.push({file:file.name,forn,piva,tipo:_t(dg,"TipoDocumento"),nr:_t(dg,"Numero"),data:_t(dg,"Data"),tot:n(_t(dg,"ImportoTotaleDocumento")),ddt,linee});
+  });
+  return out;
+}
+function _docPerXml(x){
+  const nr=_sqDoc(x.nr), nc=x.tipo==="TD04";
+  const C=documenti().filter(g=>{ const gn=_sqDoc(String(g.nr||"").replace(/^NC\s+/i,"")); return gn===nr&&_stessoForn(g.fornitore,x.forn)&&(!nc||/^NC /.test(String(g.nr||""))); });
+  if(C.length<=1) return C[0]||null;
+  return C.find(g=>String(g.data||"").slice(0,4)===String(x.data).slice(0,4))||C[0];
+}
+function applicaXml(lista){
+  const es={lette:lista.length,trovate:0,nonTrovate:[],righeConBolla:0,senzaBolla:0};
+  azione("modifica","Bolle (DDT) prese dalle fatture elettroniche: "+lista.length+" documenti",()=>{
+    lista.forEach(x=>{
+      const g=_docPerXml(x); if(!g){ es.nonTrovate.push(x); return; } es.trovate++;
+      if(!x.ddt.length){ es.senzaBolla++; return; }
+      /* bolla per linea XML */
+      const perLinea={}; x.ddt.forEach(d=>{ const L=d.linee.length?d.linee:x.linee.map(l=>l.n); L.forEach(k=>{ (perLinea[k]=perLinea[k]||[]).push(d); }); });
+      /* le righe dell'archivio: le abbino alle linee XML per descrizione, poi per importo, poi per ordine */
+      const righe=g.righe.slice(), usate=new Set();
+      const prendi=fn=>{ const r=righe.find(f=>!usate.has(f)&&fn(f)); if(r) usate.add(r); return r; };
+      x.linee.forEach((l,i)=>{
+        const D2=perLinea[l.n]; if(!D2||!D2.length) return;
+        const r=prendi(f=>SQ(f.articolo)===SQ(l.desc))||prendi(f=>SQ(l.desc).length>6&&(SQ(f.articolo).startsWith(SQ(l.desc).slice(0,25))||SQ(l.desc).startsWith(SQ(f.articolo).slice(0,25))))
+          ||prendi(f=>Math.abs(Math.abs(n(f.importo))-Math.abs(l.tot))<0.011)||(righe.length===x.linee.length?prendi(f=>righe.indexOf(f)===i):null);
+        if(!r) return;
+        r.ddt=[...new Set(D2.map(d=>d.nr))].join(", "); r.dataDdt=D2[0].data||r.dataDdt||""; r.xml=x.file; es.righeConBolla++;
+      });
+      /* righe senza linea abbinata ma una sola bolla per tutta la fattura: la metto lo stesso */
+      if(x.ddt.length===1&&!x.ddt[0].linee.length) g.righe.forEach(f=>{ if(!f.ddt&&n(f.importo)){ f.ddt=x.ddt[0].nr; f.dataDdt=x.ddt[0].data||""; f.xml=x.file; es.righeConBolla++; } });
+    });
+  });
+  try{ ricalcola(); }catch(e){} sporca();
+  return es;
+}
+async function importaXml(files){
+  files=Array.from(files||[]).filter(f=>/\.(xml|p7m)$/i.test(f.name)&&!/_(MT|NS|RC|SE|DT|EC|AT|NE)_/i.test(f.name));
+  if(!files.length){ toast("Nessun file .xml o .p7m di fatture in quello che hai scelto"); return; }
+  toast("Leggo "+files.length+" fatture elettroniche…"); XML_ESITO={inCorso:true}; if(PAGINA==="xmlbolle") render();
+  const lista=[], rotti=[];
+  for(const f of files){ try{ (await leggiFileXml(f)).forEach(x=>lista.push(x)); }catch(e){ rotti.push({file:f.name,err:e.message}); } }
+  const es=applicaXml(lista); es.rotti=rotti;
+  /* quante righe hanno la stessa bolla di un carico del magazzino */
+  try{ await specchioCarica(true); }catch(e){}
+  es.daVedere=righeConBollaNelMagazzino();
+  XML_ESITO=es; render();
+  toast("Fatture elettroniche: "+es.trovate+" su "+es.lette+" trovate · "+es.righeConBolla+" righe con la bolla"+(es.daVedere.length?" · "+es.daVedere.length+" righe da abbinare per bolla":""));
+}
+function _sqB(s){ return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/^0+/,""); }
+function carichiStessaBolla(f){
+  const S=_SPEC.dati; if(!S||!f.ddt) return [];
+  const bolle=String(f.ddt).split(",").map(_sqB).filter(Boolean);
+  return (S.carichi||[]).filter(m=>m.Ddt&&bolle.includes(_sqB(m.Ddt))&&(!m.Fornitore||_stessoForn(m.Fornitore,f.fornitore)));
+}
+function righeConBollaNelMagazzino(){
+  const out=[]; (D.fatture||[]).forEach(f=>{ if(!f.ddt||f.sospetta||!(n(f.importo)>0)) return; if(n(f.importo)-impTot(f.id)<=0.01) return;
+    const C=carichiStessaBolla(f).filter(m=>m.Commessa); if(C.length) out.push({f,C}); });
+  return out;
+}
+/* la scheda «📦 magazzino»: in cima i carichi con la stessa bolla, con la commessa da confermare */
+{ const o=SCHEDE.specchio; SCHEDE.specchio=function(fid){
+    const h=o.apply(this,arguments);
+    try{ const f=(D.fatture||[]).find(x=>x.id===fid); if(!f||!f.ddt||!_SPEC.dati) return h;
+      const C=carichiStessaBolla(f);
+      const res=Math.round((n(f.importo)-impTot(f.id))*100)/100, pu=n(f.qta)?n(f.importo)/n(f.qta):0;
+      const P=SQ(f.articolo);
+      const box=C.length?C.map(m=>{ const simile=_parole(m.Nome||"").filter(w=>_parole(f.articolo).includes(w)).length;
+          const euro=Math.min(res,pu&&n(m.Q)?Math.round(n(m.Q)*pu*100)/100:res);
+          return `<div style="border:1px solid ${simile?"#b8862f":"var(--border)"};border-radius:9px;padding:7px 10px;margin-bottom:6px;${simile?"background:#fffaf0":""}">
+            <b>${esc(m.Nome||m.ArticoloID||"")}</b> <span class="muted">· ${esc(dataIt(String(m.Data).slice(0,10)))} · ${esc(String(m.Q))} ${esc(m.U||"")} · bolla ${esc(m.Ddt)}</span>
+            <div style="font-size:12px">${m.Commessa?"arrivato per la commessa <b>"+esc(m.Commessa)+"</b>":"<span class='muted'>caricato a magazzino, senza commessa</span>"}${simile?' · <span style="color:#8a6100">stesso articolo</span>':""}</div>
+            ${m.Commessa&&res>0.01?`<button class="btn btn-main btn-sm" style="margin-top:4px" onclick="specAssegna('${att(f.id)}','${att(risolvi(m.Commessa))}',${euro})">✓ metti su ${esc(m.Commessa)} € ${eur(euro)}</button>`:""}</div>`; }).join("")
+        :`<p class="muted">Nel magazzino nessun carico con la bolla ${esc(f.ddt)}.</p>`;
+      const i=h.indexOf('<div class="filters"');
+      const sez=`<div class="card" style="margin:0 0 10px;padding:9px 12px;border-color:#b8862f"><b>🧾 Stessa bolla (${esc(f.ddt)}${f.dataDdt?" del "+esc(dataIt(f.dataDdt)):""})</b> <span class="muted">dalla fattura elettronica</span><div style="margin-top:6px">${box}</div></div>`;
+      return i>0?h.slice(0,i)+sez+h.slice(i):h+sez;
+    }catch(e){ console.error(e); return h; } }; }
+/* il pannello «⬇ Importa»: una riga per gli XML, con la cartella intera */
+IMPORTI.splice(1,0,{k:"xml",ic:"📄",t:"Fatture elettroniche (XML): le bolle",d:"La cartella del mese con gli XML delle fatture ricevute (anche .xml.p7m firmati). Le fatture devono essere già entrate dall'export di Fatture in Cloud: qui aggiungo a ogni riga la sua bolla (DDT). Non aggancio niente da solo.",acc:".xml,.p7m",fn:"importaXml",pg:"xmlbolle"});
+function importaXmlPannello(files){ chiudiScheda(); PAGINA="xmlbolle"; render(); importaXml(files); }
+{ const o=SCHEDE.importa; SCHEDE.importa=function(){ let h=o.apply(this,arguments);
+    h=h.replace(`ondrop="event.preventDefault();this.style.background='';importaDaPannello('xml',event.dataTransfer.files[0])"`,`ondrop="event.preventDefault();this.style.background='';importaXmlPannello(event.dataTransfer.files)"`)
+       .replace(`<label class="btn btn-main btn-sm" style="cursor:pointer">scegli il file<input type="file" accept=".xml,.p7m" style="display:none" onchange="importaDaPannello('xml',this.files[0]);this.value=''"></label>`,
+         `<label class="btn btn-main btn-sm" style="cursor:pointer">scegli la cartella<input type="file" id="inXmlDir" webkitdirectory directory multiple style="display:none" onchange="importaXmlPannello(this.files);this.value=''"></label>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin-left:4px">i file<input type="file" id="inXmlF" accept=".xml,.p7m" multiple style="display:none" onchange="importaXmlPannello(this.files);this.value=''"></label>`);
+    return h; }; }
+NUOVE.xmlbolle=function(){
+  const es=XML_ESITO;
+  $("main").innerHTML=`<h1>Bolle dalle fatture elettroniche</h1>
+  <p class="lead">Dagli XML delle fatture ricevute prendo la <b>bolla (DDT)</b> di ogni riga. Poi, nella fattura, il tasto <b>«📦 magazzino»</b> ti mostra i carichi del magazzino <b>con la stessa bolla</b> e la commessa per cui sono arrivati: confermi tu.</p>
+  ${!es?`<div class="card"><p>Usa il tasto <b>⬇ Importa</b> in alto → «Fatture elettroniche (XML): le bolle» → <b>scegli la cartella</b> del mese.</p></div>`:es.inCorso?`<div class="card"><p>Leggo le fatture…</p></div>`
+  :`<div class="tiles"><div class="tile"><b>${es.lette}</b><span>fatture lette</span></div><div class="tile"><b style="color:${es.nonTrovate.length?"var(--amber)":"var(--green)"}">${es.trovate}</b><span>trovate in archivio</span></div>
+     <div class="tile"><b>${es.righeConBolla}</b><span>righe con la bolla</span></div><div class="tile"><b style="color:${es.daVedere.length?"#8a6100":"var(--green)"}">${es.daVedere.length}</b><span>righe da abbinare per bolla</span></div></div>
+    ${es.daVedere.length?`<div class="card"><h3>Stessa bolla di un carico del magazzino arrivato per una commessa</h3><p class="muted">Clicca la riga: a destra vedi il carico e confermi la commessa.</p>
+      ${es.daVedere.map(x=>`<div style="padding:4px 0;border-top:1px solid var(--border)"><a href="javascript:void(0)" onclick="apriSpecchio('${att(x.f.id)}')"><b>${esc(x.f.fornitore||"")}</b> n. ${esc(x.f.nr||"")} · ${esc(String(x.f.articolo||"").slice(0,60))}</a>
+        <span class="muted"> · € ${eur(x.f.importo)} · bolla ${esc(x.f.ddt)} → ${esc([...new Set(x.C.map(m=>m.Commessa))].join(", "))}</span></div>`).join("")}</div>`:""}
+    ${es.senzaBolla?`<p class="muted">${es.senzaBolla} fatture non hanno la bolla nell'XML (il fornitore non la scrive): per quelle usa lo specchietto come sempre.</p>`:""}
+    ${es.nonTrovate.length?`<div class="card"><h3>Non trovate in archivio (${es.nonTrovate.length})</h3><p class="muted">Importa prima l'export di Fatture in Cloud di quel mese, poi ricarica la cartella.</p>${es.nonTrovate.slice(0,60).map(x=>`<div>${esc(x.forn)} n. ${esc(x.nr)} del ${esc(dataIt(x.data))}</div>`).join("")}</div>`:""}
+    ${es.rotti.length?`<div class="card"><h3 style="color:var(--red)">Non leggibili (${es.rotti.length})</h3>${es.rotti.slice(0,40).map(x=>`<div>${esc(x.file)} <span class="muted">${esc(x.err)}</span></div>`).join("")}</div>`:""}`}`;
+};
+(function(){ const g=GRUPPI.find(x=>x[0]==="Documenti"); if(g&&!g[1].some(x=>x[0]==="xmlbolle")) g[1].push(["xmlbolle","Bolle dalle fatture XML"]);
+  if(typeof SPIEGA_PAGINA!=="undefined") SPIEGA_PAGINA.xmlbolle=["La bolla di ogni riga di fattura, presa dagli XML: per abbinare ai carichi del magazzino."]; })();
+/* la bolla sulla riga, accanto a «📦 magazzino» */
 
 </script>
 </body></html>
