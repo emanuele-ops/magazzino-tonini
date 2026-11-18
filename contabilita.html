@@ -20711,8 +20711,10 @@ async function importaXml(files){
 function _sqB(s){ return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/^0+/,""); }
 function carichiStessaBolla(f){
   const S=_SPEC.dati; if(!S||!f.ddt) return [];
-  const bolle=String(f.ddt).split(",").map(_sqB).filter(Boolean);
-  return (S.carichi||[]).filter(m=>m.Ddt&&bolle.includes(_sqB(m.Ddt))&&(!m.Fornitore||_stessoForn(m.Fornitore,f.fornitore)));
+  const cif=x=>String(x||"").replace(/\D/g,"").replace(/^0+/,"");
+  const bolle=String(f.ddt).split(",").map(x=>x.trim()).filter(Boolean);
+  const uguale=(a,b)=>_sqB(a)===_sqB(b)||(cif(a).length>=3&&cif(a)===cif(b));
+  return (S.carichi||[]).filter(m=>m.Ddt&&bolle.some(b=>uguale(b,m.Ddt))&&(!m.Fornitore||_stessoForn(m.Fornitore,f.fornitore)));
 }
 function righeConBollaNelMagazzino(){
   const out=[]; (D.fatture||[]).forEach(f=>{ if(!f.ddt||f.sospetta||!(n(f.importo)>0)) return; if(n(f.importo)-impTot(f.id)<=0.01) return;
@@ -20763,6 +20765,118 @@ NUOVE.xmlbolle=function(){
 (function(){ const g=GRUPPI.find(x=>x[0]==="Documenti"); if(g&&!g[1].some(x=>x[0]==="xmlbolle")) g[1].push(["xmlbolle","Bolle dalle fatture XML"]);
   if(typeof SPIEGA_PAGINA!=="undefined") SPIEGA_PAGINA.xmlbolle=["La bolla di ogni riga di fattura, presa dagli XML: per abbinare ai carichi del magazzino."]; })();
 /* la bolla sulla riga, accanto a «📦 magazzino» */
+
+
+/* =====================================================================================
+   v168 — LA BOLLA SI CERCA DAPPERTUTTO NELL'XML
+   Non solo in «DatiDDT»: anche negli «AltriDatiGestionali» della riga e nelle righe di
+   descrizione tipo «Rif. DDT n. 1234 del 12/10/2026» (che valgono per le righe sotto, fino
+   alla bolla successiva), e nella causale. Il numero di fattura e il fornitore si confrontano
+   in modo piu' largo (serie, zeri, sigle). Nel resoconto ti dico, fattura per fattura,
+   dove non l'ho trovata e perche'.
+   ===================================================================================== */
+const _RX_DDT=/(?:\bD\.?\s?D\.?\s?T\.?|\bBOLL[AE]\b|\bDOC(?:UMENTO)?\.?\s*(?:DI\s*)?TRASP(?:ORTO)?\.?|\bD\.?D\.?T\b|\bDDT)\s*(?:DI\s*CONSEGNA\s*)?(?:N(?:R|UM(?:ERO)?|O)?\s*\.?\s*[°º:]?\s*)?([A-Z]{0,4}[\/\-]?\d[\w\/\-\.]{0,20})(?:[^0-9]{0,12}?(?:DEL|DATA|DD|DT|IN DATA)\s*[:.]?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4}))?/i;
+function _dataIso(s){ const m=String(s||"").match(/(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})/); if(!m) return ""; const y=m[3].length===2?"20"+m[3]:m[3]; return y+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"); }
+function _ddtDaTesto(t){ const m=String(t||"").match(_RX_DDT); if(!m) return null; const nr=m[1].replace(/[.\-\/]+$/,""); if(!/\d/.test(nr)) return null; return {nr,data:_dataIso(m[2]||"")}; }
+leggiFileXml=async function(file){
+  const buf=await file.arrayBuffer();
+  let txt=/\.p7m$/i.test(file.name)?_testoDaP7m(buf):new TextDecoder("utf-8").decode(new Uint8Array(buf));
+  if(!/FatturaElettronica/.test(txt)) txt=_testoDaP7m(buf);
+  const doc=new DOMParser().parseFromString(txt,"application/xml");
+  if(doc.getElementsByTagName("parsererror").length||!_tag(doc,"FatturaElettronicaBody").length) throw new Error("non è una fattura elettronica leggibile");
+  const ced=_tag(doc,"CedentePrestatore")[0];
+  const forn=_t(ced,"Denominazione")||((_t(ced,"Nome")+" "+_t(ced,"Cognome")).trim());
+  const piva=_t(_tag(ced,"IdFiscaleIVA")[0],"IdCodice");
+  const out=[];
+  Array.from(_tag(doc,"FatturaElettronicaBody")).forEach(body=>{
+    const dg=_tag(body,"DatiGeneraliDocumento")[0];
+    const causale=Array.from(_tag(dg,"Causale")).map(c=>c.textContent).join(" ");
+    const ddt=Array.from(_tag(body,"DatiDDT")).map(d=>({nr:_t(d,"NumeroDDT"),data:_t(d,"DataDDT"),linee:Array.from(_tag(d,"RiferimentoNumeroLinea")).map(x=>String(x.textContent).trim()),da:"DatiDDT"}));
+    const linee=Array.from(_tag(body,"DettaglioLinee")).map(l=>{
+      const agd=Array.from(_tag(l,"AltriDatiGestionali")).map(a=>({tipo:_t(a,"TipoDato"),testo:_t(a,"RiferimentoTesto"),num:_t(a,"RiferimentoNumero"),data:_t(a,"RiferimentoData")}));
+      return {n:_t(l,"NumeroLinea"),desc:_t(l,"Descrizione"),qta:n(_t(l,"Quantita")),um:_t(l,"UnitaMisura"),tot:n(_t(l,"PrezzoTotale")),
+        cod:Array.from(_tag(l,"CodiceArticolo")).map(c=>_t(c,"CodiceValore")).filter(Boolean).join(" "),agd}; });
+    /* bolla per ogni linea */
+    const perLinea={}, metti=(k,d)=>{ (perLinea[k]=perLinea[k]||[]); if(!perLinea[k].some(x=>_sqB(x.nr)===_sqB(d.nr))) perLinea[k].push(d); };
+    ddt.forEach(d=>{ if(d.linee.length) d.linee.forEach(k=>metti(k,d)); });
+    const tutte=ddt.filter(d=>!d.linee.length);
+    let corrente=null;
+    linee.forEach(l=>{
+      /* 1. negli altri dati gestionali della riga */
+      l.agd.forEach(a=>{ if(/DDT|BOLL|TRASP|D\.D\.T/i.test(a.tipo+" "+a.testo)){ const nr=(/\d/.test(a.num)?a.num:"")||((_ddtDaTesto(a.tipo+" "+a.testo)||{}).nr)||(/\d/.test(a.testo)?a.testo.replace(/[^\w\/\-]/g,""):"");
+          if(nr) metti(l.n,{nr:String(nr).replace(/\.0+$/,""),data:String(a.data||"").slice(0,10),da:"AltriDatiGestionali"}); } });
+      /* 2. nel testo della riga: vale per lei e per le righe sotto, fino alla prossima */
+      const x=_ddtDaTesto(l.desc); if(x){ corrente=Object.assign(x,{da:"descrizione"}); }
+      if(corrente&&!perLinea[l.n]) metti(l.n,corrente);
+    });
+    /* 3. bolle senza riferimento di linea: valgono per tutte le righe senza bolla */
+    if(tutte.length) linee.forEach(l=>{ if(!perLinea[l.n]) tutte.forEach(d=>metti(l.n,d)); });
+    /* 4. la causale */
+    if(!Object.keys(perLinea).length){ const c=_ddtDaTesto(causale); if(c) linee.forEach(l=>metti(l.n,Object.assign({},c,{da:"causale"}))); }
+    out.push({file:file.name,forn,piva,tipo:_t(dg,"TipoDocumento"),nr:_t(dg,"Numero"),data:_t(dg,"Data"),tot:n(_t(dg,"ImportoTotaleDocumento")),ddt,linee,perLinea,causale});
+  });
+  return out;
+};
+function _numeriDoc(s){ return (String(s||"").match(/\d+/g)||[]).map(x=>String(parseInt(x,10))); }
+_docPerXml=function(x){
+  const nc=x.tipo==="TD04"||x.tipo==="TD08";
+  const nrX=_sqDoc(x.nr), numX=_numeriDoc(x.nr), anno=String(x.data).slice(0,4);
+  const stessoNr=g=>{ const gn=String(g.nr||"").replace(/^NC\s+/i,""); if(_sqDoc(gn)===nrX) return 3;
+    const a=_sqDoc(gn), b=nrX; if(a&&b&&(a.endsWith(b)||b.endsWith(a))&&Math.min(a.length,b.length)>=2) return 2;
+    const ng=_numeriDoc(gn); return (ng.length&&numX.length&&ng[0]===numX[0])?1:0; };
+  let best=null, bs=0;
+  documenti().forEach(g=>{ if(nc!==(/^NC /.test(String(g.nr||""))||g.somma<0)) return;
+    const sn=stessoNr(g); if(!sn) return;
+    const fo=_stessoForn(g.fornitore,x.forn), stData=String(g.data||"").slice(0,10)===x.data, stAnno=String(g.data||"").slice(0,4)===anno;
+    const tot=Math.abs(n(g.somma)+n(g.iva)), stTot=x.tot&&Math.abs(tot-Math.abs(x.tot))<=0.05;
+    let s=sn*10+(fo?40:0)+(stData?20:stAnno?5:0)+(stTot?15:0);
+    if(!fo&&!(stData&&stTot)) return;            /* fornitore diverso: lo prendo solo se data e totale sono uguali */
+    if(sn<3&&!(fo&&(stData||stTot))) return;
+    if(s>bs){ bs=s; best=g; } });
+  return best;
+};
+applicaXml=function(lista){
+  const es={lette:lista.length,trovate:0,nonTrovate:[],righeConBolla:0,senzaBolla:0,dettaglio:[]};
+  azione("modifica","Bolle (DDT) prese dalle fatture elettroniche: "+lista.length+" documenti",()=>{
+    lista.forEach(x=>{
+      const g=_docPerXml(x); if(!g){ es.nonTrovate.push(x); return; } es.trovate++;
+      const linBolla=x.linee.filter(l=>x.perLinea[l.n]&&x.perLinea[l.n].length);
+      const rep={forn:g.fornitore,nr:g.nr,data:g.data,file:x.file,bolle:[...new Set([].concat(...Object.values(x.perLinea)).map(d=>d.nr))],da:[...new Set([].concat(...Object.values(x.perLinea)).map(d=>d.da))],messe:0,righe:g.righe.filter(f=>n(f.importo)).length,
+        esempio:x.linee.slice(0,3).map(l=>l.desc).join(" | ")};
+      if(!linBolla.length){ es.senzaBolla++; rep.perche="nell'XML non c'è nessuna bolla"; es.dettaglio.push(rep); return; }
+      const righe=g.righe.filter(f=>n(f.importo)), usate=new Set();
+      const scrivi=(f,D2)=>{ if(!f||!D2) return; f.ddt=[...new Set(D2.map(d=>d.nr))].join(", "); f.dataDdt=(D2.find(d=>d.data)||{}).data||f.dataDdt||""; f.xml=x.file; usate.add(f); rep.messe++; };
+      const bolleTutte=[...new Set(linBolla.map(l=>x.perLinea[l.n].map(d=>_sqB(d.nr)).join("+")))];
+      if(bolleTutte.length===1){ const D2=x.perLinea[linBolla[0].n]; righe.forEach(f=>scrivi(f,D2)); }   /* una bolla sola per tutta la fattura */
+      else {
+        const merce=x.linee.filter(l=>Math.abs(l.tot)>0.004);
+        const prendi=fn=>righe.find(f=>!usate.has(f)&&fn(f));
+        const assegnate=new Map();
+        merce.forEach(l=>{ const D2=x.perLinea[l.n]; if(!D2) return;
+          const r=prendi(f=>SQ(f.articolo)===SQ(l.desc))||prendi(f=>SQ(l.desc).length>6&&(SQ(f.articolo).startsWith(SQ(l.desc).slice(0,22))||SQ(l.desc).startsWith(SQ(f.articolo).slice(0,22))))
+            ||(l.cod?prendi(f=>f.codForn&&_sqDoc(f.codForn)===_sqDoc(l.cod)):null)||prendi(f=>Math.abs(Math.abs(n(f.importo))-Math.abs(l.tot))<0.011);
+          if(r){ scrivi(r,D2); assegnate.set(l,r); } });
+        /* le righe rimaste: se il numero torna, per ordine */
+        const restaX=merce.filter(l=>!assegnate.has(l)&&x.perLinea[l.n]), restaR=righe.filter(f=>!usate.has(f));
+        if(restaX.length&&restaX.length===restaR.length) restaX.forEach((l,i)=>scrivi(restaR[i],x.perLinea[l.n]));
+      }
+      if(!rep.messe) rep.perche="la bolla c'è, ma non sono riuscito ad abbinare le righe";
+      else if(rep.messe<rep.righe) rep.perche="bolla messa su "+rep.messe+" righe su "+rep.righe;
+      es.righeConBolla+=rep.messe; es.dettaglio.push(rep);
+    });
+  });
+  try{ ricalcola(); }catch(e){} sporca();
+  return es;
+};
+/* nel resoconto: fattura per fattura, cosa ho trovato e dove */
+{ const o=NUOVE.xmlbolle; NUOVE.xmlbolle=function(){ o.apply(this,arguments); const es=XML_ESITO; if(!es||es.inCorso||!es.dettaglio) return;
+    const male=es.dettaglio.filter(r=>r.perche), bene=es.dettaglio.filter(r=>!r.perche);
+    const card=document.createElement("div"); card.className="card";
+    card.innerHTML=`<h3>Fattura per fattura</h3>
+      ${male.length?`<p style="color:#8a6100;margin:0 0 6px"><b>${male.length}</b> da guardare:</p><div class="tw"><table><thead><tr><th>Fornitore</th><th>N.</th><th>Data</th><th>Cosa succede</th><th>Prime righe dell'XML</th></tr></thead><tbody>
+        ${male.map(r=>`<tr><td>${esc(r.forn||"")}</td><td>${esc(r.nr||"")}</td><td>${esc(dataIt(r.data))}</td><td>${esc(r.perche)}${r.bolle.length?" · bolle "+esc(r.bolle.join(", ")):""}</td><td class="muted" style="font-size:11.5px;max-width:420px">${esc(String(r.esempio||"").slice(0,160))}</td></tr>`).join("")}</tbody></table></div>`:""}
+      <p class="muted" style="margin:8px 0 0">Bolla trovata e messa su tutte le righe: <b>${bene.length}</b> fatture${bene.length?" ("+[...new Set([].concat(...bene.map(r=>r.da)))].map(d=>d==="DatiDDT"?"dati DDT":d==="AltriDatiGestionali"?"altri dati della riga":d==="descrizione"?"testo delle righe":d).join(", ")+")":""}.</p>`;
+    $("main").appendChild(card); }; }
 
 </script>
 </body></html>
