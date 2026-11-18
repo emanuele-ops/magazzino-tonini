@@ -3717,7 +3717,7 @@ async function leggiMagazzino(file,righePronte){
     const haCol=(...nomi)=>intest.some(h=>nomi.some(x=>h.includes(x)));
     const CAMPI=[["quantita","quantità",["quantita","quantità"]],["unita","unità",["unita","unità","u.m"]],["importo","importo",["importo"]],["note","note",["note"]],["fornitore","fornitore",["fornitore"]],["nrFattura","n. fattura",["n. fattura","nr fattura"]],["tipo","tipo",["tipo riga"]]]
       .filter(c=>haCol(...c[2]));
-    const ug=(a,b,c)=>c==="importo"?Math.abs(n(a[c])-n(b[c]))<0.005:c==="quantita"?Math.abs(nE(a[c])-nE(b[c]))<0.0005:String(a[c]==null?"":a[c]).trim()===String(b[c]==null?"":b[c]).trim();
+    const ug=(a,b,c)=>c==="importo"?(Math.abs(n(a[c])-n(b[c]))<0.005||(!(n(a[c])>0)&&!!(b.rifFatt||b._valorizzato))):c==="quantita"?Math.abs(nE(a[c])-nE(b[c]))<0.0005:String(a[c]==null?"":a[c]).trim()===String(b[c]==null?"":b[c]).trim();
     const pool={}; (D.magazzino||[]).forEach(x=>{ (pool[ident(x)]=pool[ident(x)]||[]).push(x); });
     const agg=[], cambiati=[], uguali=[];
     nuovi.forEach(x=>{ const L=pool[ident(x)]; if(L&&L.length){
@@ -3834,6 +3834,7 @@ function generaProposte(soloPezzi){
   const GP={};
   (D.magazzino||[]).forEach(g=>{
     if(g.tipo && g.tipo!=="Materiale") return;
+    if(consumoPagato(g)) return;                      /* v164: gia' pagato (prezzo a mano, rifilo valorizzato): niente proposte */
     if(!g.pezzi||!g.commessa||g.commessa==="(senza commessa)") return;
     const contati=new Set();
     espandiCodici(g.pezzi).forEach(c=>(perPezzo[c]||[]).forEach(f=>{
@@ -3894,6 +3895,7 @@ function generaProposte(soloPezzi){
   let creati=0;
   (D.magazzino||[]).forEach(g=>{
     if(g.tipo && g.tipo!=="Materiale") return;
+    if(consumoPagato(g)) return;                      /* v164 */
     const mc=mm(g.meseConsumo); if(mc===null||!g.commessa||g.commessa==="(senza commessa)")return;
     const cand=[];
     const nrG=SQd(g.nrFattura), ddG=SQd(g.ddt);
@@ -5598,12 +5600,12 @@ function setUsaCodici(id,on){
 function codiciDi(f){ return espandiCodici(f.pezzi||""); }
 function setCodici(id,v){
   const f=(D.fatture||[]).find(x=>x.id===id); if(!f) return;
-  const L=espandiCodici(v);
+  const L=normCodici(espandiCodici(v));
   f.pezzi=comprimiCodici(L);
-  f.nPezzi=L.length;
+  f.nPezzi=L.length; if(L.length) f.pezziOn=true;
   let nuoveP=0; try{ nuoveP=generaProposte(true); }catch(e){ console.error(e); }
   sporca(); ricalcola();
-  if($("pop")) apriRipartizione(id); else vFatture();
+  if($("pop")) apriRipartizione(id); render();
   toast((L.length?("Segnati "+L.length+" pezzi: "+f.pezzi):"Codici tolti")
     +(nuoveP?" — il magazzino ne ha gia' usati: "+nuoveP+(nuoveP===1?" abbinamento proposto":" abbinamenti proposti"):""));
 }
@@ -19957,7 +19959,7 @@ SCHEDE.specchio=function(fid){
   const da=_SPEC_TUTTO?_piuGiorni(f.data,-185):_primoMesePrima(f.data), a=_piuGiorni(f.data,7);
   const dentro=d=>{ const x=String(d||"").slice(0,10); return x&&x>=da&&x<=a; };
   /* codici gia' scritti su una qualunque riga di fattura */
-  const suFatt={}; (D.fatture||[]).forEach(x=>codiciDi(x).forEach(c=>suFatt[String(c).toUpperCase()]=x));
+  const suFatt={}, suQui=new Set(); (D.fatture||[]).forEach(x=>{ if(x.sospetta) return; codiciDi(x).forEach(c=>[c].concat(pzAlias(c)).forEach(y=>{ y=String(y).toUpperCase(); if(x===f) suQui.add(y); else if(!suFatt[y]) suFatt[y]=x; })); });
   const parF=_parole(f.articolo), numF=_numeriIn(f.articolo);
   /* ---------- pannelli e massicci ---------- */
   const pezzi=[].concat((S.pannelli||[]).map(p=>({tipo:"pannello",id:p.ID,art:p.ArticoloID,dims:[p.Larghezza_mm,p.Altezza_mm].filter(Boolean),data:p.DataCarico,forn:p.Fornitore,ddt:p.Ddt,comm:p.Commesse})),
@@ -19970,17 +19972,20 @@ SCHEDE.specchio=function(fid){
       g.dims.forEach(d=>{ if(numF.includes(Number(d))) s+=15; });
       if(n(f.qta)&&Math.abs(n(f.qta)-g.ids.length)<0.01) s+=12;
       if(_stessoForn(g.forn,f.fornitore)) s+=5;
-      const liberi=g.ids.filter(c=>!suFatt[String(c).toUpperCase()]);
+      const liberi=g.ids.filter(c=>!suFatt[String(c).toUpperCase()]&&!suQui.has(String(c).toUpperCase()));
       return Object.assign(g,{nome,s,liberi}); }).sort((x,y)=>y.s-x.s||String(y.data).localeCompare(String(x.data)));
-  const boxPezzi=gruppi.length?gruppi.slice(0,15).map(g=>{ const usati=g.ids.filter(c=>suFatt[String(c).toUpperCase()]);
+  const boxPezzi=gruppi.length?gruppi.slice(0,15).map(g=>{ const usati=g.ids.filter(c=>suFatt[String(c).toUpperCase()]), qui=g.ids.filter(c=>suQui.has(String(c).toUpperCase()));
+      const perRiga=new Map(); usati.forEach(c=>{ const x=suFatt[String(c).toUpperCase()]; if(!perRiga.has(x)) perRiga.set(x,[]); perRiga.get(x).push(c); });
       return `<div style="border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:7px${g.s>=25?";border-color:#b8862f;background:#fffaf0":""}">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline"><b>${esc(g.nome)}</b> <span class="mono">${esc(g.dims.join(" × "))}</span><span style="flex:1"></span>
           <span class="muted">${esc(dataIt(g.data))}${g.ddt?" · bolla "+esc(g.ddt):""}</span></div>
         <div class="mono" style="font-size:12.5px;margin:3px 0">${esc(comprimiCodici(g.ids))} <span class="muted">(${g.ids.length} ${g.tipo==="pannello"?"pannelli":"massicci"})</span>
           ${n(f.qta)&&Math.abs(n(f.qta)-g.ids.length)<0.01?'<span class="tag t-grn">stesso numero della riga</span>':""}</div>
         ${Object.keys(g.comm).length?`<div class="muted" style="font-size:11.5px">nel magazzino sono su: ${Object.entries(g.comm).map(([c,k])=>esc(c)+" ("+k+")").join(", ")}</div>`:""}
-        ${usati.length?`<div style="font-size:11.5px;color:var(--amber)">${usati.length} già scritti su un'altra riga di fattura (${esc(comprimiCodici(usati))})</div>`:""}
-        ${g.liberi.length?`<button class="btn btn-main btn-sm" style="margin-top:5px" onclick="specMettiCodici('${att(f.id)}',${JSON.stringify(g.liberi).replace(/"/g,"&quot;")})">Metti questi ${g.liberi.length} codici sulla riga</button>`:""}</div>`; }).join("")
+        ${qui.length?`<div style="font-size:11.5px;color:var(--green)">✓ ${qui.length===g.ids.length?"tutti già":qui.length+" già"} su questa riga (${esc(comprimiCodici(qui))})</div>`:""}
+        ${[...perRiga.entries()].map(([x,cc])=>`<div style="font-size:11.5px;color:var(--amber);margin-top:2px">${esc(comprimiCodici(cc))} ${cc.length===1?"è già scritto":"sono già scritti"} sulla riga «${esc(String(x.articolo||"").slice(0,48))}» della fattura <b>${esc(x.fornitore||"")}</b>${x.nr?" n. "+esc(x.nr):""} del ${esc(dataIt(x.data))}
+          <a href="javascript:void(0)" style="color:var(--red);margin-left:4px" onclick="specTogliCodici('${att(x.id)}',${JSON.stringify(cc).replace(/"/g,"&quot;")})">togli da quella riga</a></div>`).join("")}
+        ${g.liberi.length?`<button class="btn btn-main btn-sm" style="margin-top:5px" onclick="specMettiCodici('${att(f.id)}',${JSON.stringify(g.liberi).replace(/"/g,"&quot;")})">${g.liberi.length===1?"Metti questo codice sulla riga":"Metti questi "+g.liberi.length+" codici sulla riga"}</button>`:""}</div>`; }).join("")
     :`<p class="muted">Nessun pannello o massiccio caricato da questo fornitore ${_SPEC_TUTTO?"negli ultimi 6 mesi":"fra il mese prima e la data della fattura"}.</p>`;
   /* ---------- articoli (ferramenta) ---------- */
   const AA=(S.articoli||[]).map(x=>{ let s=0;
@@ -20020,9 +20025,9 @@ SCHEDE.specchio=function(fid){
 function specMettiCodici(fid,ids){
   const f=(D.fatture||[]).find(x=>x.id===fid); if(!f) return;
   azione("modifica","Codici del magazzino sulla riga «"+(f.articolo||"")+"»",()=>{
-    const L=[...new Set(codiciDi(f).concat(ids))]; f.pezzi=comprimiCodici(L); f.nPezzi=L.length; f.usaCodici=true; });
+    const L=[...new Set(normCodici(codiciDi(f).concat(ids)))]; f.pezzi=comprimiCodici(L); f.nPezzi=L.length; f.usaCodici=true; f.pezziOn=true; });
   try{ generaProposte(true); }catch(e){ console.error(e); }
-  sporca(); try{ ricalcola(); }catch(e){} disegnaScheda();
+  sporca(); try{ ricalcola(); }catch(e){} render();
   toast("Messi "+ids.length+" codici sulla riga: le commesse dove il magazzino li ha usati diventano proposte da confermare");
 }
 function specAssegna(fid,comm,euro){
@@ -20232,6 +20237,269 @@ function togliOreEsterniDaMensili(){
 { const _rom=ricostruisciOreMesi; ricostruisciOreMesi=function(){ const r=_rom.apply(this,arguments); try{ togliOreEsterniDaMensili(); }catch(e){} return r; }; }
 { const _ae=aggiornaEsterni; aggiornaEsterni=async function(){ const r=await _ae.apply(this,arguments);
     try{ const k=togliOreEsterniDaMensili(); if(k) toast("Ho tolto le ore dei montatori esterni dalla manodopera di "+k+" mesi: il loro costo è la fattura."); }catch(e){} return r; }; }
+
+
+/* =====================================================================================
+   v164 — CONSUMI GIA' PAGATI, PANNELLI SULLE FATTURE, AGGANCIO CON DOPPIA FINESTRA, VELOCITA'
+   ===================================================================================== */
+
+/* ---------- 0. velocita': i conti pesanti si rifanno solo quando i dati cambiano ---------- */
+let _IMP164=null;
+function _imp164(){ if(_IMP164===null){ _IMP164=_impronta()+"|"+(D&&D.vociLink||[]).length; setTimeout(()=>{ _IMP164=null; },0); } return _IMP164; }
+function _memo164(fn){ let k0=null, C=new Map(); return function(key){ const k=_imp164(); if(k!==k0){ k0=k; C=new Map(); } const kk=key===undefined?"":key; if(C.has(kk)) return C.get(kk); const r=fn(kk); C.set(kk,r); return r; }; }
+{ const o=_righeAgganciabili; const m=_memo164(()=>o()); _righeAgganciabili=function(){ return m(); }; }
+const _parolePerRiga=new WeakMap();
+function _paroleRiga(f){ const t=String(f.articolo||"")+" "+(f.categoria||""); const x=_parolePerRiga.get(f); if(x&&x.t===t) return x.p; const p=_parole(t); _parolePerRiga.set(f,{t,p}); return p; }
+
+/* ---------- 1. un consumo e' «gia' pagato»: UNA regola per tutto il programma ---------- */
+function rigaDiPrezzo(m){ if(!m||!m.rifFatt) return null; return (D.fatture||[]).find(f=>f.id===m.rifFatt)||null; }
+function consumoPagato(m){
+  if(!m) return false;
+  if(n(m.importo)>0) return true;
+  if(m._valorizzato) return true;
+  if(m.rifFatt&&rigaDiPrezzo(m)) return true;
+  return false;
+}
+/* riparo i consumi che avevano un prezzo e l'aggiornamento dal magazzino gli ha messo 0 */
+function riparaPrezziConsumi(silenzioso){
+  if(!D) return 0; let k=0; const fx={}; (D.fatture||[]).forEach(f=>fx[f.id]=f);
+  (D.magazzino||[]).forEach(m=>{ if(!m.rifFatt) return; const f=fx[m.rifFatt];
+    if(!f){ return; }
+    if(!(n(m.importo)>0)&&n(f.importo)>0){ m.importo=n(f.importo); k++; } });
+  if(k){ SPORCO=true; D.log=D.log||[]; D.log.push({quando:adesso(),cosa:"Rimesso il prezzo a "+k+" consumi di magazzino che l'aggiornamento dal magazzino aveva messo a 0 (il costo era già nella commessa)"});
+    if(!silenzioso) toast("Rimesso il prezzo a "+k+" consumi che risultavano «da assegnare» ma erano già pagati con un prezzo a mano."); }
+  return k;
+}
+{ const o=consumiValorizzati; consumiValorizzati=function(){ const L=o.apply(this,arguments);
+    return L.map(x=>{ if(x.ok) return x; const f=rigaDiPrezzo(x.m); if(f) return Object.assign({},x,{ok:true,valore:n(f.importo),come:"con prezzo",f}); if(x.m&&x.m._valorizzato) return Object.assign({},x,{ok:true}); return x; }); }; }
+{ const o=prezzaConsumi; prezzaConsumi=function(lista,v){
+    const rs=String(lista||"").split(",").filter(Boolean);
+    const pagati=(D.magazzino||[]).filter(m=>rs.includes(m._r)&&consumoPagato(m));
+    if(pagati.length){
+      const resto=rs.filter(r=>!pagati.some(m=>m._r===r));
+      const f=rigaDiPrezzo(pagati[0]);
+      alert(pagati.length+" di questi consumi "+(pagati.length===1?"è":"sono")+" già pagat"+(pagati.length===1?"o":"i")
+        +(f?" (prezzo a mano € "+eur(f.importo)+" del "+dataIt(f.data)+")":"")+": non gli metto un altro prezzo, se no il costo conta due volte."
+        +(resto.length?"\n\nMetto il prezzo solo agli altri "+resto.length+".":"\n\nSe il prezzo vecchio è sbagliato, eliminalo prima dal dettaglio costi della commessa."));
+      if(!resto.length) return;
+      return o.call(this,resto.join(","),v);
+    }
+    return o.apply(this,arguments); }; }
+/* dopo apertura, aggiornamento dal magazzino e import: riparo e ricalcolo */
+{ const o=dopoApertura; dopoApertura=function(){ const r=o.apply(this,arguments); try{ if(riparaPrezziConsumi(false)){ ricalcola(); render(); } }catch(e){ console.error(e); } return r; }; }
+{ const o=aggiornaDalMagazzino; aggiornaDalMagazzino=async function(){ const r=await o.apply(this,arguments); try{ if(riparaPrezziConsumi(false)){ ricalcola(); render(); } }catch(e){} return r; }; }
+{ const o=confermaImport; confermaImport=function(){ const r=o.apply(this,arguments); try{ if(riparaPrezziConsumi(false)){ ricalcola(); render(); } }catch(e){} return r; }; }
+
+/* ---------- 2. i codici dei pezzi sempre scritti come nel magazzino (1325 -> P1325) ---------- */
+function normCodici(L){ return (L||[]).map(c=>{ c=String(c||"").trim().toUpperCase(); return /^\d{3,5}$/.test(c)?"P"+c.padStart(4,"0"):c; }); }
+function specTogliCodici(fid,ids){
+  const f=(D.fatture||[]).find(x=>x.id===fid); if(!f) return;
+  const via=new Set(); (ids||[]).forEach(c=>[c].concat(pzAlias(c)).forEach(y=>via.add(String(y).toUpperCase())));
+  if(!confirm("Tolgo "+comprimiCodici(ids)+" dalla riga «"+(f.articolo||"")+"» della fattura "+(f.fornitore||"")+(f.nr?" n. "+f.nr:"")+"?\n\nSi può annullare dal Registro operazioni.")) return;
+  azione("modifica","Tolti i codici "+comprimiCodici(ids)+" dalla riga «"+(f.articolo||"")+"»",()=>{
+    const L=codiciDi(f).filter(c=>!via.has(String(c).toUpperCase())&&!pzAlias(c).some(y=>via.has(String(y).toUpperCase())));
+    f.pezzi=comprimiCodici(L); f.nPezzi=L.length; });
+  sporca(); try{ ricalcola(); }catch(e){} render(); toast("Codici tolti da quella riga");
+}
+
+/* ---------- 3. «Pannelli e fatture»: ogni pannello con la sua fattura, i buchi e i doppioni ---------- */
+let PF={filtro:"tutti",q:"",rifili:false};
+function _numPz(id){ const m=String(id||"").toUpperCase().match(/^([A-Z]*)(\d+)$/); return m?{pre:m[1],n:parseInt(m[2],10),cifre:m[2].length}:null; }
+function indiceRigheCodici(){
+  const I={}; (D.fatture||[]).forEach(f=>{ if(f.sospetta) return; codiciDi(f).forEach(c=>{ const keys=new Set([String(c).toUpperCase()].concat(pzAlias(c).map(x=>String(x).toUpperCase())));
+    keys.forEach(k=>{ (I[k]=I[k]||[]); if(!I[k].includes(f)) I[k].push(f); }); }); });
+  return I;
+}
+function datiPannelliFatture(){
+  const S=_SPEC.dati; if(!S) return null;
+  const art={}; (S.articoli||[]).forEach(a=>art[a.ID]=a);
+  const I=indiceRigheCodici();
+  const pezzi=[].concat((S.pannelli||[]).map(p=>({tipo:"pannello",id:String(p.ID),art:p.ArticoloID,dims:[p.Larghezza_mm,p.Altezza_mm].filter(Boolean),data:p.DataCarico,forn:p.Fornitore,ddt:p.Ddt,comm:p.Commesse})),
+    (S.massicci||[]).map(p=>({tipo:"massiccio",id:String(p.ID),art:p.ArticoloID,dims:[p.Lunghezza_mm,p.Larghezza_mm,p.Spessore_mm].filter(Boolean),data:p.DataCarico,forn:p.Fornitore,ddt:p.Ddt,comm:p.Commesse})));
+  const visti=new Set();
+  pezzi.forEach(p=>{ p.nome=(art[p.art]||{}).Nome||p.art||""; p.rifilo=/^R/i.test(p.id); p.num=_numPz(p.id);
+    const righe=I[p.id.toUpperCase()]||[]; p.righe=righe; visti.add(p.id.toUpperCase()); pzAlias(p.id).forEach(a=>visti.add(String(a).toUpperCase())); });
+  /* i buchi: numeri saltati nella stessa serie (stessa lettera), fra il primo e l'ultimo */
+  const serie={}; pezzi.forEach(p=>{ if(!p.num) return; (serie[p.num.pre]=serie[p.num.pre]||{c:p.num.cifre,ns:new Set()}).ns.add(p.num.n); });
+  const buchi=[]; Object.entries(serie).forEach(([pre,s])=>{ const L=[...s.ns].sort((a,b)=>a-b); for(let i=1;i<L.length;i++){ const d=L[i]-L[i-1];
+      if(d>1&&d<=200){ const da=L[i-1]+1, a=L[i]-1; buchi.push({pre,da,a,testo:pre+String(da).padStart(s.c,"0")+(a>da?"-"+pre+String(a).padStart(s.c,"0"):""),n:a-da+1}); } } });
+  /* codici scritti sulle fatture che il magazzino non conosce */
+  const fuori=[]; (D.fatture||[]).forEach(f=>{ if(f.sospetta) return; codiciDi(f).forEach(c=>{ const C=String(c).toUpperCase(); if(/^R/.test(C)) return;
+      if(!visti.has(C)&&!pzAlias(C).some(a=>visti.has(String(a).toUpperCase()))) fuori.push({c:C,f}); }); });
+  pezzi.sort((a,b)=>{ const x=a.num||{pre:"~",n:0}, y=b.num||{pre:"~",n:0}; return x.pre.localeCompare(y.pre)||x.n-y.n||a.id.localeCompare(b.id); });
+  return {pezzi,buchi,fuori};
+}
+NUOVE.pannellifatt=function(){
+  const X=datiPannelliFatture();
+  if(!X){ specchioCarica(true).then(()=>{ if(PAGINA==="pannellifatt") render(); });
+    $("main").innerHTML=`<h1>Pannelli e fatture</h1><p class="muted">${esc(_SPEC.err||"Leggo i pannelli dal magazzino…")}</p>`; return; }
+  const base=X.pezzi.filter(p=>PF.rifili||!p.rifilo);
+  const senza=base.filter(p=>!p.righe.length), doppi=base.filter(p=>p.righe.length>1);
+  const q=SQ(PF.q);
+  let L=PF.filtro==="senza"?senza:PF.filtro==="doppi"?doppi:base;
+  if(q) L=L.filter(p=>SQ([p.id,p.nome,p.forn,p.ddt,p.comm,p.righe.map(f=>f.fornitore+" "+f.nr).join(" ")].join(" ")).includes(q));
+  const MAX=800, vis=L.slice(0,MAX);
+  const card=(t,v,c,f)=>`<div class="card" style="padding:10px 14px;cursor:pointer;flex:1;min-width:160px${PF.filtro===f?";outline:2px solid var(--accent)":""}" onclick="PF.filtro='${f}';render()"><div class="muted" style="font-size:12px">${t}</div><div style="font-size:22px;font-weight:700;color:${c}">${v}</div></div>`;
+  $("main").innerHTML=`<h1>Pannelli e fatture</h1>
+  <p class="lead">Tutti i pannelli e i massicci del magazzino in ordine di numero, con la riga di fattura dove li hai scritti. Ti segnalo i <b>numeri saltati</b>, i pezzi <b>senza fattura</b> e quelli scritti su <b>due righe</b>.</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    ${card("tutti i pezzi",num0(base.length),"var(--ink)","tutti")}
+    ${card("senza fattura",num0(senza.length),senza.length?"var(--amber)":"var(--green)","senza")}
+    ${card("su due righe di fattura",num0(doppi.length),doppi.length?"var(--red)":"var(--green)","doppi")}
+    <div class="card" style="padding:10px 14px;flex:1;min-width:160px"><div class="muted" style="font-size:12px">numeri saltati</div><div style="font-size:22px;font-weight:700;color:${X.buchi.length?"var(--red)":"var(--green)"}">${num0(X.buchi.reduce((a,b)=>a+b.n,0))}</div></div>
+  </div>
+  ${X.buchi.length?`<div class="warnbox" style="margin-bottom:10px"><b>Numeri saltati</b> (non ci sono nel magazzino): ${X.buchi.slice(0,60).map(b=>`<span class="mono">${esc(b.testo)}</span>`).join(", ")}${X.buchi.length>60?" …":""}
+    <div class="muted" style="font-size:12px;margin-top:4px">Può essere un pannello mai caricato, cancellato o numerato male: controllalo nel magazzino.</div></div>`:""}
+  ${X.fuori.length?`<div class="warnbox" style="margin-bottom:10px"><b>Codici scritti sulle fatture che il magazzino non ha</b>: ${X.fuori.slice(0,40).map(x=>`<span class="mono">${esc(x.c)}</span> <span class="muted">(${esc(x.f.fornitore||"")}${x.f.nr?" n. "+esc(x.f.nr):""})</span>`).join(", ")}${X.fuori.length>40?" …":""}</div>`:""}
+  <div class="filters"><input type="search" placeholder="cerca codice, materiale, fornitore, bolla, commessa…" value="${esc(PF.q)}" style="min-width:300px"
+      oninput="PF.q=this.value;clearTimeout(window._tPF);window._tPF=setTimeout(()=>{render();const i=document.querySelector('#main input[type=search]');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},300)">
+    <label class="muted"><input type="checkbox" ${PF.rifili?"checked":""} onchange="PF.rifili=this.checked;render()"> mostra anche i rifili</label>
+    <button class="btn btn-ghost btn-sm" onclick="specchioCarica(true).then(render)">↻ rileggi il magazzino</button>
+    <span class="muted">${num0(L.length)} pezzi${L.length>MAX?" (ne mostro "+MAX+": usa la ricerca)":""}</span></div>
+  <div class="tw"><table><thead><tr><th>Codice</th><th>Materiale</th><th>Carico</th><th>Commessa</th><th>Riga di fattura</th></tr></thead><tbody>
+  ${vis.map((p,i)=>{ const prev=vis[i-1]; const salto=prev&&prev.num&&p.num&&prev.num.pre===p.num.pre&&p.num.n-prev.num.n>1&&p.num.n-prev.num.n<=200;
+    return (salto?`<tr><td colspan="5" style="background:#fdecea;color:var(--red);font-size:12px">⚠ manca ${esc(p.num.pre+String(prev.num.n+1).padStart(p.num.cifre,"0"))}${p.num.n-prev.num.n>2?" … "+esc(p.num.pre+String(p.num.n-1).padStart(p.num.cifre,"0")):""}</td></tr>`:"")
+    +`<tr${p.righe.length>1?' style="background:#fdecea"':!p.righe.length?' style="background:#fff8e8"':""}><td class="mono"><b>${esc(p.id)}</b></td>
+      <td>${esc(p.nome)} <span class="muted mono">${esc(p.dims.join(" × "))}</span></td>
+      <td>${esc(dataIt(String(p.data||"").slice(0,10)))}<div class="muted" style="font-size:11.5px">${esc(p.forn||"")}${p.ddt?" · bolla "+esc(p.ddt):""}</div></td>
+      <td>${esc(p.comm||"")}</td>
+      <td>${p.righe.length?p.righe.map(f=>`<div><a href="javascript:void(0)" onclick="apriScheda('fattura','${att(chiaveDocDi(f))}',true)">${esc(f.fornitore||"")}${f.nr?" n. "+esc(f.nr):""}</a> <span class="muted">del ${esc(dataIt(f.data))} · ${esc(String(f.articolo||"").slice(0,40))}</span></div>`).join("")+(p.righe.length>1?'<div style="color:var(--red);font-size:12px">scritto su '+p.righe.length+' righe: toglilo da quella sbagliata</div>':"")
+        :`<span style="color:var(--amber)">${p.rifilo?"rifilo (non ha fattura)":"nessuna fattura"}</span>`}</td></tr>`; }).join("")}
+  </tbody></table></div>`;
+};
+function chiaveDocDi(f){ const g=documenti().find(d=>(d.righe||[]).includes(f)); return g?g.chiave:""; }
+
+/* ---------- 4. «Doppi costi»: lo stesso costo contato due volte ---------- */
+function controlloDoppi(){
+  const out=[]; const fx={}; (D.fatture||[]).forEach(f=>fx[f.id]=f);
+  /* a) consumo con prezzo a mano E agganciato a una fattura per codice pezzo */
+  const IC=indiceCodiciFatture();
+  (D.magazzino||[]).forEach(m=>{ const f=rigaDiPrezzo(m); if(!f) return;
+    const cod=espandiCodici(m.pezzi||""); let h=null; cod.some(x=>{ h=IC[x]||pzAlias(x).map(y=>IC[y]).find(Boolean)||null; return !!h&&h.ass===risolvi(m.commessa); });
+    if(h&&h.ass===risolvi(m.commessa)) out.push({tipo:"Consumo pagato due volte",testo:dataIt(String(m.data).slice(0,10))+" · "+m.commessa+" · "+m.materiale+" ("+m.pezzi+"): prezzo a mano € "+eur(f.importo)+" e anche la fattura "+(h.f.fornitore||"")+" "+(h.f.nr||""),fid:f.id}); });
+  /* b) prezzo a mano rimasto senza il suo consumo */
+  (D.fatture||[]).forEach(f=>{ if(!(f.manuale&&f.fornitore==="(consumo da magazzino)")) return;
+    if(!(D.magazzino||[]).some(m=>m.rifFatt===f.id)) out.push({tipo:"Prezzo a mano senza consumo",testo:dataIt(f.data)+" · "+(f.articolo||"")+" € "+eur(f.importo)+": il consumo non c'è più nel magazzino",fid:f.id}); });
+  /* c) stesso pannello su due righe di fattura */
+  const per={}; (D.fatture||[]).forEach(f=>{ if(f.sospetta) return; normCodici(codiciDi(f)).forEach(c=>{ if(/^R/.test(c)) return; (per[c]=per[c]||new Set()).add(f); }); });
+  Object.entries(per).forEach(([c,S])=>{ if(S.size>1){ const L=[...S]; out.push({tipo:"Pannello su due righe di fattura",testo:c+": "+L.map(f=>(f.fornitore||"")+(f.nr?" n. "+f.nr:"")+" «"+String(f.articolo||"").slice(0,30)+"»").join(" e ")}); } });
+  /* d) altra voce agganciata a una fattura E con un prezzo a mano ancora vivo */
+  (D.vociLink||[]).forEach(x=>{ if(x.tolta&&(D.fatture||[]).some(f=>f.id===x.tolta.riga.id)) out.push({tipo:"Altra voce pagata due volte",testo:(x.voce.desc||"")+": agganciata alla fattura e c'è ancora il prezzo a mano"}); });
+  return out;
+}
+NUOVE.doppi=function(){
+  const L=controlloDoppi(); const G={}; L.forEach(x=>(G[x.tipo]=G[x.tipo]||[]).push(x));
+  $("main").innerHTML=`<h1>Doppi costi</h1>
+  <p class="lead">Cerco i costi che potrebbero contare due volte: un consumo pagato con un prezzo a mano <b>e</b> con la fattura, un pannello scritto su due righe di fattura, un prezzo a mano rimasto senza il suo consumo.</p>
+  ${riparaPrezziConsumi(true)?'<p class="warnbox" style="background:#eef7ee;border-color:#9c9">Ho appena rimesso il prezzo ad alcuni consumi che l\'aggiornamento dal magazzino aveva azzerato.</p>':""}
+  ${L.length?Object.entries(G).map(([t,R])=>`<div class="card" style="margin-bottom:10px"><b style="color:var(--red)">${esc(t)}</b> <span class="muted">(${R.length})</span>
+      ${R.slice(0,200).map(x=>`<div style="padding:5px 0;border-top:1px solid var(--border);font-size:13px">${esc(x.testo)}</div>`).join("")}</div>`).join("")
+    :'<div class="card"><p style="color:var(--green);font-weight:600">Nessun doppio costo trovato.</p></div>'}`;
+};
+(function(){
+  const g=GRUPPI.find(x=>x[0]==="Magazzino");
+  if(g&&!g[1].some(x=>x[0]==="pannellifatt")) g[1].push(["pannellifatt","Pannelli e fatture"]);
+  const d=GRUPPI.find(x=>x[0]==="Dati");
+  if(d&&!d[1].some(x=>x[0]==="doppi")) d[1].splice(d[1].findIndex(x=>x[0]==="controlli")+1,0,["doppi","Doppi costi"]);
+  if(typeof SPIEGA_PAGINA!=="undefined"){ SPIEGA_PAGINA.pannellifatt=["Ogni pannello del magazzino con la sua fattura: numeri saltati, pezzi senza fattura, doppioni."];
+    SPIEGA_PAGINA.doppi=["Costi che potrebbero contare due volte: da controllare."]; }
+  try{ ANTE.doppi=()=>{ const k=controlloDoppi().length; return [[num0(k),"possibili doppi",k?"var(--red)":"var(--green)"]]; }; }catch(e){}
+  try{ ANTE.pannellifatt=()=>{ const X=datiPannelliFatture(); if(!X) return [["—","apri per leggere il magazzino"]];
+    const b=X.pezzi.filter(p=>!p.rifilo); return [[num0(b.filter(p=>!p.righe.length).length),"senza fattura"],[num0(X.buchi.reduce((a,x)=>a+x.n,0)),"numeri saltati"]]; }; }catch(e){}
+})();
+
+/* ---------- 5. aggancia una voce: proposte serie + tutte le fatture in una seconda finestra ---------- */
+const _NON_MATERIALE=/BUON[IO] PAST|VOUCHER|EDENRED|TICKET|CARBURANT|BENZIN|GASOLIO|TELEPASS|AUTOSTRAD|ENEL |ENERGIA ELETT|GAS NATUR|TELEFON|VODAFONE|\bTIM\b|FASTWEB|ASSICURAZ|AFFITTO|LOCAZION|CANONE|COMMISSION|INTERESS|STIPEND|F24|INPS|INAIL|NOTA DEBITO|BOLLO/;
+function _nonMateriale(f){ return _NON_MATERIALE.test(SQ([f.fornitore,f.articolo,f.categoria].join(" "))) && !_NON_MATERIALE.test(SQ("")); }
+candidatiVoce=function(v,testo){
+  const t=SQ(testo||"").trim();
+  const P=_righeAgganciabili(), pv=_parole(v.desc+" "+v.cat).filter(w=>!/^\d+$/.test(w)), nr=_sqDoc(v.nr);
+  const voceNonMat=_NON_MATERIALE.test(SQ(v.desc+" "+v.cat));
+  return P.map(f=>{
+    let s=0, perche=[]; const forn=_stessoForn(f.fornitore,v.fornitore);
+    if(forn){ s+=40; perche.push("stesso fornitore"); }
+    const stessoNr=nr&&_sqDoc(f.nr)===nr; if(stessoNr){ s+=60; perche.push("stesso n. fattura"); }
+    const pf=_paroleRiga(f).filter(w=>!/^\d+$/.test(w)); const comuni=pv.filter(w=>pf.includes(w));
+    if(comuni.length){ s+=Math.min(36,comuni.length*12); perche.push("«"+comuni.slice(0,3).join(", ").toLowerCase()+"»"); }
+    const g=_giorni(v.data,f.data);
+    if(g!==null){ if(g>=-30&&g<=120){ s+=Math.max(2,12-Math.abs(g)/10); perche.push(g===0?"stesso giorno":g>0?g+" gg dopo":(-g)+" gg prima"); } else s-=10; }
+    const res=Math.round((n(f.importo)-impTot(f.id))*100)/100;
+    if(v.importo>0&&_impUguale(res,v.importo)){ s+=35; perche.push("stesso importo"); }
+    if(f.carta) perche.push("carta di credito");
+    /* per proporla da sola deve esserci almeno lo stesso fornitore, lo stesso numero o due parole uguali */
+    const seria=forn||stessoNr||comuni.length>=2;
+    const esclusa=!voceNonMat&&_nonMateriale(f);
+    return {f,s,perche,res,seria,esclusa};
+  }).filter(x=>t?SQ([x.f.fornitore,x.f.articolo,x.f.nr,x.f.categoria].join(" ")).includes(t):(x.s>=20&&x.seria&&!x.esclusa))
+    .sort((a,b)=>b.s-a.s).slice(0,t?40:8);
+};
+{ const _cv=candidatiVoce; const m=_memo164(k=>{ const v=vociAltre().find(x=>x.k===k); return v?_cv(v):[]; });
+  candidatiVoce=function(v,testo){ if(!testo&&v&&v.k) return m(v.k); return _cv.apply(this,arguments); }; }
+{ const m=_memo164(()=>vociAltre().filter(v=>v.tipo==="mag"&&!v.link&&candidatiVoce(v).length).length);
+  const o=daFare; daFare=function(kk){ if(kk==="altrevoci"){ try{ return m(); }catch(e){ return 0; } } return o.apply(this,arguments); }; }
+/* «e' questa» quando la fattura e' gia' nei costi della stessa commessa: la voce risulta pagata, senza aggiungere euro */
+function agganciaVoceGia(k,fid){
+  const v=vociAltre().find(x=>x.k===k), f=(D.fatture||[]).find(x=>x.id===fid);
+  if(!v||!f){ toast("Non trovo più la voce o la fattura"); return; }
+  azione("modifica","Altra voce «"+v.desc+"» segnata come già pagata dalla fattura "+(f.fornitore||"")+" "+(f.nr||""),()=>{
+    const link={k,fid:f.id,imp:0,gia:true,quando:adesso(),voce:{data:v.data,commessa:v.commessa,desc:v.desc,fornitore:v.fornitore,cat:v.cat,qta:v.qta,unita:v.unita,importo:v.importo,nr:v.nr,note:v.note}};
+    if(v.tipo==="mano"&&v.rif){ const m=v.rif;
+      link.tolta={riga:m,imputazioni:(D.imputazioni||[]).filter(i=>i.id===m.id&&i.origine!=="voce")};
+      D.fatture=D.fatture.filter(x=>x!==m); D.imputazioni=D.imputazioni.filter(i=>i.id!==m.id); }
+    _vl().push(link); });
+  try{ ricalcola(); }catch(e){} sporca(); chiudiScheda(); render();
+  toast("«"+v.desc+"» è già pagata da "+(f.fornitore||"")+": non ho aggiunto euro"+(v.tipo==="mano"?" e ho tolto il prezzo scritto a mano":""));
+}
+let _AV2={vista:"proposte",q:"",forn:"",mese:"",aperta:""};
+function _dovE(f){ const I=(D.imputazioni||[]).filter(i=>i.id===f.id); const P={}; I.forEach(i=>{ const c=risolvi(i.destinazione); P[c]=(P[c]||0)+n(i.importo); }); return P; }
+function _rigaAg(k,v,f){
+  const res=Math.round((n(f.importo)-impTot(f.id))*100)/100, P=_dovE(f), qui=n(P[risolvi(v.commessa)]);
+  const def=v.importo>0?Math.min(v.importo,res):res;
+  return `<div style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;margin:5px 0;background:var(--white)">
+    <div style="display:flex;gap:8px;align-items:baseline"><span style="flex:1;font-size:12.5px">${esc(String(f.articolo||"").slice(0,90))} <span class="muted">· ${esc(f.categoria||"")}</span></span><span class="mono">€ ${eur(f.importo)}</span></div>
+    <div class="muted" style="font-size:11.5px">${Object.keys(P).length?"già su: "+Object.entries(P).map(([c,e])=>esc(c)+" € "+eur(e)).join(", ")+" · ":""}da assegnare € ${eur(res)}</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap">
+      ${res>0.009?`<span class="muted" style="font-size:12px">sulla voce vanno €</span><input type="number" step="0.01" min="0" value="${(Math.round(def*100)/100).toFixed(2)}" style="width:95px" id="av2_${att(f.id)}">
+        <button class="btn btn-main btn-sm" onclick="agganciaVoce('${att(k)}','${att(f.id)}',document.getElementById('av2_${att(f.id)}').value)">✓ è questa</button>`:""}
+      ${qui>0?`<button class="btn btn-si btn-sm" title="Il costo di questa riga è già sulla commessa ${esc(v.commessa)}: la voce risulta pagata, senza aggiungere euro" onclick="agganciaVoceGia('${att(k)}','${att(f.id)}')">✓ è questa — già nei costi di ${esc(v.commessa)}</button>`:""}
+      ${res<=0.009&&!(qui>0)?`<span class="muted" style="font-size:12px">tutta assegnata ad altre commesse</span>`:""}</div></div>`;
+}
+SCHEDE.voceAg=function(k){
+  const v=vociAltre().find(x=>x.k===k); if(!v) return '<p class="muted">Voce non trovata.</p>';
+  const testa=`<div class="card" style="margin:0 0 8px;padding:10px 12px"><b>${esc(v.desc)}</b><div class="muted" style="font-size:12.5px">${esc(dataIt(v.data))} · ${esc(v.fornitore||"")} · commessa <b>${esc(v.commessa||"—")}</b>${v.qta?" · "+esc(String(v.qta))+" "+esc(v.unita||""):""}${v.importo>0?" · prezzo a mano € "+eur(v.importo):""}</div></div>
+    <div class="filters" style="margin:0 0 8px"><button class="btn btn-sm ${_AV2.vista==="proposte"?"btn-main":"btn-ghost"}" onclick="_AV2.vista='proposte';disegnaScheda()">Proposte</button>
+      <button class="btn btn-sm ${_AV2.vista==="tutte"?"btn-main":"btn-ghost"}" onclick="_AV2.vista='tutte';_AV2.forn=_AV2.forn||'';disegnaScheda()">Tutte le fatture e carte</button></div>`;
+  if(_AV2.vista==="proposte"){
+    const C=candidatiVoce(v);
+    return testa+(C.length?C.map(x=>`<div style="border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:7px">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>${esc(x.f.fornitore||"")}</b>${x.f.carta?' <span class="tag t-blu">carta</span>':""}
+          <span class="muted">${esc(dataIt(x.f.data))}${x.f.nr?" · n. "+esc(x.f.nr):""}</span></div>
+        <div class="muted" style="font-size:11.5px">perché: ${esc(x.perche.join(", "))}</div>${_rigaAg(k,v,x.f)}</div>`).join("")
+      :`<p class="muted">Nessuna proposta sicura. Premi <b>«Tutte le fatture e carte»</b> e cercala tu: lì vedi anche quelle già messe sulla commessa.</p>`);
+  }
+  /* tutte: come la pagina delle fatture, in piccolo */
+  const DOC=documenti().filter(g=>!g.sospetta);
+  const fornL=[...new Set(DOC.map(g=>g.fornitore).filter(Boolean))].sort();
+  const mesi=[...new Set(DOC.map(g=>String(g.data||"").slice(0,7)).filter(Boolean))].sort().reverse();
+  const q=SQ(_AV2.q);
+  let L=DOC.filter(g=>(!_AV2.forn||g.fornitore===_AV2.forn)&&(!_AV2.mese||String(g.data||"").slice(0,7)===_AV2.mese));
+  if(q) L=L.filter(g=>SQ([g.fornitore,g.nr,g.righe.map(f=>f.articolo+" "+(f.categoria||"")).join(" ")].join(" ")).includes(q));
+  if(!_AV2.forn&&!q&&!_AV2.mese){ const vf=DOC.filter(g=>_stessoForn(g.fornitore,v.fornitore)); if(vf.length) L=vf; }
+  L=L.slice().sort((a,b)=>String(b.data||"").localeCompare(String(a.data||""))).slice(0,60);
+  return testa+`<input type="search" placeholder="cerca fornitore, numero, articolo…" value="${esc(_AV2.q)}" style="width:100%;margin-bottom:6px"
+      oninput="_AV2.q=this.value;clearTimeout(window._tAV3);window._tAV3=setTimeout(()=>{disegnaScheda();const i=document.querySelector('#pannello input[type=search]');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},300)">
+    <div style="display:flex;gap:6px;margin-bottom:8px"><select style="flex:2;min-width:0" onchange="_AV2.forn=this.value;disegnaScheda()"><option value="">tutti i fornitori</option>${fornL.map(x=>`<option ${x===_AV2.forn?"selected":""}>${esc(x)}</option>`).join("")}</select>
+      <select style="flex:1;min-width:0" onchange="_AV2.mese=this.value;disegnaScheda()"><option value="">tutti i mesi</option>${mesi.map(m=>`<option value="${m}" ${m===_AV2.mese?"selected":""}>${esc(meseIt(m))}</option>`).join("")}</select></div>
+    ${!_AV2.forn&&!q&&!_AV2.mese&&DOC.some(g=>_stessoForn(g.fornitore,v.fornitore))?`<p class="muted" style="font-size:12px;margin:0 0 6px">Ti mostro le fatture di <b>${esc(v.fornitore)}</b>, il fornitore della voce. Cambia fornitore o cerca per vederne altre.</p>`:""}
+    ${L.length?L.map(g=>{ const ap=_AV2.aperta===g.chiave;
+      return `<div style="border:1px solid var(--border);border-radius:9px;margin-bottom:6px;${ap?"background:#fbf7f0":""}">
+        <div style="display:flex;gap:8px;align-items:baseline;padding:7px 10px;cursor:pointer" onclick="_AV2.aperta=${ap?"''":"'"+att(g.chiave)+"'"};disegnaScheda()">
+          <span>${ap?"▾":"▸"}</span><b>${esc(g.fornitore||"")}</b>${g.carta?' <span class="tag t-blu">carta</span>':""}<span class="muted">${esc(dataIt(g.data))}${g.nr?" · n. "+esc(g.nr):""} · ${g.righe.length} righe</span><span style="flex:1"></span><span class="mono">€ ${eur(g.somma)}</span></div>
+        ${ap?`<div style="padding:0 10px 8px">${g.righe.filter(f=>n(f.importo)>0).map(f=>_rigaAg(k,v,f)).join("")}</div>`:""}</div>`; }).join("")
+      :'<p class="muted">Nessuna fattura con questi filtri.</p>'}`;
+};
+{ const o=titoloScheda; titoloScheda=function(s){ if(s&&s.tipo==="voceAg"){ const v=vociAltre().find(x=>x.k===s.chiave); return v?v.desc:"Altra voce"; } return o.apply(this,arguments); }; }
+{ const o=apriScheda; apriScheda=function(tipo,chiave){ if(tipo==="voceAg"){ _AV2={vista:"proposte",q:"",forn:"",mese:"",aperta:""}; } return o.apply(this,arguments); }; }
 
 </script>
 </body></html>
