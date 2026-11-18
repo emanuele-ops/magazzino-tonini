@@ -320,7 +320,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v170 - Atelier</div>
+  <div id="ver-badge">v172 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -7610,7 +7610,8 @@ function ordiniCont(){
         return '<div style="font-size:12.5px;color:var(--gray);padding:3px 0">'
          +att(g.primo.Descrizione)+' - <strong>'+fabQtaTxt(g)+'</strong>'+(mis?(' '+mis):'')
          +(g.righe.length>1?(' <span style="color:var(--accent)">(da '+g.righe.length+' richieste)</span>'):'')
-         +(g.primo.__voce?' <span class="badge badge-accent">altra voce</span>':'')+'</div>';
+         +(g.primo.__voce?' <span class="badge badge-accent">altra voce</span>':'')
+         +ordRigaMobiliEGia(g)+'</div>';
       }).join("")+'</div>';
   }).join("");
   return '<div class="card" style="margin-bottom:16px"><div class="card-title">Materiali della commessa '+FAB_COMM+'</div>'+nota+rows+'</div>'+(ordini?('<div class="op-sec">Riordino per questa commessa'+att(ordMobEtichetta())+'</div>'
@@ -18437,6 +18438,42 @@ function meseAnnoIt(m){ const n=['gennaio','febbraio','marzo','aprile','maggio',
     }catch(e){ return h; }
   }; }
 
+
+// v171 - nel riordino: per che mobile e', e se lo stesso materiale e' gia' stato ordinato per la commessa
+function ordRigaMobiliEGia(g){
+  const mob=[...new Set(g.righe.map(function(f){return fabMobile(f);}).filter(Boolean))];
+  const senza=g.righe.some(function(f){return !fabMobile(f);});
+  let h='<div style="font-size:11.5px;margin-left:10px">per: '+(mob.length?mob.map(function(m){return '<strong style="color:var(--ink)">'+att(m)+'</strong>';}).join(', '):'')
+    +(senza?((mob.length?', ':'')+'<span>nessun mobile</span>'):'')
+    +(function(){
+      // quando sono state aggiunte, e se dopo l'ultimo ordine dello stesso mobile
+      const dd=g.righe.map(function(f){return String(f.DataRichiesta||'').slice(0,10);}).filter(Boolean).sort();
+      if(!dd.length)return '';
+      const ultime={}; (STATE.ordini||[]).forEach(function(o){ if(o.Commessa!==FAB_COMM||o.Stato==='annullato')return;
+        const d=String(o.Data||'').slice(0,10); const ms=[...new Set((o.Righe||[]).map(function(r){return String(r.mobile||'').trim();}).filter(Boolean))];
+        ms.forEach(function(m){ if(!ultime[m]||ultime[m].d<d) ultime[m]={d:d,id:o.ID}; }); });
+      const dopo=mob.map(function(m){ const u=ultime[m]; return u&&dd[dd.length-1]>u.d?u:null; }).filter(Boolean);
+      return ' &middot; aggiunt'+(g.righe.length>1?'e':'a')+' '+(dd[0]===dd[dd.length-1]?'il '+dataIt(dd[0]):'dal '+dataIt(dd[0])+' al '+dataIt(dd[dd.length-1]))
+        +(dopo.length?(' <span style="color:var(--amber)">(dopo l&#39;ordine '+att(dopo[0].id)+' del '+dataIt(dopo[0].d)+')</span>'):'');
+    })()+'</div>';
+  if(g.primo.__voce)return h;
+  const art=g.primo.ArticoloID, ds=String(g.primo.Descrizione||'').trim().toUpperCase();
+  const gia=[];
+  (STATE.ordini||[]).forEach(function(o){
+    if(o.Commessa!==FAB_COMM||o.Stato==='annullato')return;
+    (o.Righe||[]).forEach(function(r){
+      const stesso=(art&&r.artId===art)||(ds&&String(r.descrizione||'').trim().toUpperCase()===ds);
+      if(stesso)gia.push({o:o,r:r});
+    });
+  });
+  if(!gia.length)return h;
+  const stessoMob=gia.some(function(x){ return mob.indexOf(String(x.r.mobile||'').trim())>=0; });
+  h+='<div style="font-size:11.5px;margin-left:10px;color:'+(stessoMob?'var(--red)':'var(--amber)')+'">'
+    +(stessoMob?'&#9888; gi&agrave; ordinato per lo stesso mobile: forse &egrave; un doppione &mdash; ':'gi&agrave; ordinato per questa commessa: ')
+    +gia.slice(0,4).map(function(x){ return nfmt(+x.r.quantita||+x.r.numPezzi||0,0)+' '+att(x.r.unita||'pz')+' nell&#39;ordine '+att(x.o.ID)
+      +(x.r.mobile?(' ('+att(x.r.mobile)+')'):'')+' &middot; '+att(x.o.Stato||''); }).join('; ')+(gia.length>4?' &hellip;':'')+'</div>';
+  return h;
+}
 </script>
 </body>
 </html>
