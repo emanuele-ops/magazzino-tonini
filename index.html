@@ -267,6 +267,12 @@
     body.printing #btn-backup,body.printing #btn-restore{display:none!important}
     body.printing #print-area{display:block!important;padding:0}}
 </style>
+<style id="st-attesa-ruolo">
+/* v177: finche' non so chi e' entrato non si vede niente del magazzino (menu, pulsanti):
+   il montatore esterno non deve intravederlo nemmeno per un attimo */
+body:not(.ruolo-ok) aside,body:not(.ruolo-ok) .mobile-nav,body:not(.ruolo-ok) .fab,body:not(.ruolo-ok) #btn-backup,
+body:not(.ruolo-ok) #btn-restore,body:not(.ruolo-ok) #btn-refresh,body:not(.ruolo-ok) #ai-fab,body:not(.ruolo-ok) #ai-pan,body:not(.ruolo-ok) #ver-badge{visibility:hidden!important}
+</style>
 </head>
 <body>
 <div id="app">
@@ -320,7 +326,7 @@
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v176 - Atelier</div>
+  <div id="ver-badge">v177 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -456,6 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function loadAll() {
+  try{ document.body.classList.remove("ruolo-ok"); }catch(e){}
   try{var sl=document.getElementById("side-logo");if(sl)sl.src=LOGO_IMG;}catch(e){}
   const sc = fn => call(fn).catch(e => ({ __err: String((e && e.message) || e) }));
   Promise.all([sc("getArticoli"),sc("getPannelli"),sc("getMassicci"),sc("getMovimenti"),sc("getCommesse"),sc("getFornitori"),sc("getFabbisogno"),sc("getModelli"),sc("getImmagini"),sc("getOrdini"),sc("getUtenteCorrente"),sc("getRiserve"),sc("getConfig"),sc("getVoci"),sc("getPersonale"),sc("getOre"),sc("getDettature")])
@@ -524,6 +531,7 @@ function loadAll() {
     if (SOLO_DETTATURA) modoSoloDettatura();
     try { renderPage(pagIniziale); }
     catch (e) { document.getElementById("main-content").innerHTML='<div class="card">Errore nel disegno: '+((e&&e.message)||e)+'</div>'; }
+    try { document.body.classList.add("ruolo-ok"); } catch(e){}
     try { document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===pagIniziale)); } catch(e){}
     if (errs.length) toast("Non caricati: "+errs.join(", ")+". Ripubblica il Code.gs.","err");
     caricaEtichette().then(function(){
