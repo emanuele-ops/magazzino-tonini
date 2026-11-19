@@ -273,6 +273,9 @@
 body:not(.ruolo-ok) aside,body:not(.ruolo-ok) .mobile-nav,body:not(.ruolo-ok) .fab,body:not(.ruolo-ok) #btn-backup,
 body:not(.ruolo-ok) #btn-restore,body:not(.ruolo-ok) #btn-refresh,body:not(.ruolo-ok) #ai-fab,body:not(.ruolo-ok) #ai-pan,body:not(.ruolo-ok) #ver-badge{visibility:hidden!important}
 </style>
+<style id="st-pwd">.pwd-box{position:relative}.pwd-box input{width:100%;padding-right:44px!important;box-sizing:border-box}
+.pwd-occhio{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;cursor:pointer;font-size:18px;padding:4px 8px;opacity:.55;line-height:1}
+.pwd-occhio:hover,.pwd-occhio.on{opacity:1}</style>
 </head>
 <body>
 <div id="app">
@@ -326,7 +329,7 @@ body:not(.ruolo-ok) #btn-restore,body:not(.ruolo-ok) #btn-refresh,body:not(.ruol
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v178 - Atelier</div>
+  <div id="ver-badge">v180 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -501,7 +504,7 @@ function loadAll() {
     // Login Supabase
     if (u.autorizzato === "__login__") {
       document.getElementById("main-content").innerHTML =
-        '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al gestionale Atelier Tonini</h2><div class="form-group"><label>Email o nome utente</label><input id="lg-email" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="nome@ateliertonini.it oppure mario.rossi"></div><div class="form-group"><label>Password</label><input id="lg-pwd" type="password" placeholder="••••••"></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
+        '<div class="card" style="max-width:380px;margin:80px auto;text-align:center"><h2 style="margin-bottom:18px;font-family:Georgia,serif;color:var(--accent)">Accedi al gestionale Atelier Tonini</h2><div class="form-group"><label>Email o nome utente</label><input id="lg-email" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="nome@ateliertonini.it oppure mario.rossi"></div><div class="form-group"><label>Password</label><div class="pwd-box"><input id="lg-pwd" type="password" placeholder="••••••" autocomplete="current-password"><button type="button" class="pwd-occhio" onclick="mostraPwd(\'lg-pwd\',this)" aria-label="Mostra la password" title="Mostra la password">&#128065;</button></div></div><div id="lg-err" style="color:var(--red);font-size:13px;margin-bottom:8px"></div><button class="btn-primary" onclick="doLogin()">Entra</button></div>';
       // se sono uscito perche' l'ha deciso il programma o l'amministratore, lo dico
       try {
         const perche = sessionStorage.getItem("at_uscita");
@@ -4239,8 +4242,8 @@ function toast(msg,tipo){const el=document.getElementById("toast");el.textConten
 function openMiaPassword(){
   if(!AUTH){ toast("Prima entra con il nuovo accesso","err"); return; }
   openModal('<div class="modal"><button class="modal-close" onclick="closeModal()">&times;</button><h2>Cambia la tua password</h2>'
-   +'<div class="form-group"><label>Password nuova (almeno 6 caratteri)</label><input type="password" id="mp-1" autocomplete="new-password"></div>'
-   +'<div class="form-group"><label>Riscrivila</label><input type="password" id="mp-2" autocomplete="new-password"></div>'
+   +'<div class="form-group"><label>Password nuova (almeno 6 caratteri)</label><div class="pwd-box"><input type="password" id="mp-1" autocomplete="new-password"><button type="button" class="pwd-occhio" onclick="mostraPwd(\'mp-1\',this)" aria-label="Mostra la password" title="Mostra la password">&#128065;</button></div></div>'
+   +'<div class="form-group"><label>Riscrivila</label><div class="pwd-box"><input type="password" id="mp-2" autocomplete="new-password"><button type="button" class="pwd-occhio" onclick="mostraPwd(\'mp-2\',this)" aria-label="Mostra la password" title="Mostra la password">&#128065;</button></div></div>'
    +'<div id="mp-err"></div><button class="btn-primary" onclick="submitMiaPassword()">Cambia</button></div>');
 }
 async function submitMiaPassword(){
@@ -18482,6 +18485,67 @@ function ordRigaMobiliEGia(g){
       +(x.r.mobile?(' ('+att(x.r.mobile)+')'):'')+' &middot; '+att(x.o.Stato||''); }).join('; ')+(gia.length>4?' &hellip;':'')+'</div>';
   return h;
 }
+
+// ============================================================
+// v179 - IL MASTRINO ORE DEI MONTATORI ESTERNI
+// In Ore e trasferte -> «Montatori esterni»: scegli il montatore e il mese
+// e vedi il riepilogo del mese per commessa (con %) e le ore giorno per giorno.
+// Stampa PDF e CSV (solo per l'ufficio: il montatore non scarica niente).
+// ============================================================
+let EST_P='', EST_M='';
+function _estOreDi(pid,mese){ separaOreEsterne(); return (STATE.oreEsterne||[]).filter(function(r){ return (!pid||String(r.PersonaID)===String(pid))&&(!mese||String(r.Data||'').slice(0,7)===mese); }); }
+function _estMesi(pid){ const s={}; _estOreDi(pid,'').forEach(function(r){ const m=String(r.Data||'').slice(0,7); if(m)s[m]=1; }); return Object.keys(s).sort().reverse(); }
+function mastrinoEsternoHtml(pid,mese,perStampa){
+  const p=(STATE.personale||[]).filter(function(x){return String(x.ID)===String(pid);})[0]||{};
+  const L=_estOreDi(pid,mese).slice().sort(function(a,b){ return String(a.Data).localeCompare(String(b.Data)); });
+  const tot=L.reduce(function(a,r){return a+(+r.Ore||0);},0);
+  const perC={}; L.forEach(function(r){ const c=r.Commessa||'(senza commessa)'; perC[c]=(perC[c]||0)+(+r.Ore||0); });
+  const perG={}; L.forEach(function(r){ const d=String(r.Data||'').slice(0,10); (perG[d]=perG[d]||[]).push(r); });
+  const T=perStampa?'border="1" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px;margin-bottom:12px"':'style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:12px"';
+  const td='style="padding:5px 6px;border-bottom:1px solid #e6e0d6"', tn='style="padding:5px 6px;border-bottom:1px solid #e6e0d6;text-align:right;white-space:nowrap"';
+  return '<h3 style="margin:4px 0 6px">'+att(p.Nome||'')+(dittaDi(p)?(' <span style="font-weight:400;color:#777">('+att(dittaDi(p))+')</span>'):'')+' &middot; '+att(meseAnnoIt(mese))+'</h3>'
+   +'<div style="font-size:13px;margin-bottom:8px">Totale del mese: <strong>'+nOre(tot)+' h</strong> in '+Object.keys(perG).length+(Object.keys(perG).length===1?' giorno':' giorni')+'</div>'
+   +'<div style="font-weight:600;margin:8px 0 4px">Il mese, per commessa</div>'
+   +'<table '+T+'><tr style="background:#f0e9e0"><th align="left" '+td+'>Commessa</th><th align="right" '+tn+'>Ore</th><th align="right" '+tn+'>%</th></tr>'
+   +Object.keys(perC).sort(function(a,b){return perC[b]-perC[a];}).map(function(c){ return '<tr><td '+td+'>'+commTxt(c)+'</td><td '+tn+'>'+nOre(perC[c])+'</td><td '+tn+'>'+(tot?Math.round(perC[c]/tot*1000)/10:0).toString().replace('.',',')+'%</td></tr>'; }).join('')
+   +'<tr style="background:#efefef;font-weight:bold"><td '+td+'>Totale</td><td '+tn+'>'+nOre(tot)+'</td><td '+tn+'>100%</td></tr></table>'
+   +'<div style="font-weight:600;margin:8px 0 4px">Giorno per giorno</div>'
+   +'<table '+T+'><tr style="background:#f0e9e0"><th align="left" '+td+'>Giorno</th><th align="left" '+td+'>Commessa</th><th align="left" '+td+'>Tipo</th><th align="left" '+td+'>Cosa ha fatto</th><th align="right" '+tn+'>Ore</th></tr>'
+   +Object.keys(perG).sort().map(function(d){ const R=perG[d], th=R.reduce(function(a,r){return a+(+r.Ore||0);},0);
+      return R.map(function(r,i){ return '<tr><td '+td+'>'+(i===0?('<strong>'+dataIt(d)+'</strong> <span style="color:#777">'+giornoSettimana(d)+'</span>'):'')+'</td><td '+td+'>'+commTxt(r.Commessa||'')+'</td><td '+td+'>'+tipoOraLabel(r.Tipo)+'</td><td '+td+'>'+att(r.Descrizione||'')+(r.Note?(' <span style="color:#777">'+att(r.Note)+'</span>'):'')+'</td><td '+tn+'>'+nOre(r.Ore)+'</td></tr>'; }).join('')
+        +(R.length>1?('<tr><td '+td+'></td><td colspan="3" '+td+' style="color:#777;text-align:right">totale del giorno</td><td '+tn+'><strong>'+nOre(th)+'</strong></td></tr>'):''); }).join('')
+   +(L.length?'':'<tr><td colspan="5" '+td+' style="color:#777">Nessuna ora in questo mese.</td></tr>')
+   +'</table>';
+}
+function stampaMastrinoEsterno(){ if(sonoEsterno())return;
+  stampaHTML('<div style="font-family:Georgia,serif;color:#3a342d"><h2 style="margin:0 0 4px">Atelier Tonini &middot; ore del montatore esterno</h2>'+mastrinoEsternoHtml(EST_P,EST_M,true)+'</div>'); }
+function csvMastrinoEsterno(){ if(sonoEsterno())return;
+  const p=(STATE.personale||[]).filter(function(x){return String(x.ID)===String(EST_P);})[0]||{};
+  const L=_estOreDi(EST_P,EST_M).slice().sort(function(a,b){return String(a.Data).localeCompare(String(b.Data));});
+  const righe=[['Data','Giorno','Montatore','Ditta','Commessa','Nome commessa','Tipo','Descrizione','Note','Ore']];
+  L.forEach(function(r){ const d=String(r.Data||'').slice(0,10); righe.push([dataIt(d),giornoSettimana(d),p.Nome||'',dittaDi(p),r.Commessa||'',nomeCommessa(r.Commessa),tipoOraLabel(r.Tipo),r.Descrizione||'',r.Note||'',csvNum(r.Ore,2)]); });
+  righe.push([]); righe.push(['TOTALE','','','','','','','','',csvNum(L.reduce(function(a,r){return a+(+r.Ore||0);},0),2)]);
+  scaricaCsv('ore-montatore_'+String(p.Nome||'').replace(/\s+/g,'-')+'_'+EST_M+'.csv',righe);
+}
+{ const _vecchia=oreTabEsterni; oreTabEsterni=function(){
+    const testa=_vecchia.apply(this,arguments);
+    const est=(STATE.personale||[]).filter(esternoDi); if(!est.length) return testa;
+    if(!EST_P||!est.some(function(p){return String(p.ID)===String(EST_P);})) EST_P=est[0].ID;
+    const mesi=_estMesi(EST_P); if(!EST_M||mesi.indexOf(EST_M)<0) EST_M=mesi[0]||oggiISO().slice(0,7);
+    const scelta='<div class="card" style="margin-top:14px"><div class="card-title">Mastrino ore del montatore</div>'
+      +'<div class="filters" style="gap:8px;margin-bottom:10px"><select onchange="EST_P=this.value;EST_M=\'\';oreRefresh()">'
+      +est.map(function(p){return '<option value="'+att(p.ID)+'"'+(String(p.ID)===String(EST_P)?' selected':'')+'>'+att(p.Nome)+'</option>';}).join('')+'</select>'
+      +'<select onchange="EST_M=this.value;oreRefresh()">'+(mesi.length?mesi:[EST_M]).map(function(m){return '<option value="'+m+'"'+(m===EST_M?' selected':'')+'>'+att(meseAnnoIt(m))+'</option>';}).join('')+'</select>'
+      +'<button class="btn btn-accent" onclick="stampaMastrinoEsterno()">Stampa PDF</button><button class="btn btn-green" onclick="csvMastrinoEsterno()">Esporta CSV</button></div>'
+      +mastrinoEsternoHtml(EST_P,EST_M,false)+'</div>';
+    /* il mastrino sta subito dopo il riquadro dei montatori, prima dei riepiloghi mese per mese */
+    const i=testa.indexOf('<div class="card" style="margin-bottom:12px">');
+    return i>0?testa.slice(0,i)+scelta+'<div class="card-title" style="margin:16px 0 6px">Tutti i mesi, per commessa</div>'+testa.slice(i):testa+scelta;
+  }; }
+
+// v180 - l'occhio per vedere la password mentre la scrivi
+function mostraPwd(id,b){ const i=document.getElementById(id); if(!i)return; const vedi=i.type==='password'; i.type=vedi?'text':'password';
+  if(b){ b.classList.toggle('on',vedi); b.title=vedi?'Nascondi la password':'Mostra la password'; b.setAttribute('aria-label',b.title); } try{ i.focus(); }catch(e){} }
 </script>
 </body>
 </html>
