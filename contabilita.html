@@ -20878,5 +20878,151 @@ applicaXml=function(lista){
       <p class="muted" style="margin:8px 0 0">Bolla trovata e messa su tutte le righe: <b>${bene.length}</b> fatture${bene.length?" ("+[...new Set([].concat(...bene.map(r=>r.da)))].map(d=>d==="DatiDDT"?"dati DDT":d==="AltriDatiGestionali"?"altri dati della riga":d==="descrizione"?"testo delle righe":d).join(", ")+")":""}.</p>`;
     $("main").appendChild(card); }; }
 
+
+/* =====================================================================================
+   v169 — NON SI PERDE PIU' IL LAVORO
+   1. Se qualcun altro ha salvato mentre lavoravi, NON ti chiedo piu' di scegliere: unisco da
+      solo il tuo lavoro con il suo (riga per riga) e salvo. Se una stessa cosa l'avete cambiata
+      tutti e due, vince la tua (l'ultima fatta). Solo se l'unione non riesce torna la finestra.
+   2. Copia di emergenza: se un salvataggio non riesce (rete, accesso scaduto, conflitto) metto
+      una copia CIFRATA del tuo lavoro in questo browser. Alla riapertura te la propongo e la
+      unisco a quella sul database.
+   3. Le sistemazioni automatiche dell'apertura (e dell'aggiornamento dal magazzino) non fanno
+      partire da sole il salvataggio: si salvano con la tua prossima modifica. Cosi' chi apre
+      la contabilita' solo per guardare non «ruba» il salvataggio a chi sta lavorando.
+   4. Se il salvataggio non riesce lo vedi bene: una striscia rossa resta finche' non riesce.
+   ===================================================================================== */
+const _jsn=x=>{ try{ return JSON.stringify(x); }catch(e){ return String(Math.random()); } };
+function _ogg(x){ return x&&typeof x==="object"&&!Array.isArray(x); }
+function _chiaveArr(...arr){
+  for(const k of ["id","_r","k","chiave"]){
+    let ok=true;
+    for(const a of arr){ if(!Array.isArray(a)) continue; const vis=new Set();
+      for(const e of a){ if(!_ogg(e)||e[k]==null||e[k]===""||vis.has(String(e[k]))){ ok=false; break; } vis.add(String(e[k])); } if(!ok) break; }
+    if(ok&&arr.some(a=>Array.isArray(a)&&a.length)) return k;
+  }
+  return null;
+}
+function unisci3(b,m,t){
+  const sb=_jsn(b), sm=_jsn(m), st=_jsn(t);
+  if(sm===sb) return t; if(st===sb) return m; if(sm===st) return m;
+  if(_ogg(m)&&_ogg(t)){
+    const B=_ogg(b)?b:{}, out={};
+    new Set([...Object.keys(t),...Object.keys(m)]).forEach(k=>{
+      const inB=k in B, inM=k in m, inT=k in t;
+      if(!inM&&inB){ if(inT&&_jsn(t[k])!==_jsn(B[k])) out[k]=t[k]; return; }   /* l'ho tolto io: resta tolto, a meno che l'altro l'abbia cambiato */
+      if(!inT&&inB){ if(inM&&_jsn(m[k])!==_jsn(B[k])) out[k]=m[k]; return; }   /* l'ha tolto l'altro */
+      if(!inM){ out[k]=t[k]; return; } if(!inT){ out[k]=m[k]; return; }
+      out[k]=unisci3(B[k],m[k],t[k]); });
+    return out;
+  }
+  if(Array.isArray(m)&&Array.isArray(t)){
+    const B=Array.isArray(b)?b:[];
+    const k=_chiaveArr(B,m,t);
+    if(k){
+      const mB=new Map(B.map(e=>[String(e[k]),e])), mM=new Map(m.map(e=>[String(e[k]),e])), mT=new Map(t.map(e=>[String(e[k]),e]));
+      const out=[];
+      t.forEach(e=>{ const id=String(e[k]);
+        if(mB.has(id)&&!mM.has(id)){ if(_jsn(e)!==_jsn(mB.get(id))) out.push(e); return; }   /* tolto da me */
+        if(mM.has(id)) out.push(unisci3(mB.get(id),mM.get(id),e)); else out.push(e); });
+      m.forEach(e=>{ const id=String(e[k]); if(mT.has(id)) return;
+        if(mB.has(id)){ if(_jsn(e)!==_jsn(mB.get(id))) out.push(e); return; }               /* tolto dall'altro, ma io l'avevo cambiato */
+        out.push(e); });                                                                  /* nuovo mio */
+      return out;
+    }
+    /* senza un codice: conto le righe uguali (quelle cambiate valgono come tolta + aggiunta) */
+    const conta=a=>{ const c=new Map(); a.forEach(e=>{ const s=_jsn(e); c.set(s,(c.get(s)||0)+1); }); return c; };
+    const cB=conta(B), cM=conta(m);
+    const togli=new Map(); const agg=[];
+    new Set([...cB.keys(),...cM.keys()]).forEach(s=>{ const d=(cM.get(s)||0)-(cB.get(s)||0); if(d<0) togli.set(s,-d); });
+    const usati=new Map();
+    m.forEach(e=>{ const s=_jsn(e); const d=(cM.get(s)||0)-(cB.get(s)||0); if(d>0){ const u=usati.get(s)||0; if(u<d){ agg.push(e); usati.set(s,u+1); } } });
+    const out=[]; t.forEach(e=>{ const s=_jsn(e); const n=togli.get(s)||0; if(n>0){ togli.set(s,n-1); return; } out.push(e); });
+    return out.concat(agg);
+  }
+  return m;     /* cambiato da tutti e due: vince il mio */
+}
+let _UNISCO=0;
+const _conflittoVecchio=conflitto;
+conflitto=async function(){
+  if(!D||!CHIAVE||VERS_LETTA==null){ return _conflittoVecchio(); }
+  if(_UNISCO>=3){ _UNISCO=0; await copiaEmergenza("conflitto"); return _conflittoVecchio(); }
+  _UNISCO++;
+  try{
+    const istante=_jsn(D); const mio=JSON.parse(istante);
+    const st=await statoArchivio(); if(!st||st.versione==null) throw new Error("nessuna versione");
+    const base=await leggiVersione(VERS_LETTA,CHIAVE), loro=await leggiVersione(st.versione,CHIAVE);
+    let unito=unisci3(base.json,mio,loro.json);
+    if(_jsn(D)!==istante) unito=unisci3(mio,JSON.parse(_jsn(D)),unito);   /* hai cambiato altro mentre univo */
+    D=unito; VERS_LETTA=st.versione; SPORCO=true;
+    try{ ricalcola(); }catch(e){} try{ render(); }catch(e){}
+    toast("Mentre lavoravi ha salvato anche "+(st.salvato_da||"qualcun altro")+": ho unito il tuo lavoro con il suo e salvo tutto insieme.");
+    D.log=D.log||[]; D.log.push({quando:adesso(),cosa:"unito il lavoro di "+nomeUtente()+" con la versione salvata da "+(st.salvato_da||"?")+" ("+dataOraIt(st.salvato_il)+")"});
+    const ok=await salvaOnline("unito con "+(st.salvato_da||"altro"));
+    if(ok) _UNISCO=0;
+  }catch(e){ console.error(e); _UNISCO=0; await copiaEmergenza("conflitto"); _conflittoVecchio(); }
+};
+
+/* ---------- copia di emergenza (cifrata, in questo browser) ---------- */
+function _idb(){ return new Promise((ok,no)=>{ const r=indexedDB.open("contabilita_tonini",1); r.onupgradeneeded=()=>r.result.createObjectStore("copie"); r.onsuccess=()=>ok(r.result); r.onerror=()=>no(r.error); }); }
+async function _idbMetti(k,v){ const db=await _idb(); return new Promise((ok,no)=>{ const tx=db.transaction("copie","readwrite"); tx.objectStore("copie").put(v,k); tx.oncomplete=()=>ok(); tx.onerror=()=>no(tx.error); }); }
+async function _idbPrendi(k){ const db=await _idb(); return new Promise((ok,no)=>{ const tx=db.transaction("copie","readonly"); const r=tx.objectStore("copie").get(k); r.onsuccess=()=>ok(r.result||null); r.onerror=()=>no(r.error); }); }
+async function _idbTogli(k){ const db=await _idb(); return new Promise(ok=>{ const tx=db.transaction("copie","readwrite"); tx.objectStore("copie").delete(k); tx.oncomplete=()=>ok(); tx.onerror=()=>ok(); }); }
+async function copiaEmergenza(perche){
+  try{ if(!D||!CHIAVE) return; const c=await cifra(_jsn(D),CHIAVE);
+    await _idbMetti("ultima",{quando:new Date().toISOString(),base:VERS_LETTA,sale:SALE,iv:c.iv,b64:c.b64,gz:c.gz,utente:nomeUtente(),perche:perche||""}); }catch(e){ console.warn("copia di emergenza",e); }
+}
+async function controllaCopiaEmergenza(){
+  try{ const c=await _idbPrendi("ultima"); if(!c||!D||!CHIAVE) return;
+    if(c.sale&&SALE&&c.sale!==SALE){ return; }   /* cifrata con un'altra password: non la posso aprire */
+    let json; try{ json=JSON.parse(await decifra(c.b64,c.iv,c.gz,CHIAVE)); }catch(e){ return; }
+    if(_jsn(json)===_jsn(D)) { await _idbTogli("ultima"); return; }
+    if(json._salvato&&D._salvato&&String(json._salvato)<=String(D._salvato)&&c.base===VERS_LETTA&&!c.perche){ await _idbTogli("ultima"); return; }
+    window._COPIA_EM={c,json};
+    finestraOnl("Ci sono modifiche non salvate su questo computer",
+      `<p>Il <b>${esc(dataOraIt(c.quando))}</b> ${esc(c.utente||"")} stava lavorando qui e il salvataggio non era riuscito${c.perche?" ("+esc(c.perche)+")":""}.
+        Le ho tenute da parte, cifrate.</p><p><b>Le recupero?</b> Le unisco a quello che c'è adesso sul database: niente di quello che è stato salvato nel frattempo si perde.</p>
+       <div class="filters"><button class="btn btn-main" onclick="recuperaCopiaEmergenza()">Sì, recupera e unisci</button>
+       <button class="btn btn-ghost" onclick="scaricaCopiaJson('copia di emergenza')">Scarica com'è adesso (.json)</button>
+       <button class="btn btn-no" onclick="if(confirm('Butto le modifiche non salvate? Non si potranno più recuperare.')){_idbTogli('ultima');chiudiFinestraOnl();}">No, buttale</button></div>`);
+  }catch(e){ console.warn(e); }
+}
+async function recuperaCopiaEmergenza(){
+  const X=window._COPIA_EM; if(!X||!D) return;
+  try{
+    let base={}; try{ if(X.c.base!=null) base=(await leggiVersione(X.c.base,CHIAVE)).json; }catch(e){ base={}; }
+    D=unisci3(base,X.json,D); SPORCO=true; try{ ricalcola(); }catch(e){} render();
+    D.log=D.log||[]; D.log.push({quando:adesso(),cosa:"recuperate le modifiche non salvate del "+dataOraIt(X.c.quando)+" ("+(X.c.utente||"")+")"});
+    chiudiFinestraOnl();
+    const ok=await salvaOnline("recupero modifiche non salvate");
+    if(ok){ await _idbTogli("ultima"); toast("Modifiche recuperate e salvate."); }
+  }catch(e){ toast("Non riesco a recuperarle: "+((e&&e.message)||e)); }
+}
+/* ogni salvataggio: se riesce butto la copia, se non riesce la faccio */
+let _NON_SALVATO=null;
+{ const o=salvaOnline; salvaOnline=async function(come){
+    const ok=await o.apply(this,arguments);
+    if(ok){ _NON_SALVATO=null; striscaNonSalvato(); _idbTogli("ultima").catch(()=>{}); }
+    else if(D&&SPORCO&&!SALVO_ORA&&!_UNISCO){ _NON_SALVATO=new Date(); striscaNonSalvato(); copiaEmergenza("salvataggio non riuscito"); }
+    return ok; }; }
+window.salvaPrimaDiUscire=(function(o){ return async function(){ const r=await o.apply(this,arguments); if(D&&SPORCO) await copiaEmergenza("uscita senza salvataggio"); return r; }; })(window.salvaPrimaDiUscire);
+window.riprovaSalvataggio=function(){ if(D&&SPORCO&&!SALVO_ORA) salvaOnline("dopo il rientro"); };
+function striscaNonSalvato(){
+  let s=$("strNonSalvato");
+  if(!_NON_SALVATO){ if(s) s.remove(); return; }
+  if(!s){ s=document.createElement("div"); s.id="strNonSalvato"; s.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:250;background:#b3261e;color:#fff;padding:7px 12px;font-size:13px;display:flex;gap:10px;align-items:center"; document.body.appendChild(s); }
+  s.innerHTML=`<b>⚠ NON SALVATO</b><span>l'ultimo salvataggio delle ${String(_NON_SALVATO.toTimeString()).slice(0,5)} non è riuscito. Il lavoro è qui e in una copia di emergenza su questo computer: non chiudere, riprovo da solo.</span><span style="flex:1"></span><button class="btn btn-sm" style="background:#fff;color:#b3261e" onclick="salvaOnline('a mano')">Riprova adesso</button>`;
+}
+
+/* ---------- le sistemazioni automatiche non fanno partire il salvataggio da sole ---------- */
+let ULT_GESTO=0;
+["pointerdown","keydown","change","input"].forEach(ev=>document.addEventListener(ev,()=>{ ULT_GESTO=Date.now(); },{capture:true,passive:true}));
+function _nonSporcareDaSolo(t0){ if(D&&SPORCO&&ULT_GESTO<t0&&!SALVO_ORA&&!_NON_SALVATO&&!SOLO_A_MANO){ SPORCO=false; clearTimeout(TIMER_ONLINE); TIMER_ONLINE=null; try{ aggiornaBarra(); }catch(e){} } }
+{ const o=apriArchivio; apriArchivio=function(){ const t0=Date.now(); const r=o.apply(this,arguments);
+    let giri=0; const iv=setInterval(()=>{ giri++; _nonSporcareDaSolo(t0); if(giri>=12) clearInterval(iv); },2000);   /* i primi 24 secondi */
+    setTimeout(controllaCopiaEmergenza,3500);
+    return r; }; }
+{ const o=aggiornaDalMagazzino; aggiornaDalMagazzino=async function(){ const t0=Date.now(), prima=SPORCO; const r=await o.apply(this,arguments); if(!prima) _nonSporcareDaSolo(t0); return r; }; }
+
 </script>
 </body></html>
