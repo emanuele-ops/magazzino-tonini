@@ -329,7 +329,7 @@ body:not(.ruolo-ok) #btn-restore,body:not(.ruolo-ok) #btn-refresh,body:not(.ruol
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v183 - Atelier</div>
+  <div id="ver-badge">v185 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -7061,7 +7061,10 @@ function righeDelGruppo(gr,chiuso){
 // una scheda per materiale
 function cardFab(gr,griglia){
   const f=gr.primo, d=dispoFab(f);
-  const db=d.ok?'<span class="badge badge-green">disponibile</span>'
+  // v185: i conti di TUTTO il gruppo, non della prima riga
+  const cg=fabContiGruppo(gr);
+  const okG=f.__voce?false:(gr.righe.length>1?(cg.daOrd<=0.0005||d.libero>=cg.daOrd-0.0005):d.ok);
+  const db=okG?'<span class="badge badge-green">'+(gr.righe.length>1&&cg.daOrd<=0.0005?'niente da ordinare':'disponibile')+'</span>'
                :'<span class="badge badge-red">insufficiente</span>';
   const stati={}; gr.righe.forEach(x=>{stati[statoEffettivo(x)]=1;});
   const badges=Object.keys(stati).map(badgeStatoFab).join(' ');
@@ -7073,11 +7076,15 @@ function cardFab(gr,griglia){
    +(mis?(' &middot; '+mis):'')+'</div>'
    +'<div style="font-size:11.5px;color:var(--gray);margin-bottom:4px">'
    +(f.Fornitore?('forn: '+att(fornChiave(f.Fornitore))+' &middot; '):'')+d.testo+'</div>'
-   +(function(){ if(f.__voce)return ''; let gia=0,manca=0,ord=false;
-      gr.righe.forEach(function(x){ const a=fabAssegnatoMio(x); if(a>0&&x.Stato!=='ricevuto'){ gia+=a; manca+=fabMancante(x); if(statoEffettivo(x)==='ordinato')ord=true; } });
-      if(!(gia>0)||!(manca>0))return '';
-      return '<div style="font-size:12px;margin-bottom:4px">Gi&agrave; prenotati per la commessa <strong>'+nfmt(gia,gia%1?3:0)+' '+att(fabUnita(f))+'</strong> &middot; '
-        +(ord?'il resto &egrave; ordinato: ':'da ordinare solo ')+'<strong style="color:var(--amber)">'+nfmt(manca,manca%1?3:0)+' '+att(fabUnita(f))+'</strong></div>'; })()
+   +(function(){ if(f.__voce||gr.righe.length<2&&!(cg.prenotati>0))return '';
+      const u=' '+att(fabUnita(f)), q=v=>nfmt(v,v%1?3:0);
+      const parti=[];
+      if(cg.ricevuti>0)parti.push('ricevuti <strong>'+q(cg.ricevuti)+u+'</strong>');
+      if(cg.prenotati>0)parti.push('gi&agrave; prenotati <strong>'+q(cg.prenotati)+u+'</strong>');
+      if(cg.ordinati>0)parti.push('ordinati <strong>'+q(cg.ordinati)+u+'</strong>');
+      parti.push('da ordinare <strong style="color:'+(cg.daOrd>0?'var(--amber)':'var(--green)')+'">'+q(cg.daOrd)+u+'</strong>');
+      return '<div style="font-size:12px;margin-bottom:4px">Per la commessa: '+parti.join(' &middot; ')
+        +(cg.daOrd>0&&!f.__voce?' <span style="color:var(--gray)">(liberi a magazzino '+q(d.libero||0)+u+')</span>':'')+'</div>'; })()
    +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">'+badges+' '+db+'</div>';
   // nei blocchi le singole richieste stanno chiuse, se no la scheda e' un muro
   const corpo=(gr.righe.length>1)
@@ -7280,15 +7287,18 @@ function fabMobile(f){
   const n=String(f.Note||'').trim();
   const q=n.match(/^\[([^\]]+)\]/);      // scritto dal ripiego quando manca la colonna
   if(q)return q[1].trim();
-  return n;                               // riga vecchia: la nota era il mobile
+  return notaEUnMobile(n)?n:'';           // riga vecchia: la nota era il mobile
 }
+// v184: una nota vecchia vale come nome del mobile solo se sembra un nome di mobile
+// (corta, senza «preventivo», euro, codici...). Se no e' una nota e basta.
+function notaEUnMobile(n){ n=String(n||'').trim(); return !!n&&n.length<=40&&!/preventivo|€|\bcod\.|·|http|urgente|verificare/i.test(n); }
 // la nota da far vedere: senza il mobile davanti
 function fabNote(f){
   if(!f)return '';
   const n=String(f.Note||'').trim();
   if(String(f.Mobile||'').trim())return n.replace(/^\[[^\]]+\]\s*/,'');
   const q=n.match(/^\[[^\]]+\]\s*([\s\S]*)$/);
-  return q?q[1].trim():'';
+  return q?q[1].trim():(notaEUnMobile(n)?'':n);
 }
 // il mobile sta nel campo suo? (le righe vecchie no)
 function fabMobileSistemato(f){ return !!String((f&&f.Mobile)||'').trim(); }
@@ -18716,6 +18726,20 @@ async function prevConferma(){
 { const o=renderOrdini; renderOrdini=function(){ const h=o.apply(this,arguments);
     return h.replace('<button class="btn btn-accent" onclick="openAddFabbisogno()">+ Aggiungi materiale</button>',
       '<button class="btn btn-accent" onclick="openAddFabbisogno()">+ Aggiungi materiale</button><button class="btn btn-accent" onclick="openLeggiPreventivo()">&#128196; Leggi preventivo (PDF o foto)</button>'); }; }
+
+// v185 - i conti di un materiale con piu' richieste: quanto e' gia' prenotato, ordinato, ricevuto e quanto va ancora ordinato
+function fabContiGruppo(gr){
+  const c={prenotati:0,ordinati:0,ricevuti:0,daOrd:0};
+  (gr.righe||[]).forEach(function(x){
+    const st=statoEffettivo(x);
+    if(st==='ricevuto'){ c.ricevuti+=fabQta(x); return; }
+    const a=fabAssegnatoMio(x); c.prenotati+=a;
+    const m=fabMancante(x);
+    if(st==='ordinato') c.ordinati+=m; else c.daOrd+=m;
+  });
+  Object.keys(c).forEach(function(k){ c[k]=Math.round(c[k]*1000)/1000; });
+  return c;
+}
 </script>
 </body>
 </html>
