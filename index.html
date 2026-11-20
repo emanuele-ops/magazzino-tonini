@@ -329,7 +329,7 @@ body:not(.ruolo-ok) #btn-restore,body:not(.ruolo-ok) #btn-refresh,body:not(.ruol
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v185 - Atelier</div>
+  <div id="ver-badge">v186 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -18739,6 +18739,61 @@ function fabContiGruppo(gr){
   });
   Object.keys(c).forEach(function(k){ c[k]=Math.round(c[k]*1000)/1000; });
   return c;
+}
+
+// ============================================================
+// v186 - L'ACCESSO NON SCADE PIU' IN SILENZIO (e la contabilita' non perde il lavoro)
+// - Il gettone di accesso si rinnova una volta sola anche con piu' schede aperte
+//   (prima due schede se lo rubavano a vicenda e dopo un'ora una delle due restava
+//   "senza accesso": leggeva vuoto e non riusciva piu' a salvare).
+// - Se l'accesso scade davvero, NON ricarico piu' la pagina (si perdeva il lavoro
+//   non salvato): compare una finestrella per rimettere la password e si continua.
+// - Uscendo, chiudo solo l'accesso di questo computer, non quelli degli altri.
+// ============================================================
+let AUTH_PERSO=false;
+function authLeggiSalvato(){ try{ return JSON.parse(localStorage.getItem("at_auth")||"null"); }catch(e){ return null; } }
+window.addEventListener("storage",function(e){ if(e.key!=="at_auth")return; const s=authLeggiSalvato(); if(s&&s.access_token){ AUTH=s; if(AUTH_PERSO&&s.expires_at>Date.now()){ AUTH_PERSO=false; const m=document.getElementById("auth-rientra"); if(m)m.remove(); } } });
+authToken=async function(){
+  if(!AUTH) return null;
+  if(Date.now()<AUTH.expires_at) return AUTH.access_token;
+  { const s=authLeggiSalvato(); if(s&&s.access_token&&s.expires_at>Date.now()){ AUTH=s; return AUTH.access_token; } }   // l'ha gia' rinnovato un'altra scheda
+  if(!_authRinnovo){
+    const fai=async function(){
+      const s2=authLeggiSalvato(); if(s2&&s2.access_token&&s2.expires_at>Date.now()){ AUTH=s2; return; }
+      const rt=(s2&&s2.refresh_token)||(AUTH&&AUTH.refresh_token); if(!rt){ authPersa(); return; }
+      let r=null; try{ r=await authPost("token?grant_type=refresh_token",{refresh_token:rt}); }catch(e){ return; }   // rete giu': riprovo alla prossima
+      if(r.ok&&r.j.access_token){ authSalva(r.j); return; }
+      const s3=authLeggiSalvato(); if(s3&&s3.access_token&&s3.expires_at>Date.now()){ AUTH=s3; return; }
+      if(r.status>=400&&r.status<500) authPersa();
+    };
+    _authRinnovo=(navigator.locks&&navigator.locks.request?navigator.locks.request("at_auth_rinnovo",fai):fai()).catch(function(){}).finally(function(){ _authRinnovo=null; });
+  }
+  await _authRinnovo;
+  return (AUTH&&Date.now()<AUTH.expires_at)?AUTH.access_token:null;
+};
+authScaduto=function(r){ if(r&&r.status===401&&AUTH) authPersa(); };
+authEsci=async function(){ try{ if(AUTH) await authPost("logout?scope=local",{},AUTH.access_token); }catch(e){} authSalva(null); };
+function authPersa(){
+  if(AUTH_PERSO) return; AUTH_PERSO=true;
+  const u=(UTENTE_CORRENTE&&UTENTE_CORRENTE.Email)||((STATE.utente||{}).Email)||"";
+  const m=document.createElement("div"); m.id="auth-rientra";
+  m.style.cssText="position:fixed;inset:0;z-index:20000;background:rgba(40,30,20,.45);display:flex;align-items:center;justify-content:center;padding:16px";
+  m.innerHTML='<div class="card" style="max-width:380px;width:100%;margin:0"><h3 style="margin:0 0 8px">Il tuo accesso è scaduto</h3>'
+   +'<p style="font-size:13px;margin:0 0 10px">Rimetti la password per continuare. <b>Non perdi niente</b>: quello che stavi facendo (anche in contabilità) resta qui e si salva appena rientri.</p>'
+   +'<div class="form-group"><label>Email o nome utente</label><input id="ar-u" value="'+att(u)+'" autocapitalize="none"></div>'
+   +'<div class="form-group"><label>Password</label><div class="pwd-box"><input id="ar-p" type="password" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')authRientra()"><button type="button" class="pwd-occhio" onclick="mostraPwd(\'ar-p\',this)" title="Mostra la password">&#128065;</button></div></div>'
+   +'<div id="ar-err" style="color:var(--red);font-size:13px;margin-bottom:6px"></div><button class="btn-primary" onclick="authRientra()">Rientra e continua</button></div>';
+  document.body.appendChild(m);
+  setTimeout(function(){ const p=document.getElementById("ar-p"); if(p)p.focus(); },50);
+}
+async function authRientra(){
+  const u=(document.getElementById("ar-u")||{}).value||"", p=(document.getElementById("ar-p")||{}).value||"";
+  const e=document.getElementById("ar-err"); if(e)e.textContent="";
+  const r=await authEntra(u.trim(),p);
+  if(!r.ok){ if(e)e.textContent="Non entra: "+(/invalid/i.test(r.msg)?"password sbagliata":r.msg); return; }
+  AUTH_PERSO=false; const m=document.getElementById("auth-rientra"); if(m)m.remove();
+  toast("Sei di nuovo dentro: continua pure");
+  try{ const f=document.getElementById("cont-if"); const w=f&&f.contentWindow; if(w&&typeof w.riprovaSalvataggio==="function") w.riprovaSalvataggio(); }catch(e2){}
 }
 </script>
 </body>
