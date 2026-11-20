@@ -329,7 +329,7 @@ body:not(.ruolo-ok) #btn-restore,body:not(.ruolo-ok) #btn-refresh,body:not(.ruol
   <button id="btn-restore" title="Ripristina da un file di backup" aria-label="Ripristina" onclick="apriRipristino()"><span style="font-size:16px">&#8634;</span><span class="bk-txt">Ripristina</span></button>
   <input type="file" id="restore-file" accept=".json" style="display:none" onchange="ripristinaBackup(this)">
   <button id="btn-refresh" title="Aggiorna e ricarica" aria-label="Aggiorna" onclick="refreshApp()">&#x21bb;</button>
-  <div id="ver-badge">v182 - Atelier</div>
+  <div id="ver-badge">v183 - Atelier</div>
 </div>
 
 <button id="ai-fab" onclick="aiApri()" aria-label="Assistente"><span style="font-size:17px">&#10024;</span><span class="bk-txt">Chiedi</span></button>
@@ -18626,6 +18626,7 @@ async function prevLeggi(file){
     if(!Array.isArray(d.righe)||!d.righe.length){ dillo('<div class="alert alert-amber">Non ho trovato righe di articoli in questo documento.</div>'); return; }
     PREV={file:file.name,fornitore:d.fornitore||'',numero:d.numero||'',data:d.data||'',righe:d.righe.map(function(x){
       const a=x.articolo_id?(STATE.articoli||[]).filter(function(y){return y.ID===x.articolo_id;})[0]:null;
+      x.descrizione=String(x.descrizione||'').replace(/\s*(https?:\/\/|www\.)\S*/gi,'').replace(/\s{2,}/g,' ').trim();
       return {usa:true,desc:String(x.descrizione||'').trim(),cod:x.codice||'',qta:x.quantita,um:x.unita||'',pu:x.prezzo_unitario,sconto:x.sconto||'',imp:x.importo,
         come:a?'art':'nuovo',art:a?a.Nome:String(x.descrizione||'').trim(),cat:'',dubbi:x.dubbi||''}; })};
     prevMostra();
@@ -18659,7 +18660,10 @@ function prevMostra(){
   const n=P.righe.filter(function(x){return x.usa;}).length;
   openModal('<div class="modal" style="width:min(1100px,97vw)"><button class="modal-close" onclick="closeModal()">&times;</button>'
    +'<h2>Preventivo letto: '+P.righe.length+' righe</h2>'
-   +'<div style="font-size:12.5px;color:var(--gray);margin-bottom:8px">'+att(P.file)+(P.numero?' &middot; n. '+att(P.numero):'')+(P.data?' del '+dataIt(P.data):'')+' &middot; commessa <strong>'+commTxt(FAB_COMM)+'</strong></div>'
+   +'<div style="font-size:12.5px;color:var(--gray);margin-bottom:8px">'+att(P.file)+(P.numero?' &middot; n. '+att(P.numero):'')+(P.data?' del '+dataIt(P.data):'')+'</div>'
+   +'<div class="form-group"><label>Commessa *</label><select id="prev-comm" onchange="PREV.comm=this.value">'
+   +(STATE.commesse||[]).filter(function(c){return normStatoComm(c.Stato)!=='chiusa'||c.ID===(P.comm||FAB_COMM);}).slice().sort(function(a,b){return String(b.ID).localeCompare(String(a.ID));})
+     .map(function(c){return '<option value="'+att(c.ID)+'"'+(c.ID===(P.comm||FAB_COMM)?' selected':'')+'>'+att(c.ID)+(c.Nome&&c.Nome!==c.ID?(' - '+att(c.Nome)):'')+'</option>';}).join('')+'</select></div>'
    +'<div class="form-row"><div class="form-group"><label>Fornitore</label><input id="prev-forn" list="prev-forn-l" value="'+att(forn)+'" onchange="PREV.fornSel=this.value">'
    +(fornNoto?'':'<div style="font-size:11.5px;color:var(--amber)">Non è fra i tuoi fornitori: controlla il nome (se lo lasci così lo aggiungo).</div>')+'</div>'
    +'<div class="form-group"><label>Mobile / vano (facoltativo, per tutte le righe)</label><input id="prev-mob" value="'+att(P.mob||'')+'" onchange="PREV.mob=this.value" placeholder="es. D08 BAGNO"></div></div>'
@@ -18674,6 +18678,8 @@ async function prevConferma(){
   const P=PREV; if(!P)return;
   const forn=fornSalva(String((document.getElementById('prev-forn')||{}).value||'').trim());
   const mob=String((document.getElementById('prev-mob')||{}).value||'').trim();
+  const COMM=String((document.getElementById('prev-comm')||{}).value||P.comm||FAB_COMM||'');
+  if(!COMM){ showErr('prev-err','Scegli la commessa.'); return; }
   const L=P.righe.filter(function(x){return x.usa;});
   if(!L.length){ showErr('prev-err','Non hai scelto nessuna riga.'); return; }
   for(const x of L){
@@ -18689,7 +18695,7 @@ async function prevConferma(){
     for(const x of L){
       const prezzo=(x.pu!=null&&x.pu!=='')?(' · € '+nfmt(x.pu,2)+'/'+(x.um||'u')):'';
       if(x.come==='voce'){
-        const r=await call('salvaVoce',{Commessa:FAB_COMM,Categoria:x.cat||'Altro',Descrizione:x.desc,Fornitore:forn,Quantita:x.qta,Unita:x.um,
+        const r=await call('salvaVoce',{Commessa:COMM,Categoria:x.cat||'Altro',Descrizione:x.desc,Fornitore:forn,Quantita:x.qta,Unita:x.um,
           Importo:(x.imp!=null&&x.imp!=='')?x.imp:((x.pu!=null&&x.pu!=='')?Math.round(parseFloat(x.pu)*parseFloat(x.qta)*100)/100:''),Stato:'da_ordinare',InOrdine:true,Note:nota+(x.cod?' · cod. '+x.cod:''),Mobile:mob});
         if(!r||r.ok===false) throw new Error((r&&r.err)||'altra voce non salvata'); nV++; continue;
       }
@@ -18697,14 +18703,14 @@ async function prevConferma(){
       if(!a){ const r=await call('salvaArticolo',{Nome:String(x.art).trim(),Categoria:'Altro',UnitaMisura:(x.um||'pz').toLowerCase(),Fornitore:forn,CodiceFornitore:x.cod||'',Stock:0,IsPannello:false});
         if(!r||!r.ok) throw new Error('non riesco a creare l\'articolo «'+x.art+'»');
         STATE.articoli=await call('getArticoli')||STATE.articoli; a=_prevArt(x.art)||{ID:r.id,Nome:x.art,UnitaMisura:x.um}; nN++; }
-      const r2=await call('aggiungiFabbisogno',{Commessa:FAB_COMM,Tipo:'articolo',ArticoloID:a.ID,Descrizione:a.Nome,Quantita:x.qta,UnitaMisura:a.UnitaMisura||x.um||'',
+      const r2=await call('aggiungiFabbisogno',{Commessa:COMM,Tipo:'articolo',ArticoloID:a.ID,Descrizione:a.Nome,Quantita:x.qta,UnitaMisura:a.UnitaMisura||x.um||'',
         Fornitore:forn,Stato:'da_ordinare',Note:nota+prezzo+(x.cod?' · cod. '+x.cod:''),Mobile:mob});
       if(!r2||!r2.ok) throw new Error((r2&&r2.err)||'riga non salvata'); nA++;
     }
   }catch(e){ salvaSblocca('prev'); showErr('prev-err','Mi sono fermato: '+((e&&e.message)||e)+'. Le righe prima di questa sono già in lista.'); return; }
   salvaSblocca('prev');
   const res=await Promise.all([call('getFabbisogno'),call('getVoci')]); STATE.fabbisogni=res[0]||STATE.fabbisogni; STATE.voci=res[1]||STATE.voci;
-  PREV=null; closeModal(); renderPage('ordini');
+  PREV=null; FAB_COMM=COMM; closeModal(); renderPage('ordini');
   toast('In lista: '+nA+' articoli'+(nN?' ('+nN+' nuovi)':'')+(nV?' e '+nV+' altre voci':'')+'. Ora emetti l\'ordine di '+forn+' qui sotto.');
 }
 { const o=renderOrdini; renderOrdini=function(){ const h=o.apply(this,arguments);
